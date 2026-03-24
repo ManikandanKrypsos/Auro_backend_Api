@@ -1,4 +1,4 @@
-import 'package:aura/app/page/admin/bottom_navigation/view/admin_main_screen.dart';
+import 'package:aura/app/page/admin/admin_main_screen/view/admin_main_screen.dart';
 import 'package:aura/app/page/admin/cinic_operations/view/clinic_operation_screen.dart';
 import 'package:aura/app/page/admin/inventory/view/inventory_detail_screen.dart';
 import 'package:aura/app/page/admin/inventory/view/inventory_manage_screen.dart';
@@ -11,7 +11,8 @@ import 'package:aura/app/page/admin/service/view/service_list_screen.dart';
 import 'package:aura/app/page/admin/service/view/service_manage_screen.dart';
 import 'package:aura/app/page/admin/staff/view/staff_detail_screen.dart';
 import 'package:aura/app/page/admin/staff/view/add_edit_staff_screen.dart';
-import 'package:aura/app/page/receptionist/dashboard/view/receptionist_dashboard.dart';
+import 'package:aura/app/page/receptionist/Appointments/view/booking_screen.dart';
+import 'package:aura/app/page/receptionist/main_screen/view/receptionist_main_screen.dart';
 import 'package:aura/app/page/select_role/view/select_role_screen.dart';
 import 'package:aura/app/page/therapist/dashboard/view/therapist_dashboard.dart';
 import 'package:flutter/material.dart';
@@ -20,7 +21,7 @@ import 'package:get/get_navigation/src/routes/transitions_type.dart'
     as transitions_type;
 import 'package:aura/app/page/admin/payemt/view/payment_list_screen.dart';
 import '../page/authentication/sign_in/sign_in_screen.dart';
-import '../page/authentication/sign_up/sign_up_screen.dart';
+import '../page/receptionist/Appointments/view/appointment_detail_screen.dart';
 import '../page/splash/splash_screen.dart';
 import 'names.dart';
 import 'package:aura/app/page/admin/payemt/view/paymnet_detail_screen.dart';
@@ -40,16 +41,16 @@ class Routes {
       page: () => const SelectRoleScreen(),
       transition: navigationTransition,
     ),
-    GetPage(
-      name: PageRoutes.signupScreen,
-      page: () => const SignupScreen(),
-      transition: navigationTransition,
-    ),
-    GetPage(
-      name: PageRoutes.signInScreen,
-      page: () => const LoginScreen(),
-      transition: navigationTransition,
-    ),
+    // GetPage(
+    //   name: PageRoutes.signupScreen,
+    //   page: () => const SignupScreen(),
+    //   transition: navigationTransition,
+    // ),
+  GetPage(
+  name: PageRoutes.signInScreen,
+  page: () => const LoginScreen(),
+  transition: navigationTransition,
+),
     GetPage(
       name: PageRoutes.adminMainScreen,
       page: () => const AdminMainScreen(),
@@ -155,14 +156,18 @@ class Routes {
 
     //-----RECPTIONIST---------//
     GetPage(
-      name: PageRoutes.receptioninsDashboard,
-      page: () => const ReceptionistDashboard(),
+      name: PageRoutes.receptioninstMainScreen,
+      page: () => const ReceptionistMainScreen(),
       transition: navigationTransition,
     ),
 
 
-
-
+GetPage(name: PageRoutes.appointmentDetailScreen,
+page: () => const AppointmentDetailScreen(),
+transition: navigationTransition,),
+GetPage(name: PageRoutes.bookingScreen,
+page: () => const BookingScreen(),
+transition: navigationTransition,),
 
 
 

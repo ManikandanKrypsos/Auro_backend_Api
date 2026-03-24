@@ -76,22 +76,26 @@ class SelectRoleScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 32),
                 Expanded(
-                  child: BlocBuilder<RoleCubit, String>(
+                  child: BlocBuilder<RoleCubit, Map<String, dynamic>?>(
                     builder: (context, selectedRole) {
                       return ListView.separated(
                         itemCount: roles.length,
                         separatorBuilder: (_, __) => const SizedBox(height: 24),
                         itemBuilder: (context, index) {
                           final role = roles[index];
-                          final isSelected = selectedRole == role['id'];
+                          final isSelected = selectedRole?['id'] == role['id'];
                           return _RoleCard(
                             role: role,
                             isSelected: isSelected,
-                            onTap: () => context.read<RoleCubit>().selectRole(
-                              role['id'],
-                            ),
+                            onTap: () =>
+                                context.read<RoleCubit>().selectRole(role),
                             onContinue: () {
-                              Get.toNamed(PageRoutes.signupScreen);
+                              final current =
+                                  context.read<RoleCubit>().state ?? role;
+                              Get.toNamed(
+                                PageRoutes.signInScreen,
+                                arguments: current,
+                              );
                             },
                           );
                         },

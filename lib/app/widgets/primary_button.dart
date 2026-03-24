@@ -4,11 +4,11 @@ import '../theme/color/color.dart';
 class PrimaryButton extends StatelessWidget {
   final String label;
   final VoidCallback onTap;
-
+final double vPadding;
   const PrimaryButton({
     super.key,
     required this.label,
-    required this.onTap,
+    required this.onTap, this.vPadding=18,
   });
 
   @override
@@ -19,7 +19,7 @@ class PrimaryButton extends StatelessWidget {
         onPressed: onTap,
         style: ElevatedButton.styleFrom(
           backgroundColor: ColorResources.primaryColor,
-          padding: const EdgeInsets.symmetric(vertical: 18),
+          padding:  EdgeInsets.symmetric(vertical: vPadding),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(4),
           ),

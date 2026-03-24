@@ -1,9 +1,7 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 
-class RoleCubit extends Cubit<String> {
-  RoleCubit() : super('1');
+class RoleCubit extends Cubit<Map<String, dynamic>?> {
+  RoleCubit() : super(null);
 
-  void selectRole(String roleId) {
-    emit(roleId);
-  }
+  void selectRole(Map<String, dynamic> role) => emit(role);
 }

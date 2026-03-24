@@ -30,7 +30,16 @@ class PageRoutes {
 
 
   //-----RECPTIONIST---------//
-  static const String receptioninsDashboard = "/receptioninsDashboard";
+  static const String receptioninstMainScreen = "/receptioninstMainScreen";
+  static const String appointmentDetailScreen = "/appointmentDetailScreen";
+
+  static const String bookingScreen = "/bookingScreen";
+
+
+
+
+
+
 
   //-----THERAPIST---------//
   static const String therapistDashboard = "/therapistDashboard";

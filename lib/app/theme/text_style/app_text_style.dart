@@ -37,4 +37,14 @@ class AppTextStyles {
   letterSpacing: 0.5,
   height: 1.4,
 );
+
+  static const TextStyle bodyItalicMedum = TextStyle(
+  fontFamily: 'CormorantGaramond',
+  color: ColorResources.whiteColor,
+  fontWeight: FontWeight.w300,
+  fontStyle: FontStyle.italic,
+  fontSize: 14,
+  letterSpacing: 0.5,
+  height: 1.4,
+);
 }

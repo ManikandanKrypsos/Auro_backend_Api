@@ -7,7 +7,7 @@ import '../../patient/view/patient_list_screen.dart';
 import '../../settings/view/setting_screen.dart';
 import '../../staff/view/staff_list_screen.dart';
 import '../cubit/nav_cubit.dart';
-import 'bottom_navigation_screen.dart';
+import 'bottom_navigation_bar.dart';
 
 
 

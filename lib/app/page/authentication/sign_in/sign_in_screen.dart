@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import '../../../routes/names.dart';
 import '../../../widgets/custom_textform_lables.dart';
-import 'widgets/auth_redirect_widget.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -16,9 +15,26 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   bool _obscurePassword = true;
-
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+
+  // Read role passed from SelectRoleScreen
+  late final Map<String, dynamic> _role =
+      (Get.arguments as Map<String, dynamic>?) ??
+      {'id': '1', 'title': 'ADMINISTRATOR', 'level': 'LEVEL: EXECUTIVE'};
+
+  String get _roleTitle => _role['title'] as String? ?? 'ADMINISTRATOR';
+
+  String _destinationRoute() {
+    switch (_role['id']) {
+      case '2':
+        return PageRoutes.receptioninstMainScreen;
+      case '3':
+        return PageRoutes.therapistDashboard;
+      default:
+        return PageRoutes.adminMainScreen;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -35,7 +51,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      /// LOGO
+                      /// LOGO + ROLE
                       Center(
                         child: Column(
                           children: [
@@ -50,16 +66,16 @@ class _LoginScreenState extends State<LoginScreen> {
                               ),
                             ),
                             Text(
-                              'Aesthetic Excellence',
-                              style: AppTextStyles.headingMedium
+                              '${_roleTitle[0]}${_roleTitle.substring(1).toLowerCase()} Portal',
+                              style: AppTextStyles.headingMedium,
                             ),
+                            const SizedBox(height: 12),
                           ],
                         ),
                       ),
 
                       const SizedBox(height: 50),
 
-                      /// EMAIL
                       CustomLabel(text: 'EMAIL'),
                       CustomTextField(
                         controller: _emailController,
@@ -69,7 +85,6 @@ class _LoginScreenState extends State<LoginScreen> {
 
                       const SizedBox(height: 28),
 
-                      /// PASSWORD
                       CustomLabel(text: 'PASSWORD'),
                       CustomTextField(
                         controller: _passwordController,
@@ -83,24 +98,21 @@ class _LoginScreenState extends State<LoginScreen> {
                             color: Colors.white38,
                             size: 20,
                           ),
-                          onPressed: () {
-                            setState(() {
-                              _obscurePassword = !_obscurePassword;
-                            });
-                          },
+                          onPressed: () => setState(
+                            () => _obscurePassword = !_obscurePassword,
+                          ),
                         ),
                       ),
 
                       const SizedBox(height: 32),
 
-                      /// LOGIN BUTTON
-                      PrimaryButton(label: 'LOGIN TO DASHBOARD', onTap: () {
-                          Get.offAllNamed(PageRoutes.adminMainScreen);
-                      }),
+                      PrimaryButton(
+                        label: 'LOGIN',
+                        onTap: () => Get.offAllNamed(_destinationRoute()),
+                      ),
 
                       const SizedBox(height: 24),
 
-                      /// FORGOT PASSWORD
                       Center(
                         child: GestureDetector(
                           onTap: () {},
@@ -117,13 +129,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                       ),
 
-                      const SizedBox(height: 24),
-
-                      AuthRedirectText(
-                        normalText: "Create your professional account ",
-                        actionText: "Sign up here",
-                        onTap: () => Get.offNamed(PageRoutes.signupScreen),
-                      ),
+                      // No sign-up link — removed as requested
                       const SizedBox(height: 40),
                     ],
                   ),
@@ -134,5 +140,11 @@ class _LoginScreenState extends State<LoginScreen> {
         ),
       ),
     );
+  }
+
+  String _accessLabel(String level, String title) {
+    if (level.contains('EXECUTIVE')) return 'Administrator Portal';
+    if (level.contains('OPERATIONS')) return 'Receptionist Portal';
+    return 'Therapist Portal';
   }
 }
