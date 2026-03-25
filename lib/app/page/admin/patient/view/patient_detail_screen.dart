@@ -6,8 +6,10 @@ import 'package:aura/app/widgets/app_tab_view.dart';
 import 'package:aura/app/widgets/custom_appbar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:get/get.dart';
 import '../../../../theme/color/color.dart';
 import '../cubit/patient_detail_cubit.dart';
+import '../model/patient_model.dart';
 import 'widgets/personal_tab.dart';
 
 class PatientDetailScreen extends StatelessWidget {
@@ -15,16 +17,24 @@ class PatientDetailScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final patient = Get.arguments as PatientModel? ?? const PatientModel(
+      id: '',
+      name: 'Unknown',
+      phone: '',
+      image: '',
+    );
+
     return BlocProvider(
       create: (_) => PatientDetailCubit(),
-      child: const _PatientDetailBody(),
+      child: _PatientDetailBody(patient: patient),
     );
   }
 }
 
 // ── BODY ───────────────────────────────────────────────────
 class _PatientDetailBody extends StatelessWidget {
-  const _PatientDetailBody();
+  final PatientModel patient;
+  const _PatientDetailBody({required this.patient});
 
   @override
   Widget build(BuildContext context) {
@@ -54,9 +64,11 @@ class _PatientDetailBody extends StatelessWidget {
                       child: CircleAvatar(
                         radius: 68,
                         backgroundColor: ColorResources.cardColor,
-                        backgroundImage: const NetworkImage(
-                          'https://i.pinimg.com/1200x/8d/51/16/8d5116e7e8f31b64a9ca530bef7a087e.jpg',
-                        ),
+                        backgroundImage: patient.image.isNotEmpty
+                            ? NetworkImage(patient.image)
+                            : const NetworkImage(
+                                'https://i.pinimg.com/1200x/8d/51/16/8d5116e7e8f31b64a9ca530bef7a087e.jpg',
+                              ),
                         onBackgroundImageError: (_, __) {},
                       ),
                     ),
@@ -87,10 +99,10 @@ class _PatientDetailBody extends StatelessWidget {
               const SizedBox(height: 16),
 
               // ── Name ────────────────────────────────────
-              const Center(
+              Center(
                 child: Text(
-                  'Eleanor Vance',
-                  style: TextStyle(
+                  patient.name,
+                  style: const TextStyle(
                     fontFamily: 'CormorantGaramond',
                     color: ColorResources.whiteColor,
                     fontSize: 30,
@@ -114,11 +126,11 @@ class _PatientDetailBody extends StatelessWidget {
                       color: ColorResources.liteTextColor,
                       fontWeight: FontWeight.w600,
                     ),
-                    children: const [
-                      TextSpan(text: 'PATIENT ID: '),
+                    children: [
+                      const TextSpan(text: 'PATIENT ID: '),
                       TextSpan(
-                        text: '#LV-9902',
-                        style: TextStyle(
+                        text: '#${patient.id}',
+                        style: const TextStyle(
                           color: ColorResources.primaryColor,
                           fontStyle: FontStyle.italic,
                           fontWeight: FontWeight.w400,
@@ -152,7 +164,7 @@ class _PatientDetailBody extends StatelessWidget {
                       'CONSENT',
                     ],
                     children: [
-                      const PersonalTab(),
+                      PersonalTab(patient: patient),
                       const HistoryTab(),
                       const NotesTab(),
                       const PhotosTab(),

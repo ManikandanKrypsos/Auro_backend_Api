@@ -26,6 +26,7 @@ import '../page/splash/splash_screen.dart';
 import 'names.dart';
 import 'package:aura/app/page/admin/payemt/view/paymnet_detail_screen.dart';
 import 'package:aura/app/page/admin/payemt/view/add_edit_payment_screen.dart';
+import '../page/admin/patient/model/patient_model.dart';
 const navigationTransition = transitions_type.Transition.native;
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
@@ -104,9 +105,14 @@ class Routes {
 
    GetPage(
   name: PageRoutes.addPatientScreen,
-  page: () => AddPatientScreen(
-    isedit: Get.arguments ?? false,
-  ),
+  page: () {
+    final args = Get.arguments;
+    final isEdit = args != null;
+    return AddPatientScreen(
+      isedit: isEdit,
+      patient: args is PatientModel ? args : null,
+    );
+  },
   transition: navigationTransition,
 ),
 

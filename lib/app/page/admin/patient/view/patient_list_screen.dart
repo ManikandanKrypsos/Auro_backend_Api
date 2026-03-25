@@ -101,8 +101,26 @@ class _PatientList extends StatelessWidget {
   Widget build(BuildContext context) {
     return BlocBuilder<PatientCubit, PatientState>(
       buildWhen: (prev, curr) =>
-          prev.filteredPatients != curr.filteredPatients,
+          prev.filteredPatients != curr.filteredPatients ||
+          prev.status != curr.status,
       builder: (context, state) {
+        if (state.status == PatientStatus.loading) {
+          return const Center(
+            child: CircularProgressIndicator(
+              color: ColorResources.primaryColor,
+            ),
+          );
+        }
+
+        if (state.status == PatientStatus.error) {
+          return Center(
+            child: Text(
+              'Error: ${state.errorMessage}',
+              style: const TextStyle(color: Colors.red),
+            ),
+          );
+        }
+
         if (state.filteredPatients.isEmpty) {
           return Center(
             child: Text(
@@ -143,7 +161,7 @@ class _PatientCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: () => Get.toNamed(PageRoutes.patientDetailScreen),
+      onTap: () => Get.toNamed(PageRoutes.patientDetailScreen, arguments: patient),
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 20),
         child: Row(
@@ -229,7 +247,7 @@ class _PatientCard extends StatelessWidget {
             GestureDetector(
               onTap: () => Get.toNamed(
                 PageRoutes.addPatientScreen,
-                arguments: true,
+                arguments: patient,
               ),
               child: const Icon(
                 Icons.edit_outlined,

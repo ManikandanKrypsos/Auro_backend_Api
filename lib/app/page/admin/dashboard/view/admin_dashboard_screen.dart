@@ -17,7 +17,6 @@ class AdminDashboardScreen extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // App Bar
               Row(
                 children: [
                   const Icon(
@@ -487,21 +486,24 @@ class _TherapistPerformance extends StatelessWidget {
       'role': 'SENIOR THERAPIST',
       'rating': '4.9',
       'sessions': '44\nSESSIONS',
-      'image': 'https://i.pinimg.com/1200x/6c/59/95/6c599523460f54ddeba81f3cd689ae04.jpg',
+      'image':
+          'https://i.pinimg.com/1200x/6c/59/95/6c599523460f54ddeba81f3cd689ae04.jpg',
     },
     {
       'name': 'Marcus Chen',
       'role': 'MASSAGE SPECIALIST',
       'rating': '4.8',
       'sessions': '38\nSESSIONS',
-      'image': 'https://i.pinimg.com/1200x/6c/59/95/6c599523460f54ddeba81f3cd689ae04.jpg',
+      'image':
+          'https://i.pinimg.com/1200x/6c/59/95/6c599523460f54ddeba81f3cd689ae04.jpg',
     },
     {
       'name': 'Sarah Jenkins',
       'role': 'ESTHETICIAN',
       'rating': '5.0',
       'sessions': '51\nSESSIONS',
-      'image': 'https://i.pinimg.com/1200x/6c/59/95/6c599523460f54ddeba81f3cd689ae04.jpg',
+      'image':
+          'https://i.pinimg.com/1200x/6c/59/95/6c599523460f54ddeba81f3cd689ae04.jpg',
     },
   ];
 
@@ -541,7 +543,6 @@ class _TherapistRow extends StatelessWidget {
             backgroundColor: ColorResources.borderColor,
             backgroundImage: NetworkImage(therapist['image']),
             onBackgroundImageError: (_, __) {},
-            
           ),
           const SizedBox(width: 14),
           Expanded(

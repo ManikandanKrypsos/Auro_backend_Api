@@ -2,32 +2,49 @@ import 'package:aura/app/widgets/custom_appbar.dart';
 import 'package:aura/app/widgets/custom_textform_lables.dart';
 import 'package:aura/app/widgets/custom_textformfeild.dart';
 import 'package:aura/app/widgets/profile_add_widget.dart';
-import 'package:aura/app/widgets/app_drop_down.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:get/get.dart';
 import '../../../../theme/color/color.dart';
 import '../cubit/add_patient_cubit.dart';
+import '../model/patient_model.dart';
+import 'widgets/add_edit_patient_widgets.dart';
 
-// ── Static options ─────────────────────────────────────────
-const _genders = ['Female', 'Male', 'Other'];
-const _skinTypes = ['Normal', 'Dry', 'Oily', 'Combination', 'Sensitive'];
-const _marketingSources = [
-  {'label': 'Instagram', 'icon': Icons.photo_camera_outlined},
-  {'label': 'Website',   'icon': Icons.language_outlined},
-  {'label': 'Walk-in',   'icon': Icons.directions_walk_outlined},
-  {'label': 'Referral',  'icon': Icons.people_outline},
-];
 
 // ── Screen ─────────────────────────────────────────────────
 class AddPatientScreen extends StatelessWidget {
   final bool isedit;
-  const AddPatientScreen({super.key,  this.isedit=false});
+  final PatientModel? patient;
+  const AddPatientScreen({super.key, this.isedit = false, this.patient});
 
   @override
   Widget build(BuildContext context) {
     return BlocProvider(
       create: (_) => AddPatientCubit(),
-      child:  _AddPatientBody(isedit: isedit,),
+      child: BlocListener<AddPatientCubit, AddPatientState>(
+        listenWhen: (prev, curr) => prev.status != curr.status,
+        listener: (context, state) {
+          if (state.status == AddPatientStatus.loading) {
+            showDialog(
+              context: context,
+              barrierDismissible: false,
+              builder: (_) => const Center(
+                  child: CircularProgressIndicator(
+                      color: ColorResources.primaryColor)),
+            );
+          } else if (state.status == AddPatientStatus.success) {
+            Navigator.pop(context); // close dialog
+            Get.snackbar("Success", "Patient added successfully!",
+                backgroundColor: ColorResources.positiveColor);
+            Navigator.pop(context); // go back
+          } else if (state.status == AddPatientStatus.error) {
+            Navigator.pop(context); // close dialog
+            Get.snackbar("Error", state.errorMessage,
+                backgroundColor: Colors.white, colorText: ColorResources.negativeColor);
+          }
+        },
+        child: _AddPatientBody(isedit: isedit, patient: patient),
+      ),
     );
   }
 }
@@ -35,7 +52,8 @@ class AddPatientScreen extends StatelessWidget {
 // ── Body ───────────────────────────────────────────────────
 class _AddPatientBody extends StatefulWidget {
   final bool isedit;
-   const _AddPatientBody({required this.isedit});
+  final PatientModel? patient;
+   const _AddPatientBody({required this.isedit, this.patient});
 
   @override
   State<_AddPatientBody> createState() => _AddPatientBodyState();
@@ -51,6 +69,31 @@ class _AddPatientBodyState extends State<_AddPatientBody> {
   final _bloodTypeCtrl = TextEditingController();
   final _allergiesCtrl = TextEditingController();
   final _contrCtrl     = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.isedit && widget.patient != null) {
+      final p = widget.patient!;
+      _nameCtrl.text = p.name;
+      _emailCtrl.text = p.email;
+      _phoneCtrl.text = p.phone;
+      _cityCtrl.text = p.city;
+      _countryCtrl.text = p.country;
+      _dobCtrl.text = p.dob;
+      _bloodTypeCtrl.text = p.bloodType;
+      _allergiesCtrl.text = p.allergies;
+      _contrCtrl.text = p.contraindications;
+      
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        // Because context is not safe to read Cubit synchronously in initState
+        final cubit = context.read<AddPatientCubit>();
+        if (p.gender.isNotEmpty) cubit.selectGender(p.gender);
+        if (p.skinType.isNotEmpty) cubit.selectSkinType(p.skinType);
+        if (p.marketingSource.isNotEmpty) cubit.selectMarketingSource(p.marketingSource);
+      });
+    }
+  }
 
   @override
   void dispose() {
@@ -82,7 +125,7 @@ class _AddPatientBodyState extends State<_AddPatientBody> {
             const SizedBox(height: 12),
 
             // ── CONTACT DETAILS ──────────────────────────
-            _SectionHeader(icon: Icons.person_outline, text: 'CONTACT DETAILS'),
+            SectionHeader(icon: Icons.person_outline, text: 'CONTACT DETAILS'),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
               child: Column(
@@ -110,7 +153,7 @@ class _AddPatientBodyState extends State<_AddPatientBody> {
             const SizedBox(height: 28),
 
             // ── ADDRESS ──────────────────────────────────
-            _SectionHeader(icon: Icons.location_on_outlined, text: 'ADDRESS'),
+            SectionHeader(icon: Icons.location_on_outlined, text: 'ADDRESS'),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
               child: Column(
@@ -130,7 +173,7 @@ class _AddPatientBodyState extends State<_AddPatientBody> {
             const SizedBox(height: 28),
 
             // ── BASIC INFORMATION ─────────────────────────
-            _SectionHeader(icon: Icons.info_outline, text: 'BASIC INFORMATION'),
+            SectionHeader(icon: Icons.info_outline, text: 'BASIC INFORMATION'),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
               child: Column(
@@ -138,7 +181,7 @@ class _AddPatientBodyState extends State<_AddPatientBody> {
                 children: [
                   const CustomLabel(text: 'GENDER'),
                   const SizedBox(height: 4),
-                  const _GenderSelector(),
+                  const GenderSelector(),
                   const SizedBox(height: 20),
                   const CustomLabel(text: 'DATE OF BIRTH'),
                   CustomTextField(
@@ -152,7 +195,7 @@ class _AddPatientBodyState extends State<_AddPatientBody> {
             const SizedBox(height: 28),
 
             // ── MEDICAL SUMMARY ───────────────────────────
-            _SectionHeader(
+            SectionHeader(
                 icon: Icons.medical_services_outlined,
                 text: 'MEDICAL SUMMARY'),
             Padding(
@@ -170,7 +213,7 @@ class _AddPatientBodyState extends State<_AddPatientBody> {
                       hint: 'Penicillin, Latex'),
                   const SizedBox(height: 14),
                   const CustomLabel(text: 'SKIN TYPE'),
-                  const _SkinTypeDropdown(),
+                  const SkinTypeDropdown(),
                   const SizedBox(height: 14),
                   const CustomLabel(text: 'CONTRAINDICATIONS'),
                   CustomTextField(
@@ -182,12 +225,12 @@ class _AddPatientBodyState extends State<_AddPatientBody> {
             const SizedBox(height: 28),
 
             // ── MARKETING SOURCE ──────────────────────────
-            _SectionHeader(
+            SectionHeader(
                 icon: Icons.campaign_outlined,
                 text: 'MARKETING SOURCE'),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: const _MarketingSourceSelector(),
+              child: const MarketingSourceSelector(),
             ),
 
             const SizedBox(height: 36),
@@ -196,7 +239,28 @@ class _AddPatientBodyState extends State<_AddPatientBody> {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
               child: GestureDetector(
-                onTap: () => Navigator.pop(context),
+                onTap: () {
+                  final newPatient = PatientModel(
+                    id: widget.patient?.id ?? '', // Preserve ID
+                    name: _nameCtrl.text.trim(),
+                    email: _emailCtrl.text.trim(),
+                    phone: _phoneCtrl.text.trim(),
+                    city: _cityCtrl.text.trim(),
+                    country: _countryCtrl.text.trim(),
+                    gender: context.read<AddPatientCubit>().state.gender,
+                    dob: _dobCtrl.text.trim(),
+                    bloodType: _bloodTypeCtrl.text.trim(),
+                    allergies: _allergiesCtrl.text.trim(),
+                    skinType: context.read<AddPatientCubit>().state.skinType,
+                    contraindications: _contrCtrl.text.trim(),
+                    marketingSource:
+                        context.read<AddPatientCubit>().state.marketingSource,
+                    image: widget.patient?.image ?? '', // Will update with proper logic if available
+                    isNew: widget.patient?.isNew ?? true,
+                    createdAt: widget.patient?.createdAt ?? DateTime.now(),
+                  );
+                  context.read<AddPatientCubit>().savePatient(newPatient, isEdit: widget.isedit);
+                },
                 child: Container(
                   width: double.infinity,
                   height: 52,
@@ -204,10 +268,10 @@ class _AddPatientBodyState extends State<_AddPatientBody> {
                     color: ColorResources.primaryColor,
                     borderRadius: BorderRadius.circular(10),
                   ),
-                  child: const Center(
+                  child: Center(
                     child: Text(
-                      'ADD PATIENT',
-                      style: TextStyle(
+                      widget.isedit ? 'UPDATE PATIENT' : 'ADD PATIENT',
+                      style: const TextStyle(
                         fontFamily: 'CormorantGaramond',
                         color: Colors.black,
                         fontSize: 13,
@@ -243,191 +307,3 @@ class _AddPatientBodyState extends State<_AddPatientBody> {
   }
 }
 
-// ── SECTION HEADER ─────────────────────────────────────────
-class _SectionHeader extends StatelessWidget {
-  final IconData icon;
-  final String text;
-  const _SectionHeader({required this.icon, required this.text});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
-      child: Row(
-        children: [
-          Icon(icon, color: ColorResources.primaryColor, size: 16),
-          const SizedBox(width: 10),
-          Text(
-            text,
-            style: const TextStyle(
-              fontFamily: 'CormorantGaramond',
-              color: ColorResources.whiteColor,
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-              letterSpacing: 3.0,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ── GENDER SELECTOR ────────────────────────────────────────
-class _GenderSelector extends StatelessWidget {
-  const _GenderSelector();
-
-  @override
-  Widget build(BuildContext context) {
-    return BlocBuilder<AddPatientCubit, AddPatientState>(
-      buildWhen: (p, c) => p.gender != c.gender,
-      builder: (context, state) {
-        return Row(
-          children: _genders.map((g) {
-            final selected = state.gender == g;
-            return Expanded(
-              child: GestureDetector(
-                onTap: () =>
-                    context.read<AddPatientCubit>().selectGender(g),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 18,
-                        height: 18,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                            color: selected
-                                ? ColorResources.primaryColor
-                                : ColorResources.liteTextColor,
-                            width: 1.5,
-                          ),
-                        ),
-                        child: selected
-                            ? Center(
-                                child: Container(
-                                  width: 9,
-                                  height: 9,
-                                  decoration: const BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    color: ColorResources.primaryColor,
-                                  ),
-                                ),
-                              )
-                            : null,
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        g,
-                        style: TextStyle(
-                          fontFamily: 'CormorantGaramond',
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          letterSpacing: 1.5,
-                          color: selected
-                              ? ColorResources.primaryColor
-                              : ColorResources.liteTextColor,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            );
-          }).toList(),
-        );
-      },
-    );
-  }
-}
-
-// ── SKIN TYPE DROPDOWN ─────────────────────────────────────
-class _SkinTypeDropdown extends StatelessWidget {
-  const _SkinTypeDropdown();
-
-  @override
-  Widget build(BuildContext context) {
-    return BlocBuilder<AddPatientCubit, AddPatientState>(
-      buildWhen: (p, c) => p.skinType != c.skinType,
-      builder: (context, state) {
-        return AppDropdown(
-          value: state.skinType.isEmpty ? null : state.skinType,
-          items: _skinTypes,
-          onChanged: (v) {
-            if (v != null)
-              context.read<AddPatientCubit>().selectSkinType(v);
-          },
-        );
-      },
-    );
-  }
-}
-
-// ── MARKETING SOURCE SELECTOR ──────────────────────────────
-class _MarketingSourceSelector extends StatelessWidget {
-  const _MarketingSourceSelector();
-
-  @override
-  Widget build(BuildContext context) {
-    return BlocBuilder<AddPatientCubit, AddPatientState>(
-      buildWhen: (p, c) => p.marketingSource != c.marketingSource,
-      builder: (context, state) {
-        return Wrap(
-          spacing: 10,
-          runSpacing: 10,
-          children: _marketingSources.map((src) {
-            final label    = src['label'] as String;
-            final icon     = src['icon']  as IconData;
-            final selected = state.marketingSource == label;
-            return GestureDetector(
-              onTap: () => context
-                  .read<AddPatientCubit>()
-                  .selectMarketingSource(label),
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 14, vertical: 10),
-                decoration: BoxDecoration(
-                  color: selected
-                      ? ColorResources.primaryColor.withOpacity(0.12)
-                      : ColorResources.cardColor,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(
-                    color: selected
-                        ? ColorResources.primaryColor
-                        : ColorResources.borderColor,
-                    width: 0.5,
-                  ),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(icon,
-                        size: 13,
-                        color: selected
-                            ? ColorResources.primaryColor
-                            : ColorResources.liteTextColor),
-                    const SizedBox(width: 7),
-                    Text(
-                      label,
-                      style: TextStyle(
-                        fontFamily: 'CormorantGaramond',
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: 1.5,
-                        color: selected
-                            ? ColorResources.primaryColor
-                            : ColorResources.liteTextColor,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          }).toList(),
-        );
-      },
-    );
-  }
-}
