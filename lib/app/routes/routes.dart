@@ -11,10 +11,13 @@ import 'package:aura/app/page/admin/service/view/service_list_screen.dart';
 import 'package:aura/app/page/admin/service/view/service_manage_screen.dart';
 import 'package:aura/app/page/admin/staff/view/staff_detail_screen.dart';
 import 'package:aura/app/page/admin/staff/view/add_edit_staff_screen.dart';
+import 'package:aura/app/page/admin/settings/view/create_user_screen.dart';
 import 'package:aura/app/page/receptionist/Appointments/view/booking_screen.dart';
 import 'package:aura/app/page/receptionist/main_screen/view/receptionist_main_screen.dart';
 import 'package:aura/app/page/select_role/view/select_role_screen.dart';
 import 'package:aura/app/page/therapist/dashboard/view/therapist_dashboard.dart';
+import 'package:aura/app/page/therapist/main_screen/view/therapist_main_screen.dart';
+import 'package:aura/app/page/therapist/appointment/view/therapist_appointment_detail_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:get/get_navigation/src/routes/transitions_type.dart'
@@ -55,6 +58,11 @@ class Routes {
     GetPage(
       name: PageRoutes.adminMainScreen,
       page: () => const AdminMainScreen(),
+      transition: navigationTransition,
+    ),
+    GetPage(
+      name: PageRoutes.createUserScreen,
+      page: () => const CreateUserScreen(),
       transition: navigationTransition,
     ),
     GetPage(
@@ -179,9 +187,19 @@ transition: navigationTransition,),
 
 
     //-----THERAPIST---------//
+        GetPage(
+      name: PageRoutes.therapistMainScreen,
+      page: () => const TherapistMainScreen(),
+      transition: navigationTransition,
+    ),
     GetPage(
       name: PageRoutes.therapistDashboard,
       page: () => const TherapistDashboard(),
+      transition: navigationTransition,
+    ),
+    GetPage(
+      name: PageRoutes.therapistAppointmentDetailScreen,
+      page: () => const TherapistAppointmentDetailScreen(),
       transition: navigationTransition,
     ),
   ];

@@ -6,6 +6,7 @@ class PageRoutes {
   static const String signupScreen = "/signupScreen";
   static const String signInScreen = "/signInScreen";
   static const String adminMainScreen = "/adminMainScreen";
+  static const String createUserScreen = "/createUserScreen";
   static const String staffDetailScreen = "/staffDetailScreen";
   static const String addEditStaffScreen = "/addEditStaffScreen";
   static const String patientDetailScreen = "/patientDetailScreen";
@@ -42,5 +43,7 @@ class PageRoutes {
 
 
   //-----THERAPIST---------//
+  static const String therapistMainScreen = "/therapistMainScreen";
   static const String therapistDashboard = "/therapistDashboard";
+  static const String therapistAppointmentDetailScreen = "/therapistAppointmentDetailScreen";
 }

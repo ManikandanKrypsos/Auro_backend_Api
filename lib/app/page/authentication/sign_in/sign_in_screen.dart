@@ -30,7 +30,7 @@ class _LoginScreenState extends State<LoginScreen> {
       case '2':
         return PageRoutes.receptioninstMainScreen;
       case '3':
-        return PageRoutes.therapistDashboard;
+        return PageRoutes.therapistMainScreen;
       default:
         return PageRoutes.adminMainScreen;
     }
@@ -142,9 +142,9 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  String _accessLabel(String level, String title) {
-    if (level.contains('EXECUTIVE')) return 'Administrator Portal';
-    if (level.contains('OPERATIONS')) return 'Receptionist Portal';
-    return 'Therapist Portal';
-  }
+  // String _accessLabel(String level, String title) {
+  //   if (level.contains('EXECUTIVE')) return 'Administrator Portal';
+  //   if (level.contains('OPERATIONS')) return 'Receptionist Portal';
+  //   return 'Therapist Portal';
+  // }
 }

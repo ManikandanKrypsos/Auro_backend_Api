@@ -11,27 +11,29 @@ import '../cubit/patient_cubit.dart';
 import '../model/patient_model.dart';
 
 class PatientsScreen extends StatelessWidget {
-  const PatientsScreen({super.key});
+  final bool isReadOnly;
+  const PatientsScreen({super.key, this.isReadOnly = false});
 
   @override
   Widget build(BuildContext context) {
     return BlocProvider(
       create: (_) => PatientCubit(),
-      child: const _PatientsScreenBody(),
+      child: _PatientsScreenBody(isReadOnly: isReadOnly),
     );
   }
 }
 
 // ── BODY ───────────────────────────────────────────────────
 class _PatientsScreenBody extends StatelessWidget {
-  const _PatientsScreenBody();
+  final bool isReadOnly;
+  const _PatientsScreenBody({this.isReadOnly = false});
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: CustomAppBar(title: 'PATIENT DIRECTORY'),
+      appBar: const CustomAppBar(title: 'PATIENT DIRECTORY'),
       backgroundColor: ColorResources.blackColor,
-      floatingActionButton: AddButton(onTap: ()=>Get.toNamed(PageRoutes.addPatientScreen)),
+      floatingActionButton: isReadOnly ? null : AddButton(onTap: ()=>Get.toNamed(PageRoutes.addPatientScreen)),
       body: SafeArea(
         child: Column(
           children: [
@@ -49,7 +51,7 @@ class _PatientsScreenBody extends StatelessWidget {
             const SizedBox(height: 16),
 
             // List
-            const Expanded(child: _PatientList()),
+            Expanded(child: _PatientList(isReadOnly: isReadOnly)),
           ],
         ),
       ),
@@ -95,7 +97,8 @@ class _PatientTabBar extends StatelessWidget {
 }
 
 class _PatientList extends StatelessWidget {
-  const _PatientList();
+  final bool isReadOnly;
+  const _PatientList({this.isReadOnly = false});
 
   @override
   Widget build(BuildContext context) {
@@ -145,7 +148,7 @@ class _PatientList extends StatelessWidget {
             height: 1,
           ),
           itemBuilder: (context, index) =>
-              _PatientCard(patient: state.filteredPatients[index]),
+              _PatientCard(patient: state.filteredPatients[index], isReadOnly: isReadOnly),
         );
       },
     );
@@ -153,10 +156,10 @@ class _PatientList extends StatelessWidget {
 }
 
 // ── PATIENT CARD ───────────────────────────────────────────
-// ── PATIENT CARD ───────────────────────────────────────────
 class _PatientCard extends StatelessWidget {
   final PatientModel patient;
-  const _PatientCard({required this.patient});
+  final bool isReadOnly;
+  const _PatientCard({required this.patient, this.isReadOnly = false});
 
   @override
   Widget build(BuildContext context) {
@@ -244,17 +247,18 @@ class _PatientCard extends StatelessWidget {
             ),
 
             // Action buttons
-            GestureDetector(
-              onTap: () => Get.toNamed(
-                PageRoutes.addPatientScreen,
-                arguments: patient,
+            if (!isReadOnly)
+              GestureDetector(
+                onTap: () => Get.toNamed(
+                  PageRoutes.addPatientScreen,
+                  arguments: patient,
+                ),
+                child: const Icon(
+                  Icons.edit_outlined,
+                  color: ColorResources.primaryColor,
+                  size: 15,
+                ),
               ),
-              child: const Icon(
-                Icons.edit_outlined,
-                color: ColorResources.primaryColor,
-                size: 15,
-              ),
-            ),
           ],
         ),
       ),

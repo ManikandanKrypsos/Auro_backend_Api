@@ -3,7 +3,10 @@ import 'package:aura/app/page/admin/payemt/view/payment_list_screen.dart';
 import 'package:aura/app/page/receptionist/Appointments/view/Appointment_list_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:get/get.dart';
 
+import '../../../../routes/names.dart';
+import '../../../../widgets/alert_button.dart';
 import '../../dashboard/view/receptionist_dashboard.dart';
 import '../cubit/receptionist_nav_cubit.dart';
 import '../view/receptionist_bottom_nav_bar.dart';
@@ -53,5 +56,14 @@ class ReceptionistSettingsScreen extends StatelessWidget {
   const ReceptionistSettingsScreen({super.key});
   @override
   Widget build(BuildContext context) =>
-      const Scaffold(body: Center(child: Text('UPCOMING SCREEN')));
+      Scaffold(body: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Center(child: Text('UPCOMING SCREEN')),
+          const SizedBox(height: 20),
+          AlertButton(onTap: () {
+            Get.offAllNamed(PageRoutes.selectRoleScreen);
+          }, text: 'LOG OUT'),
+        ],
+      ));
 }
