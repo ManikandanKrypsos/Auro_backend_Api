@@ -256,7 +256,7 @@ class _AddPatientBodyState extends State<_AddPatientBody> {
                     marketingSource:
                         context.read<AddPatientCubit>().state.marketingSource,
                     image: widget.patient?.image ?? '', // Will update with proper logic if available
-                    isNew: widget.patient?.isNew ?? true,
+                    category: widget.patient?.category ?? 'New',
                     createdAt: widget.patient?.createdAt ?? DateTime.now(),
                   );
                   context.read<AddPatientCubit>().savePatient(newPatient, isEdit: widget.isedit);

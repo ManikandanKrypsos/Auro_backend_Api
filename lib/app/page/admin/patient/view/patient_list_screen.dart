@@ -68,27 +68,54 @@ class _PatientTabBar extends StatelessWidget {
     return BlocBuilder<PatientCubit, PatientState>(
       buildWhen: (prev, curr) => prev.selectedTab != curr.selectedTab,
       builder: (context, state) {
-        return Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20),
-          child: Row(
-            children: [
-              Expanded(
-                child: AppTab(
+        return SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          physics: const BouncingScrollPhysics(),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Row(
+              children: [
+                AppTab(
                   label: 'ALL',
                   index: 0,
                   selectedTab: state.selectedTab,
+                  activeUnderlineWidth: 30,
                   onTap: (i) => context.read<PatientCubit>().selectTab(i),
                 ),
-              ),
-              Expanded(
-                child: AppTab(
+                const SizedBox(width: 32),
+                AppTab(
                   label: 'NEW',
                   index: 1,
                   selectedTab: state.selectedTab,
+                  activeUnderlineWidth: 35,
                   onTap: (i) => context.read<PatientCubit>().selectTab(i),
                 ),
-              ),
-            ],
+                const SizedBox(width: 32),
+                AppTab(
+                  label: 'RETURNING',
+                  index: 2,
+                  selectedTab: state.selectedTab,
+                  activeUnderlineWidth: 80,
+                  onTap: (i) => context.read<PatientCubit>().selectTab(i),
+                ),
+                const SizedBox(width: 32),
+                AppTab(
+                  label: 'LEADS',
+                  index: 3,
+                  selectedTab: state.selectedTab,
+                  activeUnderlineWidth: 50,
+                  onTap: (i) => context.read<PatientCubit>().selectTab(i),
+                ),
+                const SizedBox(width: 32),
+                AppTab(
+                  label: 'VIP',
+                  index: 4,
+                  selectedTab: state.selectedTab,
+                  activeUnderlineWidth: 30,
+                  onTap: (i) => context.read<PatientCubit>().selectTab(i),
+                ),
+              ],
+            ),
           ),
         );
       },

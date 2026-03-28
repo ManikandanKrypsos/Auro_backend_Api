@@ -54,8 +54,16 @@ class PatientCubit extends Cubit<PatientState> {
 
   void _applyCurrentFilter() {
     final filtered = state.allPatients.where((patient) {
-      final isNewTab = state.selectedTab == 1;
-      final matchesTab = !isNewTab || patient.isNew;
+      bool matchesTab = true;
+      if (state.selectedTab == 1) {
+        matchesTab = patient.category.toLowerCase() == 'new';
+      } else if (state.selectedTab == 2) {
+        matchesTab = patient.category.toLowerCase() == 'returning';
+      } else if (state.selectedTab == 3) {
+        matchesTab = patient.category.toLowerCase() == 'lead' || patient.category.toLowerCase() == 'leads';
+      } else if (state.selectedTab == 4) {
+        matchesTab = patient.category.toLowerCase() == 'vip';
+      }
 
       final query = state.searchQuery.toLowerCase();
       final matchesQuery = query.isEmpty ||

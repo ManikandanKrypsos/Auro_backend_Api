@@ -15,7 +15,7 @@ class PatientModel {
   final String contraindications;
   final String marketingSource;
   final String image;
-  final bool isNew;
+  final String category;
   final DateTime? createdAt;
 
   const PatientModel({
@@ -33,7 +33,7 @@ class PatientModel {
     this.contraindications = '',
     this.marketingSource = '',
     required this.image,
-    this.isNew = false,
+    this.category = 'New',
     this.createdAt,
   });
 
@@ -53,7 +53,7 @@ class PatientModel {
       contraindications: json['contraindications'] ?? '',
       marketingSource: json['marketingSource'] ?? '',
       image: json['image'] ?? '',
-      isNew: json['isNew'] ?? false,
+      category: json['category'] ?? 'New',
       createdAt: json['createdAt'] != null
           ? (json['createdAt'] as Timestamp).toDate()
           : null,
@@ -75,7 +75,7 @@ class PatientModel {
       'contraindications': contraindications,
       'marketingSource': marketingSource,
       'image': image,
-      'isNew': isNew,
+      'category': category,
       'createdAt': createdAt != null
           ? Timestamp.fromDate(createdAt!)
           : FieldValue.serverTimestamp(),
