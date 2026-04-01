@@ -6,7 +6,7 @@ class PageRoutes {
   static const String signupScreen = "/signupScreen";
   static const String signInScreen = "/signInScreen";
   static const String adminMainScreen = "/adminMainScreen";
-  static const String createUserScreen = "/createUserScreen";
+
   static const String staffDetailScreen = "/staffDetailScreen";
   static const String addEditStaffScreen = "/addEditStaffScreen";
   static const String patientDetailScreen = "/patientDetailScreen";
@@ -18,24 +18,18 @@ class PageRoutes {
   static const String addPatientScreen = "/addPatientScreen";
   static const String clinicOperation = "/clinicOperation";
   static const String inventoryManageScreen = "/inventoryManageScreen";
-
   static const String inventoryDetailScreen = "/inventoryDetailScreen";
-
   static const String paymentListScreen = "/paymentListScreen";
-
   static const String addEditPaymentScreen = "/addEditPaymentScreen";
-
   static const String paymentDetailScreen = "/paymentDetailScreen";
-
+  static const String userManagementScreen = "/userManagementScreen";
 
 
 
   //-----RECPTIONIST---------//
   static const String receptioninstMainScreen = "/receptioninstMainScreen";
   static const String appointmentDetailScreen = "/appointmentDetailScreen";
-
   static const String bookingScreen = "/bookingScreen";
-
 
 
 

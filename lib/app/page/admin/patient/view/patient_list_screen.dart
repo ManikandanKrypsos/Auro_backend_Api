@@ -1,12 +1,12 @@
-import 'package:aura/app/routes/names.dart';
-import 'package:aura/app/widgets/add_button.dart';
-import 'package:aura/app/widgets/app_search_bar.dart';
-import 'package:aura/app/widgets/custom_appbar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:get/get.dart';
+import '../../../../routes/names.dart';
 import '../../../../theme/color/color.dart';
+import '../../../../widgets/add_button.dart';
+import '../../../../widgets/app_search_bar.dart';
 import '../../../../widgets/app_tab_bar.dart';
+import '../../../../widgets/custom_appbar.dart';
 import '../cubit/patient_cubit.dart';
 import '../model/patient_model.dart';
 
@@ -33,7 +33,9 @@ class _PatientsScreenBody extends StatelessWidget {
     return Scaffold(
       appBar: const CustomAppBar(title: 'PATIENT DIRECTORY'),
       backgroundColor: ColorResources.blackColor,
-      floatingActionButton: isReadOnly ? null : AddButton(onTap: ()=>Get.toNamed(PageRoutes.addPatientScreen)),
+      floatingActionButton: isReadOnly
+          ? null
+          : AddButton(onTap: () => Get.toNamed(PageRoutes.addPatientScreen)),
       body: SafeArea(
         child: Column(
           children: [
@@ -174,8 +176,10 @@ class _PatientList extends StatelessWidget {
             thickness: 0.5,
             height: 1,
           ),
-          itemBuilder: (context, index) =>
-              _PatientCard(patient: state.filteredPatients[index], isReadOnly: isReadOnly),
+          itemBuilder: (context, index) => _PatientCard(
+            patient: state.filteredPatients[index],
+            isReadOnly: isReadOnly,
+          ),
         );
       },
     );
@@ -191,13 +195,13 @@ class _PatientCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: () => Get.toNamed(PageRoutes.patientDetailScreen, arguments: patient),
+      onTap: () =>
+          Get.toNamed(PageRoutes.patientDetailScreen, arguments: patient),
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 20),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-
             // Avatar
             Container(
               width: 72,
@@ -255,8 +259,11 @@ class _PatientCard extends StatelessWidget {
                   const SizedBox(height: 4),
                   Row(
                     children: [
-                      Icon(Icons.phone_outlined,
-                          color: ColorResources.liteTextColor, size: 12),
+                      Icon(
+                        Icons.phone_outlined,
+                        color: ColorResources.liteTextColor,
+                        size: 12,
+                      ),
                       const SizedBox(width: 5),
                       Text(
                         patient.phone,

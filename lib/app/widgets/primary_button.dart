@@ -4,17 +4,21 @@ import '../theme/color/color.dart';
 class PrimaryButton extends StatelessWidget {
   final String label;
   final VoidCallback onTap;
-final double vPadding;
+  final double vPadding;
+  final double? height;
   const PrimaryButton({
     super.key,
     required this.label,
-    required this.onTap, this.vPadding=18,
+    required this.onTap,
+    this.vPadding = 18,
+    this.height,
   });
 
   @override
   Widget build(BuildContext context) {
     return SizedBox(
       width: double.infinity,
+      height: height,
       child: ElevatedButton(
         onPressed: onTap,
         style: ElevatedButton.styleFrom(

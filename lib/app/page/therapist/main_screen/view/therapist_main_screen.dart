@@ -1,13 +1,12 @@
-import 'package:aura/app/page/admin/patient/view/patient_list_screen.dart';
-import 'package:aura/app/page/therapist/appointment/view/therapist_appointment_list_screen.dart';
-import 'package:aura/app/page/therapist/dashboard/view/therapist_dashboard.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:get/get.dart';
 
-
-import '../../../../routes/names.dart';
-import '../../../../widgets/alert_button.dart';
+import '../../../admin/patient/view/patient_list_screen.dart';
+import '../../appointment/view/therapist_appointment_list_screen.dart';
+import '../../dashboard/view/therapist_dashboard.dart';
+import '../../product_usage/view/product_usage_screen.dart';
+import '../../settings/view/therapist_setting_screen.dart';
 import '../cubit/therapist_nav_cubit.dart';
 import '../view/receptionist_bottom_nav_bar.dart';
 
@@ -42,29 +41,6 @@ class TherapistMainScreen extends StatelessWidget {
   }
 }
 
-class TherapistSettingsScreen extends StatelessWidget {
-  const TherapistSettingsScreen({super.key});
 
-  @override
-  Widget build(BuildContext context) {
-    return  Scaffold(body: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const Center(child: Text('UPCOMING SCREEN')),
-          const SizedBox(height: 20),
-          AlertButton(onTap: () {
-            Get.offAllNamed(PageRoutes.selectRoleScreen);
-          }, text: 'LOG OUT'),
-        ],
-      ));
-  }
-}
-class ProductUsageScreen extends StatelessWidget {
-  const ProductUsageScreen({super.key});
 
-  @override
-  Widget build(BuildContext context) {
-    return const Scaffold();
-  }
-}
 

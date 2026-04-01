@@ -18,16 +18,16 @@ class ConsentTab extends StatelessWidget {
             decoration: BoxDecoration(
               color: ColorResources.cardColor,
               borderRadius: BorderRadius.circular(10),
-              border:
-                  Border.all(color: ColorResources.borderColor, width: 0.5),
+              border: Border.all(color: ColorResources.borderColor, width: 0.5),
             ),
             child: Row(
               children: [
                 _summaryCell('3', 'SIGNED'),
                 Container(
-                    width: 0.5,
-                    height: 36,
-                    color: ColorResources.borderColor),
+                  width: 0.5,
+                  height: 36,
+                  color: ColorResources.borderColor,
+                ),
                 _summaryCell('1', 'PENDING'),
               ],
             ),
@@ -51,17 +51,18 @@ class ConsentTab extends StatelessWidget {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(Icons.add,
-                      color: ColorResources.primaryColor, size: 14),
+                  Icon(Icons.add, color: ColorResources.primaryColor, size: 14),
                   const SizedBox(width: 8),
-                  Text('ADD CONSENT FORM',
-                      style: TextStyle(
-                        fontFamily: 'CormorantGaramond',
-                        color: ColorResources.primaryColor,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: 2.0,
-                      )),
+                  Text(
+                    'ADD CONSENT FORM',
+                    style: TextStyle(
+                      fontFamily: 'CormorantGaramond',
+                      color: ColorResources.primaryColor,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 2.0,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -69,12 +70,14 @@ class ConsentTab extends StatelessWidget {
 
           const SizedBox(height: 20),
 
-          Text('CONSENT RECORDS',
-              style: AppTextStyles.headingSmall.copyWith(
-                fontSize: 11,
-                color: ColorResources.liteTextColor,
-                letterSpacing: 3.5,
-              )),
+          Text(
+            'CONSENT RECORDS',
+            style: AppTextStyles.headingSmall.copyWith(
+              fontSize: 11,
+              color: ColorResources.liteTextColor,
+              letterSpacing: 3.5,
+            ),
+          ),
 
           const SizedBox(height: 16),
 
@@ -122,22 +125,26 @@ class ConsentTab extends StatelessWidget {
     return Expanded(
       child: Column(
         children: [
-          Text(value,
-              style: TextStyle(
-                fontFamily: 'CormorantGaramond',
-                color: ColorResources.primaryColor,
-                fontSize: 22,
-                fontWeight: FontWeight.w600,
-              )),
+          Text(
+            value,
+            style: TextStyle(
+              fontFamily: 'CormorantGaramond',
+              color: ColorResources.primaryColor,
+              fontSize: 22,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
           const SizedBox(height: 2),
-          Text(label,
-              style: TextStyle(
-                fontFamily: 'CormorantGaramond',
-                color: ColorResources.liteTextColor,
-                fontSize: 9,
-                letterSpacing: 1.5,
-                fontWeight: FontWeight.w600,
-              )),
+          Text(
+            label,
+            style: TextStyle(
+              fontFamily: 'CormorantGaramond',
+              color: ColorResources.liteTextColor,
+              fontSize: 9,
+              letterSpacing: 1.5,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
         ],
       ),
     );
@@ -180,14 +187,16 @@ class ConsentTab extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(title,
-                          style: TextStyle(
-                            fontFamily: 'CormorantGaramond',
-                            color: ColorResources.whiteColor,
-                            fontSize: 15,
-                            fontWeight: FontWeight.w400,
-                            letterSpacing: 0.3,
-                          )),
+                      Text(
+                        title,
+                        style: TextStyle(
+                          fontFamily: 'CormorantGaramond',
+                          color: ColorResources.whiteColor,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w400,
+                          letterSpacing: 0.3,
+                        ),
+                      ),
                       const SizedBox(height: 2),
                       Text(
                         isSigned ? 'Signed — $date' : 'Awaiting signature',
@@ -219,8 +228,7 @@ class ConsentTab extends StatelessWidget {
             ),
           ),
 
-          Divider(
-              color: ColorResources.borderColor, height: 1, thickness: 0.5),
+          Divider(color: ColorResources.borderColor, height: 1, thickness: 0.5),
 
           // ── File + confirmations ─────────────────────
           Padding(
@@ -229,28 +237,36 @@ class ConsentTab extends StatelessWidget {
               children: [
                 // PDF chip
                 Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
                   decoration: BoxDecoration(
                     color: ColorResources.blackColor,
                     borderRadius: BorderRadius.circular(6),
                     border: Border.all(
-                        color: ColorResources.borderColor, width: 0.5),
+                      color: ColorResources.borderColor,
+                      width: 0.5,
+                    ),
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.picture_as_pdf_outlined,
-                          color: ColorResources.liteTextColor, size: 12),
+                      Icon(
+                        Icons.picture_as_pdf_outlined,
+                        color: ColorResources.liteTextColor,
+                        size: 12,
+                      ),
                       const SizedBox(width: 6),
-                      Text(file,
-                          style: TextStyle(
-                            fontFamily: 'CormorantGaramond',
-                            color:
-                                ColorResources.whiteColor.withOpacity(0.5),
-                            fontSize: 11,
-                            letterSpacing: 0.3,
-                          )),
+                      Text(
+                        file,
+                        style: TextStyle(
+                          fontFamily: 'CormorantGaramond',
+                          color: ColorResources.whiteColor.withOpacity(0.5),
+                          fontSize: 11,
+                          letterSpacing: 0.3,
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -281,15 +297,17 @@ class ConsentTab extends StatelessWidget {
               : ColorResources.liteTextColor,
         ),
         const SizedBox(width: 4),
-        Text(label,
-            style: TextStyle(
-              fontFamily: 'CormorantGaramond',
-              color: confirmed
-                  ? ColorResources.whiteColor.withOpacity(0.6)
-                  : ColorResources.liteTextColor,
-              fontSize: 11,
-              letterSpacing: 0.3,
-            )),
+        Text(
+          label,
+          style: TextStyle(
+            fontFamily: 'CormorantGaramond',
+            color: confirmed
+                ? ColorResources.whiteColor.withOpacity(0.6)
+                : ColorResources.liteTextColor,
+            fontSize: 11,
+            letterSpacing: 0.3,
+          ),
+        ),
       ],
     );
   }

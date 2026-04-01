@@ -7,11 +7,14 @@ class SecondaryButton extends StatelessWidget {
   final String title;
   final IconData? icon;
 
+  final double height;
+
   const SecondaryButton({
     super.key,
     required this.onTap,
     required this.title,
     this.icon,
+    this.height = 46,
   });
 
   @override
@@ -19,7 +22,7 @@ class SecondaryButton extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        height: 42,
+        height: height,
         decoration: BoxDecoration(
           color: const Color(0xFF1E1E1E),
           borderRadius: BorderRadius.circular(8),

@@ -1,15 +1,11 @@
 import 'package:bloc/bloc.dart';
 import '../model/patient_model.dart';
-import '../service/patient_firestore_service.dart';
+import '../service/static_patient_data.dart';
 
 part 'add_patient_state.dart';
 
 class AddPatientCubit extends Cubit<AddPatientState> {
-  final PatientFirestoreService _firestoreService;
-
-  AddPatientCubit({PatientFirestoreService? firestoreService})
-      : _firestoreService = firestoreService ?? PatientFirestoreService(),
-        super(const AddPatientState());
+  AddPatientCubit() : super(const AddPatientState());
 
   void selectGender(String gender) =>
       emit(state.copyWith(gender: gender));
@@ -23,11 +19,18 @@ class AddPatientCubit extends Cubit<AddPatientState> {
   Future<void> savePatient(PatientModel patient, {bool isEdit = false}) async {
     emit(state.copyWith(status: AddPatientStatus.loading));
     try {
+      // Simulate network delay
+      await Future.delayed(const Duration(milliseconds: 800));
+
       if (isEdit) {
-        await _firestoreService.updatePatient(patient);
+        final index = StaticPatientData.patients.indexWhere((p) => p.id == patient.id);
+        if (index != -1) {
+          StaticPatientData.patients[index] = patient;
+        }
       } else {
-        await _firestoreService.addPatient(patient);
+        StaticPatientData.patients.insert(0, patient);
       }
+      
       emit(state.copyWith(status: AddPatientStatus.success));
     } catch (e) {
       emit(state.copyWith(

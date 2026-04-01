@@ -62,6 +62,29 @@ class AdminSettingsScreen extends StatelessWidget {
 
                   const SizedBox(height: 36),
 
+
+
+
+
+
+
+                
+   // ── User Management ───────────────────────
+                  _SectionLabel('USER MANAGEMENT'),
+                  const SizedBox(height: 12),
+                  _SettingsGroup(
+                    items: [
+                    
+                      _SettingTile(
+                        icon: Icons.people_outline,
+                        label: 'Manage Users',
+                        subtitle: 'View and edit existing users',
+                        onTap: () => Get.toNamed(PageRoutes.userManagementScreen),
+                      ),
+                    ],
+                  ),
+
+                  const SizedBox(height: 36),
                   // ── Automation Section ──────────────────
                   _SectionLabel('AUTOMATION & AI'),
                   const SizedBox(height: 12),
@@ -82,26 +105,7 @@ class AdminSettingsScreen extends StatelessWidget {
 
                   const SizedBox(height: 36),
 
-                  // ── User Management ───────────────────────
-                  _SectionLabel('USER MANAGEMENT'),
-                  const SizedBox(height: 12),
-                  _SettingsGroup(
-                    items: [
-                      _SettingTile(
-                        icon: Icons.person_add_outlined,
-                        label: 'Create User',
-                        subtitle: 'Add new staff or admin',
-                        onTap: () => Get.toNamed(PageRoutes.createUserScreen),
-                      ),
-                      _SettingTile(
-                        icon: Icons.people_outline,
-                        label: 'Manage Users',
-                        subtitle: 'View and edit existing users',
-                      ),
-                    ],
-                  ),
-
-                  const SizedBox(height: 36),
+               
 
                   // ── Clinic & Account ────────────────────
                   _SectionLabel('PREFERENCES'),

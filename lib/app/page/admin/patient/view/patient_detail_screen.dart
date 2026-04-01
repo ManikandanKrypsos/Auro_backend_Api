@@ -50,49 +50,25 @@ class _PatientDetailBody extends StatelessWidget {
 
               // ── Avatar ──────────────────────────────────
               Center(
-                child: Stack(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(3),
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: ColorResources.primaryColor,
-                          width: 2,
-                        ),
-                      ),
-                      child: CircleAvatar(
-                        radius: 68,
-                        backgroundColor: ColorResources.cardColor,
-                        backgroundImage: patient.image.isNotEmpty
-                            ? NetworkImage(patient.image)
-                            : const NetworkImage(
-                                'https://i.pinimg.com/1200x/8d/51/16/8d5116e7e8f31b64a9ca530bef7a087e.jpg',
-                              ),
-                        onBackgroundImageError: (_, __) {},
-                      ),
+                child: Container(
+                  padding: const EdgeInsets.all(3),
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: ColorResources.primaryColor,
+                      width: 2,
                     ),
-                    Positioned(
-                      bottom: 6,
-                      right: 6,
-                      child: Container(
-                        padding: const EdgeInsets.all(5),
-                        decoration: BoxDecoration(
-                          color: ColorResources.primaryColor,
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                            color: ColorResources.blackColor,
-                            width: 2,
+                  ),
+                  child: CircleAvatar(
+                    radius: 68,
+                    backgroundColor: ColorResources.cardColor,
+                    backgroundImage: patient.image.isNotEmpty
+                        ? NetworkImage(patient.image)
+                        : const NetworkImage(
+                            'https://i.pinimg.com/1200x/8d/51/16/8d5116e7e8f31b64a9ca530bef7a087e.jpg',
                           ),
-                        ),
-                        child: const Icon(
-                          Icons.settings,
-                          color: Colors.black,
-                          size: 12,
-                        ),
-                      ),
-                    ),
-                  ],
+                    onBackgroundImageError: (_, __) {},
+                  ),
                 ),
               ),
 
@@ -147,8 +123,11 @@ class _PatientDetailBody extends StatelessWidget {
               // ── Patient Tags ─────────────────────────────
               const _PatientTags(),
 
-              const SizedBox(height: 24),
+              const SizedBox(height: 14),
+// Below _PatientTags(), above tabs
+_PatientStatStrip(patient: patient),
 
+  const SizedBox(height: 24),
               // ── Tabs + Content ──────────────────────────
               BlocBuilder<PatientDetailCubit, PatientDetailState>(
                 builder: (context, state) {
@@ -223,4 +202,53 @@ class _TagChip extends StatelessWidget {
       ),
     );
   }
+}
+
+
+class _PatientStatStrip extends StatelessWidget {
+  final PatientModel patient;
+  const _PatientStatStrip({required this.patient});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 14),
+        decoration: BoxDecoration(
+          color: ColorResources.cardColor,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: ColorResources.borderColor, width: 0.5),
+        ),
+        child: Row(
+          children: [
+            _stat('6', 'VISITS'),
+            _divider(),
+            _stat('10 Mar', 'LAST VISIT'),
+            _divider(),
+            _stat('\$850', 'TOTAL SPENT'),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _stat(String value, String label) => Expanded(
+    child: Column(children: [
+      Text(value, style: TextStyle(
+        fontFamily: 'CormorantGaramond',
+        color: ColorResources.primaryColor,
+        fontSize: 18, fontWeight: FontWeight.w600,
+      )),
+      const SizedBox(height: 2),
+      Text(label, style: TextStyle(
+        fontFamily: 'CormorantGaramond',
+        color: ColorResources.liteTextColor,
+        fontSize: 9, letterSpacing: 1.5, fontWeight: FontWeight.w600,
+      )),
+    ]),
+  );
+
+  Widget _divider() => Container(
+    width: 0.5, height: 32, color: ColorResources.borderColor);
 }

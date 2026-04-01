@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
 import '../../../../theme/color/color.dart';
-import '../../../../theme/text_style/app_text_style.dart';
 import '../../../../widgets/custom_appbar.dart';
 
 class TherapistAppointmentDetailScreen extends StatefulWidget {
@@ -15,17 +14,18 @@ class TherapistAppointmentDetailScreen extends StatefulWidget {
 
 class _TherapistAppointmentDetailScreenState
     extends State<TherapistAppointmentDetailScreen> {
-  // ── Status ────────────────────────────────────────────
-  String _status = 'UPCOMING'; 
+  // ── Session status ────────────────────────────────────
+  String _status = 'UPCOMING'; // UPCOMING → IN SESSION → COMPLETED
 
-  // ── Static Data ───────────────────────────────────────
-  static const _patient = 'Isabelle Morel';
-  static const _age = '34';
-  static const _gender = 'Female';
-  static const _phone = '+91 98765 43210';
-  static const _email = 'isabelle.morel@email.com';
+  // ── Static patient data ───────────────────────────────
+  static const _patientName = 'Isabelle Morel';
+  static const _patientAge = '34';
+  static const _patientGender = 'Female';
+  static const _patientPhone = '+91 98765 43210';
+  static const _patientEmail = 'isabelle.morel@email.com';
   static const _therapistName = 'Sarah Jenkins';
 
+  // ── Static service data ───────────────────────────────
   static const _service = 'Hydra-Facial Platinum';
   static const _session = 2;
   static const _totalSessions = 5;
@@ -33,15 +33,20 @@ class _TherapistAppointmentDetailScreenState
   static const _date = 'Friday, Oct 24, 2024';
   static const _timeRange = '11:45 AM – 12:30 PM';
   static const _room = 'Facial Room 2';
+  static const _packageName = 'Hydra-Facial Platinum Pack';
 
+  // ── Static skin profile ───────────────────────────────
   static const _skinType = 'Combination / Sensitive';
+  static const _fitzpatrick = 'Type III';
   static const _contraindications =
-      'Allergic to Salicylic Acid. Avoid active retinol.';
+      'Allergic to Salicylic Acid. Avoid active retinol. No chemical exfoliants.';
+  static const _allergies = 'Salicylic Acid, Fragrance compounds';
 
-  static const _nextTreatment =
-      'Hydra-Facial Platinum — Session 3 of 5 · Nov 15, 2024';
+  // ── Next session ──────────────────────────────────────
+  static const _nextSessionLabel =
+      'Hydra-Facial Platinum · Session 3 of 5 · Nov 15, 2024';
 
-
+  // ── Clinic product catalog ────────────────────────────
   static const List<Map<String, dynamic>> _clinicProducts = [
     {'name': 'Gentle Cleanser', 'unit': 'ml'},
     {'name': 'Hyaluronic Acid Serum', 'unit': 'ml'},
@@ -53,114 +58,138 @@ class _TherapistAppointmentDetailScreenState
     {'name': 'Niacinamide Essence', 'unit': 'ml'},
     {'name': 'Collagen Boost Mask', 'unit': 'pcs'},
     {'name': 'Peptide Eye Cream', 'unit': 'g'},
+    {'name': 'AHA Resurfacing Toner', 'unit': 'ml'},
+    {'name': 'Brightening Ampoule', 'unit': 'ml'},
   ];
 
+  // ── Mutable session data ──────────────────────────────
+  // Skin observation (therapist writes during session)
+  final _skinObsController = TextEditingController();
+  bool _skinObsEditing = false;
+  String _savedSkinObs = '';
+
+  // Notes (multiple, add/edit/delete)
   final List<Map<String, String>> _notes = [];
 
-
+  // Products used in session
   final List<Map<String, dynamic>> _productsUsed = [];
 
+  // Products recommended to patient
+
+  // Photos
   String? _beforePhoto;
   String? _afterPhoto;
 
+  // Next session suggestion
+  String _nextSessionSuggestion = '';
 
+  @override
+  void dispose() {
+    _skinObsController.dispose();
+    super.dispose();
+  }
 
+  // ─────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: ColorResources.blackColor,
       appBar: const CustomAppBar(title: 'SESSION DETAILS'),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(20, 20, 20, 180),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _buildHeroSection(),
-            const SizedBox(height: 14),
-               Row(
-            children: [
-              // Start Session
-              Expanded(
-                child: _buildActionBtn(
-                  label: 'START SESSION',
-                  icon: Icons.play_arrow_rounded,
-                  enabled: _status == 'UPCOMING',
-                  isPrimary: true,
-                  onTap: () => _confirmStatusChange(
-                    title: 'Start Session?',
-                    message:
-                        'Are you sure you want to start the session for $_patient?',
-                    onConfirm: () => setState(() => _status = 'IN SESSION'),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
+      body: Stack(
+        children: [
+          SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 120),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // ── Hero ──────────────────────────
+                _buildHero(),
+                const SizedBox(height: 14),
 
-              // Complete Session
-              Expanded(
-                child: _buildActionBtn(
-                  label: 'COMPLETE SESSION',
-                  icon: Icons.check_rounded,
-                  enabled: _status == 'IN SESSION',
-                  isPrimary: false,
-                  onTap: () => _confirmStatusChange(
-                    title: 'Complete Session?',
-                    message: 'Mark this session as completed for $_patient?',
-                    onConfirm: () => setState(() => _status = 'COMPLETED'),
-                  ),
+                // ── Action buttons ─────────────────
+                _buildActionButtons(),
+                const SizedBox(height: 14),
+
+                // ── Patient Details ────────────────
+                _buildPatientCard(),
+                const SizedBox(height: 14),
+
+                // ── Service Details ────────────────
+                _buildSectionCard(
+                  label: 'SERVICE DETAILS',
+                  child: _buildServiceDetails(),
                 ),
-              ),
-            ],
+                const SizedBox(height: 14),
+
+                // ── Skin Profile ───────────────────
+                _buildSectionCard(
+                  label: 'SKIN PROFILE',
+                  child: _buildSkinProfile(),
+                ),
+                const SizedBox(height: 14),
+
+                // ── Skin Observation Today ─────────
+                _buildSectionCard(
+                  label: 'SKIN OBSERVATION TODAY',
+                  actionLabel: _skinObsEditing
+                      ? null
+                      : (_savedSkinObs.isEmpty ? '+ WRITE' : 'EDIT'),
+                  onAction: _savedSkinObs.isEmpty && !_skinObsEditing
+                      ? () => setState(() => _skinObsEditing = true)
+                      : !_skinObsEditing
+                      ? () {
+                          _skinObsController.text = _savedSkinObs;
+                          setState(() => _skinObsEditing = true);
+                        }
+                      : null,
+                  child: _buildSkinObservation(),
+                ),
+                const SizedBox(height: 14),
+
+                // ── Session Notes ──────────────────
+                _buildSectionCard(
+                  label: 'SESSION NOTES',
+                  actionLabel: '+ ADD NOTE',
+                  onAction: () => _showNoteDialog(),
+                  child: _buildNotesList(),
+                ),
+                const SizedBox(height: 14),
+
+                // ── Before & After ──────────────────
+                _buildSectionCard(
+                  label: 'BEFORE & AFTER',
+                  child: _buildBeforeAfter(),
+                ),
+                const SizedBox(height: 14),
+
+                // ── Products Used ──────────────────
+                _buildSectionCard(
+                  label: 'PRODUCTS USED IN SESSION',
+                  actionLabel: '+ ADD',
+                  onAction: () => _showProductPicker(isRecommended: false),
+                  child: _buildProductList(_productsUsed, false),
+                ),
+                const SizedBox(height: 14),
+
+                // ── Next Session ───────────────────
+                _buildSectionCard(
+                  label: 'NEXT SESSION',
+                  child: _buildNextSession(),
+                ),
+                const SizedBox(height: 14),
+              ],
+            ),
           ),
-          
-           const SizedBox(height: 14),
-            _buildPatientSection(),
-            const SizedBox(height: 14),
-            _buildSection(
-              label: 'SERVICE DETAILS',
-              child: _buildServiceDetails(),
-            ),
-            const SizedBox(height: 14),
-            _buildSection(label: 'SKIN PROFILE', child: _buildSkinProfile()),
-            const SizedBox(height: 14),
-            _buildSection(
-              label: 'SESSION NOTES',
-              actionLabel: '+ ADD NOTE',
-              onAction: () => _showAddNoteDialog(),
-              child: _buildNotesList(),
-            ),
-            const SizedBox(height: 14),
-            _buildSection(
-              label: 'BEFORE PHOTO',
-              actionLabel: _beforePhoto == null ? '+ ADD' : 'REPLACE',
-              onAction: () {},
-              child: _buildPhotoBox(_beforePhoto),
-            ),
-            const SizedBox(height: 14),
-            _buildSection(
-              label: 'AFTER PHOTO',
-              actionLabel: _afterPhoto == null ? '+ ADD' : 'REPLACE',
-              onAction: () {},
-              child: _buildPhotoBox(_afterPhoto),
-            ),
-            const SizedBox(height: 14),
-            _buildSection(
-              label: 'PRODUCTS USED',
-              actionLabel: '+ ADD PRODUCT',
-              onAction: () => _showProductPicker(),
-              child: _buildProductsList(),
-            ),
-            const SizedBox(height: 14),
-            _buildSection(label: 'NEXT SESSION', child: _buildNextSteps()),
-          ],
-        ),
-      ),
 
+          // ── Fixed Save Bar ─────────────────────────
+          _buildSaveBar(),
+        ],
+      ),
     );
   }
 
-  // ── Hero ──────────────────────────────────────────────
-  Widget _buildHeroSection() {
+  // ── HERO ──────────────────────────────────────────────
+  Widget _buildHero() {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 20),
@@ -171,7 +200,6 @@ class _TherapistAppointmentDetailScreenState
       ),
       child: Column(
         children: [
-          // Avatar
           Container(
             padding: const EdgeInsets.all(3),
             decoration: BoxDecoration(
@@ -190,9 +218,8 @@ class _TherapistAppointmentDetailScreenState
           ),
           const SizedBox(height: 16),
 
-          // Patient name
           const Text(
-            _patient,
+            _patientName,
             textAlign: TextAlign.center,
             style: TextStyle(
               fontFamily: 'CormorantGaramond',
@@ -205,25 +232,23 @@ class _TherapistAppointmentDetailScreenState
           ),
           const SizedBox(height: 5),
 
-          // Age · Gender
           Text(
-            '$_age yrs  ·  $_gender',
+            '$_patientAge yrs  ·  $_patientGender',
             style: TextStyle(
               fontFamily: 'CormorantGaramond',
-              color: ColorResources.liteTextColor.withOpacity(0.55),
+              color: ColorResources.liteTextColor.withOpacity(0.6),
               fontSize: 12,
               letterSpacing: 1,
             ),
           ),
           const SizedBox(height: 10),
 
-          // Therapist
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Icon(
                 Icons.person_outline,
-                size: 13,
+                size: 12,
                 color: ColorResources.primaryColor.withOpacity(0.7),
               ),
               const SizedBox(width: 5),
@@ -240,16 +265,52 @@ class _TherapistAppointmentDetailScreenState
             ],
           ),
           const SizedBox(height: 16),
-          _buildStatusBadge(_status),
+          _StatusBadge(status: _status),
         ],
       ),
     );
   }
 
-  // ── Patient ───────────────────────────────────────────
-  Widget _buildPatientSection() {
+  // ── ACTION BUTTONS ────────────────────────────────────
+  Widget _buildActionButtons() {
+    return Row(
+      children: [
+        Expanded(
+          child: _ActionBtn(
+            label: 'START SESSION',
+            icon: Icons.play_arrow_rounded,
+            enabled: _status == 'UPCOMING',
+            isPrimary: true,
+            onTap: () => _confirmAction(
+              title: 'Start Session?',
+              message: 'Start the session for $_patientName?',
+              confirmLabel: 'START',
+              onConfirm: () => setState(() => _status = 'IN SESSION'),
+            ),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: _ActionBtn(
+            label: 'COMPLETE',
+            icon: Icons.check_rounded,
+            enabled: _status == 'IN SESSION',
+            isPrimary: false,
+            onTap: () => _confirmAction(
+              title: 'Complete Session?',
+              message: 'Mark this session as completed for $_patientName?',
+              confirmLabel: 'COMPLETE',
+              onConfirm: () => setState(() => _status = 'COMPLETED'),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ── PATIENT CARD ──────────────────────────────────────
+  Widget _buildPatientCard() {
     return Container(
-      width: double.infinity,
       decoration: BoxDecoration(
         color: ColorResources.cardColor,
         borderRadius: BorderRadius.circular(14),
@@ -259,9 +320,9 @@ class _TherapistAppointmentDetailScreenState
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Padding(
-            padding: EdgeInsets.fromLTRB(18, 18, 18, 12),
+            padding: EdgeInsets.fromLTRB(18, 18, 18, 10),
             child: Text(
-              'PATIENT DETAILS',
+              'PATIENT CONTACT',
               style: TextStyle(
                 fontFamily: 'CormorantGaramond',
                 color: ColorResources.primaryColor,
@@ -271,10 +332,12 @@ class _TherapistAppointmentDetailScreenState
               ),
             ),
           ),
+
+          // Phone number large
           const Padding(
-            padding: EdgeInsets.fromLTRB(18, 0, 18, 0),
+            padding: EdgeInsets.fromLTRB(18, 0, 18, 14),
             child: Text(
-              _phone,
+              _patientPhone,
               style: TextStyle(
                 fontFamily: 'CormorantGaramond',
                 color: ColorResources.whiteColor,
@@ -284,14 +347,15 @@ class _TherapistAppointmentDetailScreenState
               ),
             ),
           ),
-          const SizedBox(height: 14),
+
+          // Call button
           Padding(
-            padding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
+            padding: const EdgeInsets.fromLTRB(18, 0, 18, 16),
             child: GestureDetector(
               onTap: () {},
               child: Container(
                 width: double.infinity,
-                padding: const EdgeInsets.symmetric(vertical: 15),
+                padding: const EdgeInsets.symmetric(vertical: 14),
                 decoration: BoxDecoration(
                   color: ColorResources.primaryColor,
                   borderRadius: BorderRadius.circular(10),
@@ -299,14 +363,14 @@ class _TherapistAppointmentDetailScreenState
                 child: const Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(Icons.call_rounded, color: Colors.black, size: 18),
-                    SizedBox(width: 10),
+                    Icon(Icons.call_rounded, color: Colors.black, size: 16),
+                    SizedBox(width: 8),
                     Text(
                       'Call Patient',
                       style: TextStyle(
                         fontFamily: 'CormorantGaramond',
                         color: Colors.black,
-                        fontSize: 15,
+                        fontSize: 14,
                         fontWeight: FontWeight.w700,
                         letterSpacing: 0.5,
                       ),
@@ -316,20 +380,45 @@ class _TherapistAppointmentDetailScreenState
               ),
             ),
           ),
+
           Divider(color: ColorResources.borderColor, height: 1, thickness: 0.5),
+
+          // Email
           Padding(
             padding: const EdgeInsets.all(18),
-            child: _infoRow(Icons.email_outlined, 'Email', _email),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.email_outlined,
+                  size: 13,
+                  color: ColorResources.liteTextColor.withOpacity(0.5),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  _patientEmail,
+                  style: TextStyle(
+                    fontFamily: 'CormorantGaramond',
+                    color: ColorResources.liteTextColor.withOpacity(0.7),
+                    fontSize: 13,
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),
     );
   }
 
-  // ── Service Details ───────────────────────────────────
+  // ── SERVICE DETAILS ───────────────────────────────────
   Widget _buildServiceDetails() {
     final rows = [
       {'icon': Icons.spa_outlined, 'label': 'Service', 'value': _service},
+      {
+        'icon': Icons.inventory_2_outlined,
+        'label': 'Package',
+        'value': _packageName,
+      },
       {
         'icon': Icons.repeat_rounded,
         'label': 'Session',
@@ -342,31 +431,32 @@ class _TherapistAppointmentDetailScreenState
     ];
 
     return Column(
-      children: rows.asMap().entries.map((e) {
-        final r = e.value;
+      children: rows.asMap().entries.map((entry) {
+        final i = entry.key;
+        final r = entry.value;
         return Column(
           children: [
-            if (e.key > 0)
+            if (i > 0)
               Divider(
                 color: ColorResources.borderColor,
                 height: 1,
                 thickness: 0.5,
               ),
             Padding(
-              padding: const EdgeInsets.symmetric(vertical: 13),
+              padding: const EdgeInsets.symmetric(vertical: 12),
               child: Row(
                 children: [
                   Icon(
                     r['icon'] as IconData,
-                    size: 16,
-                    color: ColorResources.primaryColor.withOpacity(0.7),
+                    size: 15,
+                    color: ColorResources.primaryColor.withOpacity(0.65),
                   ),
                   const SizedBox(width: 12),
                   Text(
                     r['label'] as String,
                     style: TextStyle(
                       fontFamily: 'CormorantGaramond',
-                      color: ColorResources.liteTextColor.withOpacity(0.7),
+                      color: ColorResources.liteTextColor.withOpacity(0.65),
                       fontSize: 14,
                     ),
                   ),
@@ -389,15 +479,49 @@ class _TherapistAppointmentDetailScreenState
     );
   }
 
-  // ── Skin Profile ──────────────────────────────────────
+  // ── SKIN PROFILE ──────────────────────────────────────
   Widget _buildSkinProfile() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _infoRow(Icons.face_retouching_natural, 'Skin Type', _skinType),
+        // Skin type + Fitzpatrick
+        Row(
+          children: [
+            Expanded(
+              child: _infoCell(
+                Icons.face_retouching_natural,
+                'SKIN TYPE',
+                _skinType,
+                ColorResources.whiteColor,
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: _infoCell(
+                Icons.palette_outlined,
+                'FITZPATRICK',
+                _fitzpatrick,
+                ColorResources.primaryColor,
+              ),
+            ),
+          ],
+        ),
+
         const SizedBox(height: 14),
         Divider(color: ColorResources.borderColor, height: 1, thickness: 0.5),
         const SizedBox(height: 14),
+
+        // Allergies
+        _labelledBlock(
+          'ALLERGIES',
+          _allergies,
+          ColorResources.negativeColor,
+          Icons.science_outlined,
+        ),
+
+        const SizedBox(height: 12),
+
+        // Contraindications — highlighted
         Text(
           'CONTRAINDICATIONS',
           style: TextStyle(
@@ -432,7 +556,13 @@ class _TherapistAppointmentDetailScreenState
               Expanded(
                 child: Text(
                   _contraindications,
-                  style: AppTextStyles.bodyItalic.copyWith(fontSize: 12),
+                  style: TextStyle(
+                    fontFamily: 'CormorantGaramond',
+                    color: ColorResources.negativeColor.withOpacity(0.8),
+                    fontSize: 13,
+                    fontStyle: FontStyle.italic,
+                    height: 1.45,
+                  ),
                 ),
               ),
             ],
@@ -442,37 +572,78 @@ class _TherapistAppointmentDetailScreenState
     );
   }
 
-  // ── Notes ─────────────────────────────────────────────
+  // ── SKIN OBSERVATION TODAY ────────────────────────────
+  Widget _buildSkinObservation() {
+    if (!_skinObsEditing && _savedSkinObs.isEmpty) {
+      return _emptyState(
+        Icons.edit_note_outlined,
+        'TAP "+ WRITE" TO ADD OBSERVATION',
+      );
+    }
+
+    if (_skinObsEditing) {
+      return Column(
+        children: [
+          _styledTextField(
+            _skinObsController,
+            'Describe today\'s skin condition, reactions, texture, tone...',
+            maxLines: 4,
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: _outlineBtn(
+                  label: 'CANCEL',
+                  onTap: () => setState(() {
+                    _skinObsEditing = false;
+                    _skinObsController.clear();
+                  }),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _primaryBtn(
+                  label: 'SAVE',
+                  onTap: () => setState(() {
+                    _savedSkinObs = _skinObsController.text.trim();
+                    _skinObsEditing = false;
+                  }),
+                ),
+              ),
+            ],
+          ),
+        ],
+      );
+    }
+
+    // Saved state
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: ColorResources.blackColor,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: ColorResources.borderColor, width: 0.5),
+      ),
+      child: Text(
+        _savedSkinObs,
+        style: TextStyle(
+          fontFamily: 'CormorantGaramond',
+          color: ColorResources.whiteColor.withOpacity(0.8),
+          fontSize: 14,
+          height: 1.5,
+        ),
+      ),
+    );
+  }
+
+  // ── NOTES LIST ────────────────────────────────────────
   Widget _buildNotesList() {
     if (_notes.isEmpty) {
-      return Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(vertical: 20),
-        decoration: BoxDecoration(
-          color: ColorResources.blackColor,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: ColorResources.borderColor, width: 0.5),
-        ),
-        child: Column(
-          children: [
-            Icon(
-              Icons.edit_note_outlined,
-              size: 24,
-              color: ColorResources.liteTextColor,
-            ),
-            const SizedBox(height: 6),
-            Text(
-              'NO NOTES YET. TAP + ADD NOTE.',
-          style: TextStyle(
-                fontFamily: 'CormorantGaramond',
-                color: ColorResources.whiteColor,
-                fontSize: 10,
-                fontWeight: FontWeight.w600,
-                letterSpacing: 1.5,
-              ),
-            ),
-          ],
-        ),
+      return _emptyState(
+        Icons.edit_note_outlined,
+        'NO NOTES YET. TAP "+ ADD NOTE".',
       );
     }
 
@@ -505,9 +676,8 @@ class _TherapistAppointmentDetailScreenState
                       ),
                     ),
                   ),
-                  // Edit
                   GestureDetector(
-                    onTap: () => _showAddNoteDialog(index: i),
+                    onTap: () => _showNoteDialog(index: i),
                     child: Icon(
                       Icons.edit_outlined,
                       size: 15,
@@ -515,7 +685,6 @@ class _TherapistAppointmentDetailScreenState
                     ),
                   ),
                   const SizedBox(width: 12),
-                  // Delete
                   GestureDetector(
                     onTap: () => _confirmDeleteNote(i),
                     child: Icon(
@@ -526,11 +695,19 @@ class _TherapistAppointmentDetailScreenState
                   ),
                 ],
               ),
-              const SizedBox(height: 6),
-              Text(
-                note['description']!,
-                style: AppTextStyles.bodyItalic.copyWith(fontSize: 13),
-              ),
+              if (note['description']!.isNotEmpty) ...[
+                const SizedBox(height: 7),
+                Text(
+                  note['description']!,
+                  style: TextStyle(
+                    fontFamily: 'CormorantGaramond',
+                    color: ColorResources.whiteColor.withOpacity(0.6),
+                    fontSize: 13,
+                    fontStyle: FontStyle.italic,
+                    height: 1.45,
+                  ),
+                ),
+              ],
             ],
           ),
         );
@@ -538,101 +715,128 @@ class _TherapistAppointmentDetailScreenState
     );
   }
 
-  // ── Photos ────────────────────────────────────────────
-  Widget _buildPhotoBox(String? photoPath) {
-    if (photoPath != null) {
-      return Container(
-        height: 120,
-        width: double.infinity,
-        decoration: BoxDecoration(
-          color: ColorResources.blackColor,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: ColorResources.borderColor, width: 0.5),
-        ),
-        child: const Center(
-          child: Icon(Icons.image, color: ColorResources.liteTextColor, size: 30),
-        ),
-      );
-    }
-
-    return GestureDetector(
-      onTap: () {},
-      child: Container(
-        height: 100,
-        width: double.infinity,
-        decoration: BoxDecoration(
-          color: ColorResources.blackColor,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(
-            color: ColorResources.borderColor,
-            width: 0.5,
-          ),
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.add_a_photo_outlined,
-              size: 24,
-              color: ColorResources.liteTextColor,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'TAP TO UPLOAD PHOTO',
-              style: TextStyle(
-                fontFamily: 'CormorantGaramond',
-                color: ColorResources.whiteColor,
-                fontSize: 10,
-                fontWeight: FontWeight.w600,
-                letterSpacing: 1.5,
-              ),
-            ),
-          ],
-        ),
-      ),
+  // ── BEFORE & AFTER ────────────────────────────────────
+  Widget _buildBeforeAfter() {
+    return Row(
+      children: [
+        Expanded(child: _photoBox('BEFORE', _beforePhoto, false)),
+        const SizedBox(width: 12),
+        Expanded(child: _photoBox('AFTER', _afterPhoto, true)),
+      ],
     );
   }
 
-  // ── Products ──────────────────────────────────────────
-  Widget _buildProductsList() {
-    if (_productsUsed.isEmpty) {
-      return Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(vertical: 20),
-        decoration: BoxDecoration(
-          color: ColorResources.blackColor,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: ColorResources.borderColor, width: 0.5),
-        ),
-        child: Column(
+  Widget _photoBox(String label, String? photoPath, bool isAfter) {
+    final labelColor = isAfter
+        ? ColorResources.positiveColor
+        : ColorResources.liteTextColor;
+    final borderColor = isAfter
+        ? ColorResources.positiveColor.withOpacity(0.35)
+        : ColorResources.borderColor;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
           children: [
-            Icon(
-              Icons.science_outlined,
-              size: 24,
-              color: ColorResources.liteTextColor,
-            ),
-            const SizedBox(height: 6),
             Text(
-              'NO PRODUCT USED YET.',
-                  style: TextStyle(
+              label,
+              style: TextStyle(
                 fontFamily: 'CormorantGaramond',
-                color: ColorResources.whiteColor,
-                fontSize: 10,
-                fontWeight: FontWeight.w600,
-                letterSpacing: 1.5,
+                color: labelColor,
+                fontSize: 9,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 2.0,
+              ),
+            ),
+            const Spacer(),
+            GestureDetector(
+              onTap: () {},
+              child: Text(
+                photoPath == null ? '+ ADD' : 'REPLACE',
+                style: TextStyle(
+                  fontFamily: 'CormorantGaramond',
+                  color: ColorResources.primaryColor,
+                  fontSize: 9,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 1.5,
+                ),
               ),
             ),
           ],
         ),
+        const SizedBox(height: 6),
+        AspectRatio(
+          aspectRatio: 3 / 4,
+          child: GestureDetector(
+            onTap: () {},
+            child: Container(
+              decoration: BoxDecoration(
+                color: ColorResources.blackColor,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: borderColor, width: 0.5),
+              ),
+              child: photoPath != null
+                  ? ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: Image.asset(
+                        photoPath,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => _photoPlaceholder(),
+                      ),
+                    )
+                  : _photoPlaceholder(),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _photoPlaceholder() {
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(
+          Icons.add_a_photo_outlined,
+          size: 22,
+          color: ColorResources.liteTextColor.withOpacity(0.4),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          'TAP TO ADD',
+          style: TextStyle(
+            fontFamily: 'CormorantGaramond',
+            color: ColorResources.liteTextColor.withOpacity(0.4),
+            fontSize: 9,
+            letterSpacing: 1.5,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ── PRODUCT LIST ──────────────────────────────────────
+  Widget _buildProductList(
+    List<Map<String, dynamic>> products,
+    bool isRecommended,
+  ) {
+    if (products.isEmpty) {
+      return _emptyState(
+        isRecommended ? Icons.recommend_outlined : Icons.science_outlined,
+        isRecommended
+            ? 'NO PRODUCTS RECOMMENDED YET.'
+            : 'NO PRODUCTS USED YET.',
       );
     }
 
     return Column(
-      children: _productsUsed.asMap().entries.map((e) {
+      children: products.asMap().entries.map((e) {
         final p = e.value;
         return Container(
           margin: const EdgeInsets.only(bottom: 8),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
           decoration: BoxDecoration(
             color: ColorResources.blackColor,
             borderRadius: BorderRadius.circular(8),
@@ -643,8 +847,10 @@ class _TherapistAppointmentDetailScreenState
               Container(
                 width: 6,
                 height: 6,
-                decoration: const BoxDecoration(
-                  color: ColorResources.primaryColor,
+                decoration: BoxDecoration(
+                  color: isRecommended
+                      ? ColorResources.primaryColor
+                      : ColorResources.liteTextColor,
                   shape: BoxShape.circle,
                 ),
               ),
@@ -671,7 +877,7 @@ class _TherapistAppointmentDetailScreenState
               ),
               const SizedBox(width: 12),
               GestureDetector(
-                onTap: () => setState(() => _productsUsed.removeAt(e.key)),
+                onTap: () => setState(() => products.removeAt(e.key)),
                 child: Icon(
                   Icons.close_rounded,
                   size: 14,
@@ -685,107 +891,472 @@ class _TherapistAppointmentDetailScreenState
     );
   }
 
-  // ── Next Steps ────────────────────────────────────────
-  Widget _buildNextSteps() {
-    return Row(
+  // ── NEXT SESSION ──────────────────────────────────────
+  Widget _buildNextSession() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Container(
-          padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            color: ColorResources.primaryColor.withOpacity(0.08),
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(
-              color: ColorResources.primaryColor.withOpacity(0.2),
-              width: 0.5,
+        // Current next session from system
+        Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: ColorResources.primaryColor.withOpacity(0.08),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: ColorResources.primaryColor.withOpacity(0.2),
+                  width: 0.5,
+                ),
+              ),
+              child: const Icon(
+                Icons.event_outlined,
+                size: 16,
+                color: ColorResources.primaryColor,
+              ),
             ),
-          ),
-          child: const Icon(
-            Icons.event_outlined,
-            size: 18,
-            color: ColorResources.primaryColor,
+            const SizedBox(width: 14),
+            const Expanded(
+              child: Text(
+                _nextSessionLabel,
+                style: TextStyle(
+                  fontFamily: 'CormorantGaramond',
+                  color: ColorResources.whiteColor,
+                  fontSize: 14,
+                  letterSpacing: 0.3,
+                  height: 1.4,
+                ),
+              ),
+            ),
+          ],
+        ),
+
+        const SizedBox(height: 14),
+        Divider(color: ColorResources.borderColor, height: 1, thickness: 0.5),
+        const SizedBox(height: 14),
+
+        // Therapist suggestion field
+        Text(
+          'THERAPIST NOTE FOR NEXT SESSION',
+          style: TextStyle(
+            fontFamily: 'CormorantGaramond',
+            color: ColorResources.liteTextColor,
+            fontSize: 9,
+            letterSpacing: 2.0,
+            fontWeight: FontWeight.w600,
           ),
         ),
-        const SizedBox(width: 14),
-        const Expanded(
-          child: Text(
-            _nextTreatment,
-            style: TextStyle(
-              fontFamily: 'CormorantGaramond',
-              color: ColorResources.whiteColor,
-              fontSize: 14,
-              letterSpacing: 0.3,
-              height: 1.4,
-            ),
-          ),
+        const SizedBox(height: 8),
+        _styledTextField(
+          TextEditingController(text: _nextSessionSuggestion),
+          'e.g. Focus on décolleté area next session. Bring extra serum.',
+          maxLines: 2,
+          onChanged: (v) => _nextSessionSuggestion = v,
         ),
       ],
     );
   }
 
-
-
-  Widget _buildActionBtn({
-    required String label,
-    required IconData icon,
-    required bool enabled,
-    required bool isPrimary,
-    required VoidCallback onTap,
-  }) {
-    final Color bg = isPrimary
-        ? (enabled
-              ? ColorResources.primaryColor
-              : ColorResources.primaryColor.withOpacity(0.25))
-        : (enabled
-              ? ColorResources.cardColor
-              : ColorResources.cardColor.withOpacity(0.5));
-
-    final Color fg = isPrimary
-        ? (enabled ? Colors.black : Colors.black.withOpacity(0.3))
-        : (enabled
-              ? ColorResources.primaryColor
-              : ColorResources.primaryColor.withOpacity(0.3));
-
-    final Color borderColor = isPrimary
-        ? Colors.transparent
-        : (enabled
-              ? ColorResources.primaryColor.withOpacity(0.5)
-              : ColorResources.borderColor);
-
-    return GestureDetector(
-      onTap: enabled ? onTap : null,
+  // ── FIXED SAVE BAR ────────────────────────────────────
+  Widget _buildSaveBar() {
+    final canSave = _status == 'COMPLETED';
+    return Positioned(
+      bottom: 0,
+      left: 0,
+      right: 0,
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 16),
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
         decoration: BoxDecoration(
-          color: bg,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: borderColor, width: 0.8),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, size: 16, color: fg),
-            const SizedBox(width: 8),
-            Text(
-              label,
-              style: TextStyle(
-                fontFamily: 'CormorantGaramond',
-                color: fg,
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 1.5,
-              ),
+          color: ColorResources.blackColor.withOpacity(0.85),
+          border: Border(
+            top: BorderSide(
+              color: ColorResources.primaryColor.withOpacity(0.15),
+              width: 0.5,
+            ),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.4),
+              blurRadius: 20,
+              offset: const Offset(0, -5),
             ),
           ],
+        ),
+        child: GestureDetector(
+          onTap: canSave
+              ? () => _confirmAction(
+                    title: 'Save Session?',
+                    message:
+                        'Save all notes, photos and product data for this session?',
+                    confirmLabel: 'SAVE',
+                    onConfirm: () {
+                      Get.back();
+                    },
+                  )
+              : null,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 300),
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 18),
+            decoration: BoxDecoration(
+              gradient: canSave
+                  ? LinearGradient(
+                      colors: [
+                        ColorResources.primaryColor,
+                        ColorResources.primaryColor.withValues(alpha: 0.8),
+                      ],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    )
+                  : null,
+              color: canSave ? null : ColorResources.cardColor,
+              borderRadius: BorderRadius.circular(14),
+              border: canSave
+                  ? null
+                  : Border.all(
+                      color: ColorResources.primaryColor.withOpacity(0.2),
+                      width: 1,
+                    ),
+              boxShadow: canSave
+                  ? [
+                      BoxShadow(
+                        color: ColorResources.primaryColor.withOpacity(0.3),
+                        blurRadius: 15,
+                        spreadRadius: 1,
+                        offset: const Offset(0, 4),
+                      ),
+                    ]
+                  : [],
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  canSave
+                      ? Icons.check_circle_outline_rounded
+                      : Icons.lock_outline_rounded,
+                  size: 18,
+                  color: canSave
+                      ? Colors.black
+                      : ColorResources.liteTextColor.withOpacity(0.3),
+                ),
+                const SizedBox(width: 10),
+                Text(
+                  canSave ? 'SAVE & COMPLETE SESSION' : 'COMPLETE SESSION TO SAVE',
+                  style: TextStyle(
+                    fontFamily: 'CormorantGaramond',
+                    color: canSave
+                        ? Colors.black
+                        : ColorResources.liteTextColor.withOpacity(0.3),
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 1.8,
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );
   }
 
-  // ── Confirm Dialog ────────────────────────────────────
-  void _confirmStatusChange({
+  // ─────────────────────────────────────────────────────
+  // SHARED WIDGETS
+  // ─────────────────────────────────────────────────────
+
+  Widget _buildSectionCard({
+    required String label,
+    required Widget child,
+    String? actionLabel,
+    VoidCallback? onAction,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: ColorResources.cardColor,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: ColorResources.borderColor, width: 0.5),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(
+                label,
+                style: const TextStyle(
+                  fontFamily: 'CormorantGaramond',
+                  color: ColorResources.primaryColor,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 2.5,
+                ),
+              ),
+              if (actionLabel != null) ...[
+                const Spacer(),
+                GestureDetector(
+                  onTap: onAction,
+                  child: Text(
+                    actionLabel,
+                    style: TextStyle(
+                      fontFamily: 'CormorantGaramond',
+                      color: ColorResources.primaryColor,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 1.5,
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+          const SizedBox(height: 16),
+          child,
+        ],
+      ),
+    );
+  }
+
+  Widget _emptyState(IconData icon, String message) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 22),
+      decoration: BoxDecoration(
+        color: ColorResources.blackColor,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: ColorResources.borderColor, width: 0.5),
+      ),
+      child: Column(
+        children: [
+          Icon(
+            icon,
+            size: 22,
+            color: ColorResources.liteTextColor.withOpacity(0.35),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            message,
+            style: TextStyle(
+              fontFamily: 'CormorantGaramond',
+              color: ColorResources.liteTextColor.withOpacity(0.45),
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 1.5,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _infoCell(
+    IconData icon,
+    String label,
+    String value,
+    Color valueColor,
+  ) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            fontFamily: 'CormorantGaramond',
+            color: ColorResources.liteTextColor.withOpacity(0.5),
+            fontSize: 9,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 2,
+          ),
+        ),
+        const SizedBox(height: 5),
+        Row(
+          children: [
+            Icon(
+              icon,
+              size: 12,
+              color: ColorResources.liteTextColor.withOpacity(0.45),
+            ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                value,
+                style: TextStyle(
+                  fontFamily: 'CormorantGaramond',
+                  color: valueColor,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                  height: 1.3,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _labelledBlock(
+    String label,
+    String value,
+    Color color,
+    IconData icon,
+  ) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            fontFamily: 'CormorantGaramond',
+            color: color.withOpacity(0.7),
+            fontSize: 9,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 2,
+          ),
+        ),
+        const SizedBox(height: 5),
+        Row(
+          children: [
+            Icon(icon, size: 12, color: color.withOpacity(0.5)),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                value,
+                style: TextStyle(
+                  fontFamily: 'CormorantGaramond',
+                  color: color.withOpacity(0.8),
+                  fontSize: 13,
+                  fontStyle: FontStyle.italic,
+                  height: 1.3,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _styledTextField(
+    TextEditingController ctrl,
+    String hint, {
+    int maxLines = 1,
+    TextInputType keyboardType = TextInputType.text,
+    ValueChanged<String>? onChanged,
+  }) {
+    return TextField(
+      controller: ctrl,
+      maxLines: maxLines,
+      keyboardType: keyboardType,
+      onChanged: onChanged,
+      style: const TextStyle(
+        fontFamily: 'CormorantGaramond',
+        color: ColorResources.whiteColor,
+        fontSize: 14,
+      ),
+      cursorColor: ColorResources.primaryColor,
+      decoration: InputDecoration(
+        hintText: hint,
+        hintStyle: TextStyle(
+          fontFamily: 'CormorantGaramond',
+          color: ColorResources.whiteColor.withOpacity(0.22),
+          fontSize: 13,
+          fontStyle: FontStyle.italic,
+        ),
+        filled: true,
+        fillColor: ColorResources.blackColor,
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 14,
+          vertical: 12,
+        ),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(
+            color: ColorResources.borderColor,
+            width: 0.5,
+          ),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(
+            color: ColorResources.borderColor,
+            width: 0.5,
+          ),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(
+            color: ColorResources.primaryColor,
+            width: 0.8,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _primaryBtn({required String label, required VoidCallback onTap}) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 13),
+        decoration: BoxDecoration(
+          color: ColorResources.primaryColor,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Center(
+          child: Text(
+            label,
+            style: const TextStyle(
+              fontFamily: 'CormorantGaramond',
+              color: Colors.black,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 1.5,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _outlineBtn({required String label, required VoidCallback onTap}) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 13),
+        decoration: BoxDecoration(
+          color: ColorResources.blackColor,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: ColorResources.borderColor, width: 0.5),
+        ),
+        child: Center(
+          child: Text(
+            label,
+            style: TextStyle(
+              fontFamily: 'CormorantGaramond',
+              color: ColorResources.liteTextColor,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 1.5,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ─────────────────────────────────────────────────────
+  // DIALOGS
+  // ─────────────────────────────────────────────────────
+
+  void _confirmAction({
     required String title,
     required String message,
+    required String confirmLabel,
     required VoidCallback onConfirm,
+    bool isDanger = false,
   }) {
     Get.dialog(
       Dialog(
@@ -804,7 +1375,7 @@ class _TherapistAppointmentDetailScreenState
                   color: ColorResources.whiteColor,
                   fontSize: 18,
                   fontWeight: FontWeight.w600,
-                  letterSpacing: 1,
+                  letterSpacing: 0.5,
                 ),
               ),
               const SizedBox(height: 10),
@@ -821,31 +1392,9 @@ class _TherapistAppointmentDetailScreenState
               Row(
                 children: [
                   Expanded(
-                    child: GestureDetector(
+                    child: _outlineBtn(
+                      label: 'CANCEL',
                       onTap: () => Get.back(),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        decoration: BoxDecoration(
-                          color: ColorResources.blackColor,
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(
-                            color: ColorResources.borderColor,
-                            width: 0.5,
-                          ),
-                        ),
-                        child: const Center(
-                          child: Text(
-                            'CANCEL',
-                            style: TextStyle(
-                              fontFamily: 'CormorantGaramond',
-                              color: ColorResources.liteTextColor,
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              letterSpacing: 1.5,
-                            ),
-                          ),
-                        ),
-                      ),
                     ),
                   ),
                   const SizedBox(width: 10),
@@ -856,15 +1405,17 @@ class _TherapistAppointmentDetailScreenState
                         onConfirm();
                       },
                       child: Container(
-                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        padding: const EdgeInsets.symmetric(vertical: 13),
                         decoration: BoxDecoration(
-                          color: ColorResources.primaryColor,
+                          color: isDanger
+                              ? ColorResources.negativeColor
+                              : ColorResources.primaryColor,
                           borderRadius: BorderRadius.circular(8),
                         ),
-                        child: const Center(
+                        child: Center(
                           child: Text(
-                            'CONFIRM',
-                            style: TextStyle(
+                            confirmLabel,
+                            style: const TextStyle(
                               fontFamily: 'CormorantGaramond',
                               color: Colors.black,
                               fontSize: 12,
@@ -885,8 +1436,7 @@ class _TherapistAppointmentDetailScreenState
     );
   }
 
-  // ── Add / Edit Note Dialog ────────────────────────────
-  void _showAddNoteDialog({int? index}) {
+  void _showNoteDialog({int? index}) {
     final titleCtrl = TextEditingController(
       text: index != null ? _notes[index]['title'] : '',
     );
@@ -915,52 +1465,22 @@ class _TherapistAppointmentDetailScreenState
                 ),
               ),
               const SizedBox(height: 16),
-
-              // Title
-              _dialogTextField(titleCtrl, 'Note title...'),
+              _styledTextField(titleCtrl, 'Note title...'),
               const SizedBox(height: 12),
-
-              // Description
-              _dialogTextField(
-                descCtrl,
-                'Write your note here...',
-                maxLines: 4,
-              ),
+              _styledTextField(descCtrl, 'Write details here...', maxLines: 4),
               const SizedBox(height: 20),
-
               Row(
                 children: [
                   Expanded(
-                    child: GestureDetector(
+                    child: _outlineBtn(
+                      label: 'CANCEL',
                       onTap: () => Get.back(),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        decoration: BoxDecoration(
-                          color: ColorResources.blackColor,
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(
-                            color: ColorResources.borderColor,
-                            width: 0.5,
-                          ),
-                        ),
-                        child: const Center(
-                          child: Text(
-                            'CANCEL',
-                            style: TextStyle(
-                              fontFamily: 'CormorantGaramond',
-                              color: ColorResources.liteTextColor,
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              letterSpacing: 1.5,
-                            ),
-                          ),
-                        ),
-                      ),
                     ),
                   ),
                   const SizedBox(width: 10),
                   Expanded(
-                    child: GestureDetector(
+                    child: _primaryBtn(
+                      label: index != null ? 'UPDATE' : 'SAVE',
                       onTap: () {
                         if (titleCtrl.text.trim().isEmpty) return;
                         setState(() {
@@ -976,25 +1496,6 @@ class _TherapistAppointmentDetailScreenState
                         });
                         Get.back();
                       },
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        decoration: BoxDecoration(
-                          color: ColorResources.primaryColor,
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Center(
-                          child: Text(
-                            index != null ? 'UPDATE' : 'SAVE',
-                            style: const TextStyle(
-                              fontFamily: 'CormorantGaramond',
-                              color: Colors.black,
-                              fontSize: 12,
-                              fontWeight: FontWeight.w700,
-                              letterSpacing: 1.5,
-                            ),
-                          ),
-                        ),
-                      ),
                     ),
                   ),
                 ],
@@ -1006,108 +1507,17 @@ class _TherapistAppointmentDetailScreenState
     );
   }
 
-  // ── Delete Note Confirm ───────────────────────────────
   void _confirmDeleteNote(int index) {
-    Get.dialog(
-      Dialog(
-        backgroundColor: ColorResources.cardColor,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'DELETE NOTE',
-                style: TextStyle(
-                  fontFamily: 'CormorantGaramond',
-                  color: ColorResources.whiteColor,
-                  fontSize: 18,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 1,
-                ),
-              ),
-              const SizedBox(height: 10),
-              Text(
-                'Are you sure you want to delete this note?',
-                style: TextStyle(
-                  fontFamily: 'CormorantGaramond',
-                  color: ColorResources.liteTextColor.withOpacity(0.7),
-                  fontSize: 14,
-                  height: 1.5,
-                ),
-              ),
-              const SizedBox(height: 24),
-              Row(
-                children: [
-                  Expanded(
-                    child: GestureDetector(
-                      onTap: () => Get.back(),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        decoration: BoxDecoration(
-                          color: ColorResources.blackColor,
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(
-                            color: ColorResources.borderColor,
-                            width: 0.5,
-                          ),
-                        ),
-                        child: const Center(
-                          child: Text(
-                            'CANCEL',
-                            style: TextStyle(
-                              fontFamily: 'CormorantGaramond',
-                              color: ColorResources.liteTextColor,
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              letterSpacing: 1.5,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: GestureDetector(
-                      onTap: () {
-                        setState(() => _notes.removeAt(index));
-                        Get.back();
-                      },
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        decoration: BoxDecoration(
-                          color: ColorResources.negativeColor.withOpacity(0.8),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: const Center(
-                          child: Text(
-                            'DELETE',
-                            style: TextStyle(
-                              fontFamily: 'CormorantGaramond',
-                              color: Colors.white,
-                              fontSize: 12,
-                              fontWeight: FontWeight.w700,
-                              letterSpacing: 1.5,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
+    _confirmAction(
+      title: 'Delete Note?',
+      message: 'This note will be permanently removed.',
+      confirmLabel: 'DELETE',
+      isDanger: true,
+      onConfirm: () => setState(() => _notes.removeAt(index)),
     );
   }
 
-  // ── Product Picker ────────────────────────────────────
-  void _showProductPicker() {
+  void _showProductPicker({required bool isRecommended}) {
     final searchCtrl = TextEditingController();
     List<Map<String, dynamic>> filtered = List.from(_clinicProducts);
     final qtyCtrl = TextEditingController(text: '1');
@@ -1126,9 +1536,9 @@ class _TherapistAppointmentDetailScreenState
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  'SELECT PRODUCT',
-                  style: TextStyle(
+                Text(
+                  isRecommended ? 'RECOMMEND PRODUCT' : 'ADD PRODUCT USED',
+                  style: const TextStyle(
                     fontFamily: 'CormorantGaramond',
                     color: ColorResources.primaryColor,
                     fontSize: 11,
@@ -1138,8 +1548,7 @@ class _TherapistAppointmentDetailScreenState
                 ),
                 const SizedBox(height: 14),
 
-                // Search
-                _dialogTextField(
+                _styledTextField(
                   searchCtrl,
                   'Search product...',
                   onChanged: (v) {
@@ -1156,9 +1565,8 @@ class _TherapistAppointmentDetailScreenState
                 ),
                 const SizedBox(height: 10),
 
-                // Product list
                 SizedBox(
-                  height: 180,
+                  height: 190,
                   child: ListView.builder(
                     itemCount: filtered.length,
                     itemBuilder: (_, i) {
@@ -1215,13 +1623,12 @@ class _TherapistAppointmentDetailScreenState
                   ),
                 ),
 
-                // Quantity
                 if (selectedProduct != null) ...[
                   const SizedBox(height: 12),
                   Row(
                     children: [
                       Text(
-                        'QUANTITY (${selectedProduct!['unit']})',
+                        'QTY (${selectedProduct!['unit']})',
                         style: TextStyle(
                           fontFamily: 'CormorantGaramond',
                           color: ColorResources.liteTextColor.withOpacity(0.5),
@@ -1230,9 +1637,9 @@ class _TherapistAppointmentDetailScreenState
                           letterSpacing: 2,
                         ),
                       ),
-                      const SizedBox(width: 16),
+                      const SizedBox(width: 14),
                       Expanded(
-                        child: _dialogTextField(
+                        child: _styledTextField(
                           qtyCtrl,
                           '1',
                           keyboardType: TextInputType.number,
@@ -1246,66 +1653,26 @@ class _TherapistAppointmentDetailScreenState
                 Row(
                   children: [
                     Expanded(
-                      child: GestureDetector(
+                      child: _outlineBtn(
+                        label: 'CANCEL',
                         onTap: () => Get.back(),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(vertical: 13),
-                          decoration: BoxDecoration(
-                            color: ColorResources.blackColor,
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(
-                              color: ColorResources.borderColor,
-                              width: 0.5,
-                            ),
-                          ),
-                          child: const Center(
-                            child: Text(
-                              'CANCEL',
-                              style: TextStyle(
-                                fontFamily: 'CormorantGaramond',
-                                color: ColorResources.liteTextColor,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                                letterSpacing: 1.5,
-                              ),
-                            ),
-                          ),
-                        ),
                       ),
                     ),
                     const SizedBox(width: 10),
                     Expanded(
-                      child: GestureDetector(
+                      child: _primaryBtn(
+                        label: 'ADD',
                         onTap: () {
                           if (selectedProduct == null) return;
                           setState(() {
-                            _productsUsed.add({
+                            final entry = {
                               'name': selectedProduct!['name'],
                               'unit': selectedProduct!['unit'],
                               'quantity': int.tryParse(qtyCtrl.text) ?? 1,
-                            });
+                            };
                           });
                           Get.back();
                         },
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(vertical: 13),
-                          decoration: BoxDecoration(
-                            color: ColorResources.primaryColor,
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: const Center(
-                            child: Text(
-                              'ADD',
-                              style: TextStyle(
-                                fontFamily: 'CormorantGaramond',
-                                color: Colors.black,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w700,
-                                letterSpacing: 1.5,
-                              ),
-                            ),
-                          ),
-                        ),
                       ),
                     ),
                   ],
@@ -1317,192 +1684,160 @@ class _TherapistAppointmentDetailScreenState
       ),
     );
   }
+}
 
-  // ── Dialog TextField ──────────────────────────────────
-  Widget _dialogTextField(
-    TextEditingController ctrl,
-    String hint, {
-    int maxLines = 1,
-    TextInputType keyboardType = TextInputType.text,
-    ValueChanged<String>? onChanged,
-  }) {
-    return TextField(
-      controller: ctrl,
-      maxLines: maxLines,
-      keyboardType: keyboardType,
-      onChanged: onChanged,
-      style: const TextStyle(
-        fontFamily: 'CormorantGaramond',
-        color: ColorResources.whiteColor,
-        fontSize: 14,
-      ),
-      cursorColor: ColorResources.primaryColor,
-      decoration: InputDecoration(
-        hintText: hint,
-        hintStyle: TextStyle(
-          fontFamily: 'CormorantGaramond',
-          color: ColorResources.whiteColor.withOpacity(0.25),
-          fontSize: 14,
-          fontStyle: FontStyle.italic,
-        ),
-        filled: true,
-        fillColor: ColorResources.blackColor,
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: 14,
-          vertical: 12,
-        ),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(
-            color: ColorResources.borderColor,
-            width: 0.5,
-          ),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(
-            color: ColorResources.borderColor,
-            width: 0.5,
-          ),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(
-            color: ColorResources.primaryColor,
-            width: 0.8,
-          ),
-        ),
-      ),
-    );
-  }
+// ── Action Button ──────────────────────────────────────────
+class _ActionBtn extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final bool enabled;
+  final bool isPrimary;
+  final VoidCallback onTap;
 
-  // ── Section Card ──────────────────────────────────────
-  Widget _buildSection({
-    required String label,
-    required Widget child,
-    String? actionLabel,
-    VoidCallback? onAction,
-  }) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: ColorResources.cardColor,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: ColorResources.borderColor, width: 0.5),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                label,
-                style: const TextStyle(
-                  fontFamily: 'CormorantGaramond',
-                  color: ColorResources.primaryColor,
-                  fontSize: 10,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 2.5,
+  const _ActionBtn({
+    required this.label,
+    required this.icon,
+    required this.enabled,
+    required this.isPrimary,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: enabled ? onTap : null,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(vertical: 16),
+        decoration: BoxDecoration(
+          gradient: isPrimary && enabled
+              ? LinearGradient(
+                  colors: [
+                    ColorResources.primaryColor,
+                    ColorResources.primaryColor.withValues(alpha: 0.8),
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                )
+              : null,
+          color: isPrimary
+              ? (enabled ? null : ColorResources.primaryColor.withOpacity(0.08))
+              : (enabled
+                  ? ColorResources.cardColor
+                  : ColorResources.cardColor.withOpacity(0.5)),
+          borderRadius: BorderRadius.circular(12),
+          border: isPrimary
+              ? (enabled
+                  ? null
+                  : Border.all(
+                      color: ColorResources.primaryColor.withOpacity(0.15),
+                      width: 1,
+                    ))
+              : Border.all(
+                  color: enabled
+                      ? ColorResources.primaryColor.withOpacity(0.4)
+                      : ColorResources.borderColor,
+                  width: 1,
                 ),
-              ),
-              if (actionLabel != null)
-                GestureDetector(
-                  onTap: onAction,
-                  child: Text(
-                    actionLabel,
-                    style: TextStyle(
-                      fontFamily: 'CormorantGaramond',
-                      color: ColorResources.primaryColor,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 1.5,
-                    ),
+          boxShadow: isPrimary && enabled
+              ? [
+                  BoxShadow(
+                    color: ColorResources.primaryColor.withOpacity(0.25),
+                    blurRadius: 12,
+                    offset: const Offset(0, 4),
                   ),
-                ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          child,
-        ],
-      ),
-    );
-  }
-
-  // ── Info Row ──────────────────────────────────────────
-  Widget _infoRow(IconData icon, String label, String value) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label.toUpperCase(),
-          style: TextStyle(
-            fontFamily: 'CormorantGaramond',
-            color: ColorResources.liteTextColor.withOpacity(0.5),
-            fontSize: 9,
-            fontWeight: FontWeight.w600,
-            letterSpacing: 2,
-          ),
+                ]
+              : null,
         ),
-        const SizedBox(height: 5),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(
               icon,
-              size: 13,
-              color: ColorResources.liteTextColor.withOpacity(0.5),
+              size: 16,
+              color: isPrimary
+                  ? (enabled
+                      ? Colors.black
+                      : ColorResources.primaryColor.withOpacity(0.3))
+                  : (enabled
+                      ? ColorResources.primaryColor
+                      : ColorResources.primaryColor.withOpacity(0.3)),
             ),
-            const SizedBox(width: 7),
-            Expanded(
-              child: Text(
-                value,
-                style: const TextStyle(
-                  fontFamily: 'CormorantGaramond',
-                  color: ColorResources.whiteColor,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w400,
-                  letterSpacing: 0.2,
-                  height: 1.3,
-                ),
+            const SizedBox(width: 8),
+            Text(
+              label,
+              style: TextStyle(
+                fontFamily: 'CormorantGaramond',
+                color: isPrimary
+                    ? (enabled
+                        ? Colors.black
+                        : ColorResources.primaryColor.withOpacity(0.3))
+                    : (enabled
+                        ? ColorResources.primaryColor
+                        : ColorResources.primaryColor.withOpacity(0.3)),
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 1.5,
               ),
             ),
           ],
         ),
-      ],
+      ),
     );
   }
+}
 
-  // ── Status Badge ──────────────────────────────────────
-  Widget _buildStatusBadge(String status) {
-    Color color;
+// ── Status Badge ───────────────────────────────────────────
+class _StatusBadge extends StatelessWidget {
+  final String status;
+  const _StatusBadge({required this.status});
+
+  Color get _color {
     switch (status) {
       case 'COMPLETED':
-        color = const Color(0xFF5C7A5C);
-        break;
+        return const Color(0xFF5C7A5C);
       case 'IN SESSION':
-        color = ColorResources.primaryColor;
-        break;
+        return ColorResources.primaryColor;
       default:
-        color = const Color(0xFF6A6A6A);
+        return const Color(0xFF6A6A6A);
     }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.12),
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: color.withOpacity(0.4), width: 0.8),
-      ),
-      child: Text(
-        status,
-        style: TextStyle(
-          fontFamily: 'CormorantGaramond',
-          color: color,
-          fontSize: 10,
-          fontWeight: FontWeight.w700,
-          letterSpacing: 2,
+        color: _color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: _color.withOpacity(0.3),
+          width: 1,
         ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 6,
+            height: 6,
+            decoration: BoxDecoration(
+              color: _color,
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            status,
+            style: TextStyle(
+              fontFamily: 'CormorantGaramond',
+              color: _color,
+              fontSize: 10,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 1.5,
+            ),
+          ),
+        ],
       ),
     );
   }

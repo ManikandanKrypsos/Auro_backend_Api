@@ -1,5 +1,3 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-
 class PatientModel {
   final String id;
   final String name;
@@ -55,7 +53,9 @@ class PatientModel {
       image: json['image'] ?? '',
       category: json['category'] ?? 'New',
       createdAt: json['createdAt'] != null
-          ? (json['createdAt'] as Timestamp).toDate()
+          ? (json['createdAt'] is String 
+              ? DateTime.parse(json['createdAt']) 
+              : json['createdAt'] as DateTime)
           : null,
     );
   }
@@ -76,9 +76,7 @@ class PatientModel {
       'marketingSource': marketingSource,
       'image': image,
       'category': category,
-      'createdAt': createdAt != null
-          ? Timestamp.fromDate(createdAt!)
-          : FieldValue.serverTimestamp(),
+      'createdAt': createdAt?.toIso8601String(),
     };
   }
 }

@@ -5,11 +5,8 @@ import 'package:get/route_manager.dart';
 
 import 'app/routes/names.dart';
 
-import 'package:firebase_core/firebase_core.dart';
-
-void main() async {
+void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp();
   runApp(const MyApp());
 }
 

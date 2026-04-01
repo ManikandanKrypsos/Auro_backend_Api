@@ -1,17 +1,12 @@
-import 'dart:async';
 import 'package:bloc/bloc.dart';
 import '../model/patient_model.dart';
-import '../service/patient_firestore_service.dart';
+import '../service/static_patient_data.dart';
 
 part 'patient_state.dart';
 
 class PatientCubit extends Cubit<PatientState> {
-  final PatientFirestoreService _firestoreService;
-  StreamSubscription<List<PatientModel>>? _patientSubscription;
-
-  PatientCubit({PatientFirestoreService? firestoreService})
-      : _firestoreService = firestoreService ?? PatientFirestoreService(),
-        super(const PatientState(
+  PatientCubit()
+      : super(const PatientState(
           allPatients: [],
           filteredPatients: [],
           selectedTab: 0,
@@ -24,22 +19,17 @@ class PatientCubit extends Cubit<PatientState> {
   void _init() {
     emit(state.copyWith(status: PatientStatus.loading));
     
-    _patientSubscription = _firestoreService.getPatientsStream().listen(
-      (patients) {
-        emit(state.copyWith(
-          allPatients: patients,
-          status: PatientStatus.loaded,
-        ));
-        // Re-apply filter whenever data updates
-        _applyCurrentFilter();
-      },
-      onError: (error) {
-        emit(state.copyWith(
-          status: PatientStatus.error,
-          errorMessage: error.toString(),
-        ));
-      },
-    );
+    // Simulate data loading from static repository
+    final patients = StaticPatientData.patients;
+    emit(state.copyWith(
+      allPatients: patients,
+      status: PatientStatus.loaded,
+    ));
+    _applyCurrentFilter();
+  }
+
+  void refresh() {
+    _init();
   }
 
   void selectTab(int index) {
@@ -75,11 +65,5 @@ class PatientCubit extends Cubit<PatientState> {
     }).toList();
 
     emit(state.copyWith(filteredPatients: filtered));
-  }
-
-  @override
-  Future<void> close() {
-    _patientSubscription?.cancel();
-    return super.close();
   }
 }

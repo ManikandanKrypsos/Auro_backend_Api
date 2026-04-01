@@ -12,39 +12,8 @@ class PhotosTab extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ── Upload button ────────────────────────────
-          GestureDetector(
-            onTap: () {},
-            child: Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(vertical: 14),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(
-                  color: ColorResources.primaryColor.withOpacity(0.4),
-                  width: 0.5,
-                ),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.upload_outlined,
-                      color: ColorResources.primaryColor, size: 14),
-                  const SizedBox(width: 8),
-                  Text('UPLOAD PHOTOS',
-                      style: TextStyle(
-                        fontFamily: 'CormorantGaramond',
-                        color: ColorResources.primaryColor,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: 2.0,
-                      )),
-                ],
-              ),
-            ),
-          ),
+      
 
-          const SizedBox(height: 24),
 
           Text('BEFORE & AFTER',
               style: AppTextStyles.headingSmall.copyWith(

@@ -16,14 +16,33 @@ class ReceptionistBottomNavBar extends StatelessWidget {
         return AppBottomNavBar(
           activeIndex: state.activeTab.index,
           items: [
-            NavItemData(icon: Icons.grid_view_rounded,   label: 'DASH',     onTap: () => cubit.selectTab(ReceptionistTab.dashboard)),
-            NavItemData(icon: Icons.calendar_month,      label: 'SCHEDULES', onTap: () => cubit.selectTab(ReceptionistTab.schedule)),
-            NavItemData(icon: Icons.person,      label: 'PATIENTS', onTap: () => cubit.selectTab(ReceptionistTab.patients)),
-                        NavItemData(icon: Icons.receipt  ,   label: 'PAYMENTS',     onTap: () => cubit.selectTab(ReceptionistTab.paymnets)),
+            NavItemData(
+              icon: Icons.grid_view_rounded,
+              label: 'DASH',
+              onTap: () => cubit.selectTab(ReceptionistTab.dashboard),
+            ),
+            NavItemData(
+              icon: Icons.calendar_month,
+              label: 'SCHEDULES',
+              onTap: () => cubit.selectTab(ReceptionistTab.schedule),
+            ),
+            NavItemData(
+              icon: Icons.person,
+              label: 'PATIENTS',
+              onTap: () => cubit.selectTab(ReceptionistTab.patients),
+            ),
+            NavItemData(
+              icon: Icons.receipt,
+              label: 'PAYMENTS',
+              onTap: () => cubit.selectTab(ReceptionistTab.paymnets),
+            ),
 
-            NavItemData(icon: Icons.settings,       label: 'SETTINGS', onTap: () => cubit.selectTab(ReceptionistTab.settings)),
+            NavItemData(
+              icon: Icons.settings,
+              label: 'SETTINGS',
+              onTap: () => cubit.selectTab(ReceptionistTab.settings),
+            ),
           ],
-   
         );
       },
     );

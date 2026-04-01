@@ -410,52 +410,25 @@ class _AppointmentDetailScreenState extends State<AppointmentDetailScreen> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (_status == 'UPCOMING') ...[
-            PrimaryButton(
-              label: 'CHECK IN PATIENT',
-              onTap: () => setState(() => _status = 'ARRIVED'),
-            ),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(
-                  child: SecondaryButton(
-                    title: 'CANCEL',
-                    icon: Icons.cancel_outlined,
-                    onTap: () => setState(() => _status = 'CANCELLED'),
-                  ),
+          Row(
+            children: [
+              Expanded(
+                child: SecondaryButton(
+                  onTap: () {}, 
+                  title: "CANCEL",
+                  height: 48,
                 ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: SecondaryButton(
-                    title: 'RESCHEDULE',
-                    icon: Icons.edit_calendar_outlined,
-                    onTap: () {},
-                  ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: PrimaryButton(
+                  label: "RESCHEDULE", 
+                  onTap: () {},
+                  height: 48,
                 ),
-              ],
-            ),
-          ],
-          if (_status == 'ARRIVED')
-            PrimaryButton(
-              label: 'START SESSION',
-              onTap: () => setState(() => _status = 'IN SESSION'),
-            ),
-          if (_status == 'IN SESSION')
-            PrimaryButton(
-              label: 'MARK AS COMPLETED',
-              onTap: () => setState(() => _status = 'COMPLETED'),
-            ),
-          if (_status == 'COMPLETED')
-            SecondaryButton(
-              title: 'VIEW SESSION SUMMARY',
-              onTap: () {},
-            ),
-          if (_status == 'CANCELLED')
-            SecondaryButton(
-              title: 'REBOOK APPOINTMENT',
-              onTap: () {},
-            ),
+              )
+            ],
+          ),
         ],
       ),
     );

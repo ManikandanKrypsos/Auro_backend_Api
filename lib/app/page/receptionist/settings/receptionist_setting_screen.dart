@@ -1,45 +1,118 @@
+import 'package:aura/app/widgets/custom_appbar.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_bloc/flutter_bloc.dart';
-import '../../../../theme/color/color.dart';
-import '../../../admin/patient/view/patient_list_screen.dart';
-import '../../../admin/payemt/view/payment_list_screen.dart';
-import '../../Appointments/view/Appointment_list_screen.dart';
-import '../../dashboard/view/receptionist_dashboard.dart';
-import '../../settings/receptionist_setting_screen.dart';
-import '../cubit/receptionist_nav_cubit.dart';
-import '../view/receptionist_bottom_nav_bar.dart';
+import 'package:get/get.dart';
 
-class ReceptionistMainScreen extends StatelessWidget {
-  const ReceptionistMainScreen({super.key});
+import '../../../routes/names.dart';
+import '../../../theme/color/color.dart';
+import '../../../widgets/alert_button.dart';
 
-  static const _pages = <Widget>[
-    ReceptionistDashboard(),
-    AppointmentListScreen(),
-    PatientsScreen(),
-    PaymentListScreen(),
-    ReceptionistSettingsScreen(),
-  ];
+class ReceptionistSettingsScreen extends StatelessWidget {
+  const ReceptionistSettingsScreen({super.key});
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: CustomAppBar(title: "SETTINGS"),
+    body: Padding(
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _SectionLabel('PREFERENCES'),
+          const SizedBox(height: 12),
+          _SettingsGroup(
+            items: [
+              _SettingTile(
+                icon: Icons.person_outline,
+                label: 'My Profile',
+                subtitle: 'Account & personal info',
+              ),
+              _SettingTile(
+                icon: Icons.notifications_none_outlined,
+                label: 'Notifications',
+                subtitle: 'Manage alerts',
+              ),
+            ],
+          ),
 
+          const SizedBox(height: 32),
+
+          _SectionLabel('CLINIC'),
+          const SizedBox(height: 12),
+          _ClinicInfoCard(),
+
+          const SizedBox(height: 32),
+
+          Spacer(),
+
+          // ── Log Out ─────────────────────────────
+          AlertButton(
+            onTap: () {
+              Get.offAllNamed(PageRoutes.selectRoleScreen);
+            },
+            text: 'LOG OUT',
+          ),
+
+          const SizedBox(height: 36),
+        ],
+      ),
+    ),
+  );
+}
+
+// ── CLINIC INFO CARD ───────────────────────────────────────
+class _ClinicInfoCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    return BlocProvider(
-      create: (_) => ReceptionistNavCubit(),
-      child: BlocBuilder<ReceptionistNavCubit, ReceptionistNavState>(
-        builder: (context, state) {
-          return Scaffold(
-            backgroundColor: const Color(0xFF0A0A0A),
-            body: IndexedStack(
-              index: state.activeTab.index,
-              children: _pages,
-            ),
-            bottomNavigationBar: const ReceptionistBottomNavBar(),
-          );
-        },
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: ColorResources.cardColor,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: ColorResources.primaryColor.withOpacity(0.2),
+          width: 0.5,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.2),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                "A U R A",
+                style: const TextStyle(
+                  fontFamily: 'CormorantGaramond',
+                  color: ColorResources.primaryColor,
+                  fontSize: 20,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 4,
+                ),
+              ),
+              Icon(
+                Icons.verified_user_outlined,
+                color: ColorResources.primaryColor.withOpacity(0.5),
+                size: 18,
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          _ClinicDetailRow(icon: Icons.location_on_outlined, text: "MG Road, Kochi, Kerala"),
+          const SizedBox(height: 10),
+          _ClinicDetailRow(icon: Icons.phone_outlined, text: "+91 98765 43210"),
+          const SizedBox(height: 10),
+          _ClinicDetailRow(icon: Icons.access_time_outlined, text: "Mon - Sat : 9:00 AM - 6:00 PM"),
+        ],
       ),
     );
   }
 }
-
 
 class _ClinicDetailRow extends StatelessWidget {
   final IconData icon;
