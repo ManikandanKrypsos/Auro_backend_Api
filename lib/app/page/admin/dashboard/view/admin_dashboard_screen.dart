@@ -104,6 +104,16 @@ class AdminDashboardScreen extends StatelessWidget {
 
               const SizedBox(height: 20),
 
+              // Rebooking & Cancellation (Pie Charts)
+              const _RebookingCancellationSection(),
+
+              const SizedBox(height: 20),
+
+              // Lead Concentration
+              const _LeadConcentrationSection(),
+
+              const SizedBox(height: 20),
+
               // Best Selling Services
               _BestSellingServices(),
 
@@ -611,6 +621,291 @@ class _TherapistRow extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+// ── REBOOKING & CANCELLATION SECTION ────────────────────────
+class _RebookingCancellationSection extends StatelessWidget {
+  const _RebookingCancellationSection();
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: _MetricPieCard(
+            title: 'REBOOKING RATE',
+            percentage: 68,
+            activeColor: ColorResources.primaryColor,
+            label: 'REBOOKED',
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: _MetricPieCard(
+            title: 'CANCELLATION',
+            percentage: 12,
+            activeColor: ColorResources.negativeColor,
+            label: 'CANCELLED',
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _MetricPieCard extends StatelessWidget {
+  final String title;
+  final double percentage;
+  final Color activeColor;
+  final String label;
+
+  const _MetricPieCard({
+    required this.title,
+    required this.percentage,
+    required this.activeColor,
+    required this.label,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: ColorResources.cardColor,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: ColorResources.borderColor, width: 0.5),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: AppTextStyles.headingSmall.copyWith(fontSize: 10)),
+          const SizedBox(height: 20),
+          Center(
+            child: SizedBox(
+              height: 100,
+              width: 100,
+              child: Stack(
+                children: [
+                  PieChart(
+                    PieChartData(
+                      sectionsSpace: 0,
+                      centerSpaceRadius: 35,
+                      startDegreeOffset: -90,
+                      sections: [
+                        PieChartSectionData(
+                          color: activeColor,
+                          value: percentage,
+                          radius: 8,
+                          showTitle: false,
+                        ),
+                        PieChartSectionData(
+                          color: ColorResources.whiteColor.withOpacity(0.05),
+                          value: 100 - percentage,
+                          radius: 6,
+                          showTitle: false,
+                        ),
+                      ],
+                    ),
+                  ),
+                  Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          '${percentage.toInt()}%',
+                          style: const TextStyle(
+                            fontFamily: 'CormorantGaramond',
+                            color: ColorResources.whiteColor,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w400,
+                          ),
+                        ),
+                        Text(
+                          label,
+                          style: TextStyle(
+                            fontFamily: 'CormorantGaramond',
+                            color: ColorResources.liteTextColor,
+                            fontSize: 7,
+                            letterSpacing: 0.5,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── LEAD CONCENTRATION SECTION ──────────────────────────────
+class _LeadConcentrationSection extends StatelessWidget {
+  const _LeadConcentrationSection();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: ColorResources.cardColor,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: ColorResources.borderColor, width: 0.5),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('LEAD CONCENTRATION', style: AppTextStyles.headingSmall),
+          const SizedBox(height: 24),
+          Row(
+            children: [
+              SizedBox(
+                height: 140,
+                width: 140,
+                child: PieChart(
+                  PieChartData(
+                    sectionsSpace: 4,
+                    centerSpaceRadius: 0,
+                    sections: [
+                      PieChartSectionData(
+                        color: ColorResources.primaryColor,
+                        value: 40,
+                        title: '40%',
+                        radius: 70,
+                        titleStyle: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                      ),
+                      PieChartSectionData(
+                        color: ColorResources.primaryColor.withOpacity(0.6),
+                        value: 25,
+                        title: '25%',
+                        radius: 65,
+                        titleStyle: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                      ),
+                      PieChartSectionData(
+                        color: ColorResources.primaryColor.withOpacity(0.3),
+                        value: 20,
+                        title: '20%',
+                        radius: 60,
+                        titleStyle: const TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                      ),
+                      PieChartSectionData(
+                        color: ColorResources.borderColor,
+                        value: 15,
+                        title: '15%',
+                        radius: 55,
+                        titleStyle: const TextStyle(
+                          fontSize: 9,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white60,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 30),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _LeadLegendItem(
+                      label: 'INSTAGRAM',
+                      percentage: '40%',
+                      color: ColorResources.primaryColor,
+                    ),
+                    const SizedBox(height: 10),
+                    _LeadLegendItem(
+                      label: 'GOOGLE ADS',
+                      percentage: '25%',
+                      color: ColorResources.primaryColor.withOpacity(0.6),
+                    ),
+                    const SizedBox(height: 10),
+                    _LeadLegendItem(
+                      label: 'WEBSITE',
+                      percentage: '20%',
+                      color: ColorResources.primaryColor.withOpacity(0.3),
+                    ),
+                    const SizedBox(height: 10),
+                    _LeadLegendItem(
+                      label: 'REFERRALS',
+                      percentage: '15%',
+                      color: ColorResources.borderColor,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LeadLegendItem extends StatelessWidget {
+  final String label;
+  final String percentage;
+  final Color color;
+
+  const _LeadLegendItem({
+    required this.label,
+    required this.percentage,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Container(
+          width: 8,
+          height: 8,
+          decoration: BoxDecoration(
+            color: color,
+            shape: BoxShape.circle,
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            label,
+            style: TextStyle(
+              fontFamily: 'CormorantGaramond',
+              color: ColorResources.whiteColor.withOpacity(0.6),
+              fontSize: 10,
+              letterSpacing: 1.0,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+        Text(
+          percentage,
+          style: const TextStyle(
+            fontFamily: 'CormorantGaramond',
+            color: ColorResources.whiteColor,
+            fontSize: 11,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      ],
     );
   }
 }

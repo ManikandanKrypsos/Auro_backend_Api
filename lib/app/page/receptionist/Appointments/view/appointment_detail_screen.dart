@@ -64,7 +64,11 @@ class _AppointmentDetailScreenState extends State<AppointmentDetailScreen> {
               child: _buildTherapistRoom(),
             ),
             const SizedBox(height: 14),
-
+    _buildSection(
+              label: 'CONSENT',
+              child: _buildConsent(),
+            ),
+            const SizedBox(height: 14),
             // 5️⃣ Notes
             _buildSection(label: 'NOTES', child: _buildNotes()),
             const SizedBox(height: 14),
@@ -337,7 +341,154 @@ class _AppointmentDetailScreenState extends State<AppointmentDetailScreen> {
           style: AppTextStyles.bodyItalic.copyWith(fontSize: 13)),
     );
   }
-
+ // ── 4️⃣ Therapist & Room ──────────────────────────────
+static const _consentStatus = 'PENDING'; // 'SIGNED' | 'PENDING' | 'MISSING'
+ 
+  Widget _buildConsent() {
+    // ── Resolve colors + label from status ──────────────
+    Color dotColor;
+    Color labelColor;
+    String statusLabel;
+    String subLabel;
+    IconData statusIcon;
+ 
+    switch (_consentStatus) {
+      case 'SIGNED':
+        dotColor    = const Color(0xFF5C7A5C);
+        labelColor  = const Color(0xFF5C7A5C);
+        statusLabel = 'SIGNED';
+        subLabel    = 'Consent form on file';
+        statusIcon  = Icons.check_circle_outline;
+        break;
+      case 'MISSING':
+        dotColor    = ColorResources.negativeColor;
+        labelColor  = ColorResources.negativeColor;
+        statusLabel = 'MISSING';
+        subLabel    = 'No consent form recorded';
+        statusIcon  = Icons.error_outline;
+        break;
+      default: // PENDING
+        dotColor    = ColorResources.primaryColor;
+        labelColor  = ColorResources.primaryColor;
+        statusLabel = 'PENDING';
+        subLabel    = 'Awaiting signed form';
+        statusIcon  = Icons.radio_button_unchecked;
+    }
+ 
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // ── Status row ───────────────────────────────
+        Row(
+          children: [
+            // Dot
+            Container(
+              width: 8,
+              height: 8,
+              decoration: BoxDecoration(
+                color: dotColor,
+                shape: BoxShape.circle,
+              ),
+            ),
+            const SizedBox(width: 10),
+ 
+            // Status label
+            Text(
+              statusLabel,
+              style: TextStyle(
+                fontFamily: 'CormorantGaramond',
+                color: labelColor,
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 1.5,
+              ),
+            ),
+ 
+            const SizedBox(width: 8),
+ 
+            // Sub label
+            Text(
+              '· $subLabel',
+              style: TextStyle(
+                fontFamily: 'CormorantGaramond',
+                color: ColorResources.liteTextColor,
+                fontSize: 13,
+                fontStyle: FontStyle.italic,
+              ),
+            ),
+          ],
+        ),
+ 
+        const SizedBox(height: 14),
+ 
+        // ── Action row ───────────────────────────────
+        // Shows 'View Form' when SIGNED, 'Upload Form' when PENDING/MISSING
+        GestureDetector(
+          onTap: () {
+            // Navigate to Patient Detail, open CONSENT tab (index 4)
+            // Get.toNamed(PageRoutes.patientDetailScreen,
+            //   arguments: patient,
+            //   parameters: {'tab': '4'},
+            // );
+          },
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 13),
+            decoration: BoxDecoration(
+              color: _consentStatus == 'SIGNED'
+                  ? Colors.transparent
+                  : ColorResources.primaryColor.withOpacity(0.06),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: _consentStatus == 'SIGNED'
+                    ? ColorResources.borderColor
+                    : ColorResources.primaryColor.withOpacity(0.4),
+                width: 0.5,
+              ),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  _consentStatus == 'SIGNED'
+                      ? Icons.picture_as_pdf_outlined
+                      : Icons.upload_file_outlined,
+                  color: _consentStatus == 'SIGNED'
+                      ? ColorResources.liteTextColor
+                      : ColorResources.primaryColor,
+                  size: 14,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  _consentStatus == 'SIGNED'
+                      ? 'VIEW CONSENT FORM'
+                      : 'UPLOAD CONSENT FORM',
+                  style: TextStyle(
+                    fontFamily: 'CormorantGaramond',
+                    color: _consentStatus == 'SIGNED'
+                        ? ColorResources.liteTextColor
+                        : ColorResources.primaryColor,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 2.0,
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Icon(
+                  Icons.arrow_forward_ios,
+                  color: _consentStatus == 'SIGNED'
+                      ? ColorResources.liteTextColor
+                      : ColorResources.primaryColor,
+                  size: 10,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+ 
   // ── 6️⃣ Payment ───────────────────────────────────────
   Widget _buildPayment() {
     final bool isPaid = _paymentStatus == 'PAID';

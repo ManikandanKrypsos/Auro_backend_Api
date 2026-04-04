@@ -25,60 +25,36 @@ class _AppointmentListScreenState extends State<AppointmentListScreen> {
 
   // ── Static Data ───────────────────────────────────────
   final List<Map<String, dynamic>> _appointments = [
-    {
-      'time': '09:00 AM',
-      'patient': 'Margot Fontaine',
-      'treatment': 'Signature Gold Facial',
-      'therapist': 'Dr. Elena Rodriguez',
-      'duration': '60 min',
-      'status': 'COMPLETED',
-      'arrived': true,
-    },
-    {
-      'time': '10:30 AM',
-      'patient': 'Julian Sterling',
-      'treatment': 'Deep Tissue Therapy',
-      'therapist': 'Marcus Chen',
-      'duration': '90 min',
-      'status': 'IN SESSION',
-      'arrived': true,
-    },
-    {
-      'time': '11:45 AM',
-      'patient': 'Isabelle Morel',
-      'treatment': 'Hydra-Facial Platinum',
-      'therapist': 'Sarah Jenkins',
-      'duration': '45 min',
-      'status': 'UPCOMING',
-      'arrived': false,
-    },
-    {
-      'time': '01:00 PM',
-      'patient': 'Sebastian Thorne',
-      'treatment': 'Sculptural Face Lift',
-      'therapist': 'Dr. Elena Rodriguez',
-      'duration': '75 min',
-      'status': 'UPCOMING',
-      'arrived': false,
-    },
-    {
-      'time': '02:30 PM',
-      'patient': 'Eleanor Vance',
-      'treatment': 'Vitamin C Infusion',
-      'therapist': 'Marcus Chen',
-      'duration': '30 min',
-      'status': 'CANCELLED',
-      'arrived': false,
-    },
-    {
-      'time': '03:45 PM',
-      'patient': 'Damien Cross',
-      'treatment': 'Botox — Full Face',
-      'therapist': 'Sarah Jenkins',
-      'duration': '45 min',
-      'status': 'UPCOMING',
-      'arrived': false,
-    },
+   {
+    'time': '09:00 AM',
+    'patient': 'Margot Fontaine',
+    'treatment': 'Signature Gold Facial',
+    'therapist': 'Dr. Elena Rodriguez',
+    'duration': '60 min',
+    'status': 'COMPLETED',
+    'arrived': true,
+    'consent': 'SIGNED',       // <-- add this
+  },
+  {
+    'time': '11:45 AM',
+    'patient': 'Isabelle Morel',
+    'treatment': 'Hydra-Facial Platinum',
+    'therapist': 'Sarah Jenkins',
+    'duration': '45 min',
+    'status': 'UPCOMING',
+    'arrived': false,
+    'consent': 'PENDING',      // <-- add this
+  },
+  {
+    'time': '01:00 PM',
+    'patient': 'Sebastian Thorne',
+    'treatment': 'Sculptural Face Lift',
+    'therapist': 'Dr. Elena Rodriguez',
+    'duration': '75 min',
+    'status': 'UPCOMING',
+    'arrived': false,
+    'consent': 'MISSING',      // <-- add this
+  },
   ];
 
   // ── Filter ────────────────────────────────────────────
@@ -341,100 +317,69 @@ class _AppointmentListScreenState extends State<AppointmentListScreen> {
             ),
       
             // ── Check-in footer ──
+         
             if (!isCancelled)
-              GestureDetector(
-                onTap: isCompleted
-                    ? null
-                    : () => setState(() => appt['arrived'] = !arrived),
-                child: Container(
-                  decoration: BoxDecoration(
-                    border: Border(
-                      top: BorderSide(
-                          color: ColorResources.borderColor, width: 0.5),
-                    ),
-                    borderRadius:
-                        const BorderRadius.vertical(bottom: Radius.circular(14)),
-                    color: Colors.transparent,
-                  ),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-                  child: Row(
-                    children: [
-                      AnimatedContainer(
-                        duration: const Duration(milliseconds: 220),
-                        width: 20,
-                        height: 20,
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(5),
-                          color: arrived
-                              ? ColorResources.primaryColor
-                              : Colors.transparent,
-                          border: Border.all(
-                            color: arrived
-                                ? ColorResources.primaryColor
-                                : ColorResources.borderColor,
-                            width: 1.2,
-                          ),
-                        ),
-                        child: arrived
-                            ? const Icon(Icons.check,
-                                size: 13, color: Colors.black)
-                            : null,
-                      ),
-                      const SizedBox(width: 12),
-                      Text(
-                        arrived ? 'Patient Arrived' : 'Mark as Arrived',
-                        style: TextStyle(
-                          fontFamily: 'CormorantGaramond',
-                          color: arrived
-                              ? ColorResources.primaryColor
-                              : ColorResources.liteTextColor.withOpacity(0.45),
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          letterSpacing: 0.3,
-                        ),
-                      ),
-                      const Spacer(),
-                      if (!arrived && !isCompleted)
-                        Text(
-                          'TAP TO CHECK IN  →',
-                          style: TextStyle(
-                            fontFamily: 'CormorantGaramond',
-                            color:
-                                ColorResources.primaryColor.withOpacity(0.45),
-                            fontSize: 10,
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: 1.2,
-                          ),
-                        ),
-                      if (arrived)
-                        Row(
-                          children: [
-                            Container(
-                              width: 7,
-                              height: 7,
-                              decoration: const BoxDecoration(
-                                color: ColorResources.primaryColor,
-                                shape: BoxShape.circle,
-                              ),
-                            ),
-                            const SizedBox(width: 6),
-                            Text(
-                              'Checked in',
-                              style: TextStyle(
-                                fontFamily: 'CormorantGaramond',
-                                color:
-                                    ColorResources.primaryColor.withOpacity(0.7),
-                                fontSize: 12,
-                                letterSpacing: 0.3,
-                              ),
-                            ),
-                          ],
-                        ),
-                    ],
-                  ),
+    GestureDetector(
+      onTap: isCompleted
+          ? null
+          : () => setState(() => appt['arrived'] = !arrived),
+      child: Container(
+        decoration: BoxDecoration(
+          border: Border(
+            top: BorderSide(color: ColorResources.borderColor, width: 0.5),
+          ),
+          borderRadius:
+              const BorderRadius.vertical(bottom: Radius.circular(14)),
+          color: Colors.transparent,
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+        child: Row(
+          children: [
+            // ── Checkbox ──
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 220),
+              width: 20,
+              height: 20,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(5),
+                color: arrived
+                    ? ColorResources.primaryColor
+                    : Colors.transparent,
+                border: Border.all(
+                  color: arrived
+                      ? ColorResources.primaryColor
+                      : ColorResources.borderColor,
+                  width: 1.2,
                 ),
               ),
+              child: arrived
+                  ? const Icon(Icons.check, size: 13, color: Colors.black)
+                  : null,
+            ),
+            const SizedBox(width: 12),
+ 
+            // ── Check-in label ──
+            Text(
+              arrived ? 'Patient Arrived' : 'Mark as Arrived',
+              style: TextStyle(
+                fontFamily: 'CormorantGaramond',
+                color: arrived
+                    ? ColorResources.primaryColor
+                    : ColorResources.liteTextColor.withOpacity(0.45),
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0.3,
+              ),
+            ),
+ 
+            const Spacer(),
+ 
+            // ── Consent dot on the right ──────────────── NEW
+            _consentDot('SIGNED'),
+          ],
+        ),
+      ),
+    ),
           ],
         ),
       ),
@@ -460,4 +405,47 @@ class _AppointmentListScreenState extends State<AppointmentListScreen> {
       ],
     );
   }
+  Widget _consentDot(String consent) {
+    Color color;
+    String label;
+    switch (consent) {
+      case 'SIGNED':
+        color = const Color(0xFF5C7A5C);
+        label = 'Consent signed';
+        break;
+      case 'PENDING':
+        color = ColorResources.primaryColor; // gold
+        label = 'Consent pending';
+        break;
+      default:
+        color = ColorResources.negativeColor;
+        label = 'No consent';
+    }
+ 
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 7,
+          height: 7,
+          decoration: BoxDecoration(
+            color: color,
+            shape: BoxShape.circle,
+          ),
+        ),
+        const SizedBox(width: 5),
+        Text(
+          label,
+          style: TextStyle(
+            fontFamily: 'CormorantGaramond',
+            color: color,
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 0.3,
+          ),
+        ),
+      ],
+    );
+  }
+ 
 }

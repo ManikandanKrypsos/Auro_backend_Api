@@ -248,6 +248,7 @@ class _RoleCard extends StatelessWidget {
                                       fontFamily: 'CormorantGaramond',
                                       color: ColorResources.liteTextColor,
                                       fontSize: 14,
+                                      fontWeight: FontWeight.w600,
                                       fontStyle: FontStyle.italic,
                                       height: 1.5,
                                     ),
@@ -285,6 +286,7 @@ class _RoleCard extends StatelessWidget {
                               color: ColorResources.whiteColor,
                               fontSize: 11,
                               fontStyle: FontStyle.italic,
+                              fontWeight: FontWeight.w600,
                               letterSpacing: 1,
                             ),
                           ),
@@ -311,10 +313,8 @@ class _RoleCard extends StatelessWidget {
                                 style: TextStyle(
                                   fontFamily: 'CormorantGaramond',
                                   color: isSelected
-                                      ? ColorResources
-                                            .primaryColor // gold when selected
-                                      : ColorResources
-                                            .liteTextColor, // muted when unselected
+                                      ? ColorResources.primaryColor
+                                      : ColorResources.whiteColor,
                                   fontSize: 10,
                                   fontWeight: FontWeight.w600,
                                   letterSpacing: 2.5,
