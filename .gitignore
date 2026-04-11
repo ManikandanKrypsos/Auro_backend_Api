@@ -45,3 +45,11 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+echo "/lib/" >> .gitignore
+echo "/android/" >> .gitignore
+echo "/ios/" >> .gitignore
+echo "/web/" >> .gitignore
+echo "/test/" >> .gitignore
+echo "pubspec.yaml" >> .gitignore
+echo "pubspec.lock" >> .gitignore
