@@ -10,9 +10,9 @@ class LeadActivitySerializer(serializers.ModelSerializer):
         read_only_fields = ['created_by', 'created_at']
 
 class LeadSerializer(serializers.ModelSerializer):
-    activities = LeadActivitySerializer(many=True, read_only=True)
+    activities       = LeadActivitySerializer(many=True, read_only=True)
     assigned_to_name = serializers.CharField(source='assigned_to.username', read_only=True)
-    days_in_stage = serializers.SerializerMethodField()
+    days_in_stage    = serializers.SerializerMethodField()
 
     class Meta:
         model = Lead
@@ -23,7 +23,16 @@ class LeadSerializer(serializers.ModelSerializer):
         delta = timezone.now() - obj.updated_at
         return delta.days
 
+    def to_representation(self, instance):
+        """Match Flutter's LeadModel field names."""
+        data = super().to_representation(instance)
+        data['createdAt']   = data.pop('created_at')
+        data['updatedAt']   = data.pop('updated_at')
+        data['assignedTo']  = data.pop('assigned_to')
+        data['lastContacted'] = data.pop('last_contacted')
+        return data
+
 
 class LeadStageUpdateSerializer(serializers.Serializer):
     stage = serializers.ChoiceField(choices=Lead.STAGE_CHOICES)
-    note = serializers.CharField(required=False, allow_blank=True)
+    note  = serializers.CharField(required=False, allow_blank=True)
