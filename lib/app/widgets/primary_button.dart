@@ -1,0 +1,45 @@
+import 'package:flutter/material.dart';
+import '../theme/color/color.dart';
+
+class PrimaryButton extends StatelessWidget {
+  final String label;
+  final VoidCallback onTap;
+  final double vPadding;
+  final double? height;
+  const PrimaryButton({
+    super.key,
+    required this.label,
+    required this.onTap,
+    this.vPadding = 18,
+    this.height,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      height: height,
+      child: ElevatedButton(
+        onPressed: onTap,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: ColorResources.primaryColor,
+          padding:  EdgeInsets.symmetric(vertical: vPadding),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(4),
+          ),
+          elevation: 0,
+        ),
+        child: Text(
+          label,
+          style: const TextStyle(
+            fontFamily: 'CormorantGaramond',
+            color: Colors.black,
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 3.5,
+          ),
+        ),
+      ),
+    );
+  }
+}
