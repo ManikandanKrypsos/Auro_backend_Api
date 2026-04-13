@@ -6,6 +6,7 @@ class User(AbstractUser):
         ('admin', 'Admin'),
         ('reception', 'Reception'),
         ('therapist', 'Therapist'),
+        ('client', 'Client'), 
     )
 
     role = models.CharField(max_length=20, choices=ROLE_CHOICES)
