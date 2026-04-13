@@ -1,0 +1,22 @@
+name: aura-clinic-backend
+region: blr   # Bangalore — closest to India
+
+services:
+  - name: web
+    github:
+      repo: harideepak-10/auro_clinic
+      branch: main
+      deploy_on_push: true
+    build_command: pip install -r requirements.txt && python manage.py collectstatic --noinput && python manage.py migrate
+    run_command: gunicorn aura_backend.wsgi --log-file -
+    envs:
+      - key: SECRET_KEY
+        scope: RUN_TIME
+        value: your-secret-key-here
+      - key: DEBUG
+        value: "False"
+      - key: ALLOWED_HOSTS
+        value: "*"
+    http_port: 8080
+    instance_count: 1
+    instance_size_slug: basic-xxs
