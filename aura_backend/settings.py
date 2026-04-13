@@ -28,7 +28,6 @@ INSTALLED_APPS = [
     'treatments',
     'leads',
     'dashboard',
-    'ai_assistant',
 ]
 
 MIDDLEWARE = [
@@ -66,7 +65,8 @@ WSGI_APPLICATION = 'aura_backend.wsgi.application'
 DATABASE_URL = os.environ.get('DATABASE_URL')
 
 if DATABASE_URL:
-    # Production — DigitalOcean PostgreSQL
+    # Production — DigitalOcean MySQL
+    import dj_database_url
     DATABASES = {
         'default': dj_database_url.parse(DATABASE_URL, conn_max_age=600)
     }
