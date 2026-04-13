@@ -134,8 +134,6 @@ EMAIL_HOST_USER    = os.environ.get('EMAIL_HOST_USER', '')
 EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
 DEFAULT_FROM_EMAIL = f'Aura Clinic <{os.environ.get("EMAIL_HOST_USER", "")}>'
 
-# ── OpenAI ─────────────────────────────────────────────────
-OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY', '')
 
 # ── i18n ───────────────────────────────────────────────────
 LANGUAGE_CODE = 'en-us'
