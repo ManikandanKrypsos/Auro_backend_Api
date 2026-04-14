@@ -1,5 +1,5 @@
 name: aura-clinic-backend
-region: blr   # Bangalore — closest to India
+region: nyc
 
 services:
   - name: web
@@ -7,16 +7,24 @@ services:
       repo: harideepak-10/auro_clinic
       branch: main
       deploy_on_push: true
-    build_command: pip install -r requirements.txt && python manage.py collectstatic --noinput && python manage.py migrate
-    run_command: gunicorn aura_backend.wsgi --log-file -
+    build_command: pip install -r requirements.txt
+    run_command: gunicorn aura_backend.wsgi:application --bind 0.0.0.0:8080
     envs:
       - key: SECRET_KEY
         scope: RUN_TIME
-        value: your-secret-key-here
+        type: SECRET
       - key: DEBUG
+        scope: RUN_TIME
         value: "False"
       - key: ALLOWED_HOSTS
+        scope: RUN_TIME
         value: "*"
+      - key: DATABASE_URL
+        scope: RUN_TIME
+        type: SECRET
+      - key: DISABLE_COLLECTSTATIC
+        scope: RUN_TIME
+        value: "1"
     http_port: 8080
     instance_count: 1
     instance_size_slug: basic-xxs
