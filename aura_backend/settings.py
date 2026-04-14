@@ -65,13 +65,10 @@ WSGI_APPLICATION = 'aura_backend.wsgi.application'
 DATABASE_URL = os.environ.get('DATABASE_URL')
 
 if DATABASE_URL:
-    # Production — DigitalOcean MySQL
-    import dj_database_url
     DATABASES = {
         'default': dj_database_url.parse(DATABASE_URL, conn_max_age=600)
     }
 else:
-    # Local — MySQL
     DATABASES = {
         'default': {
             'ENGINE':   'django.db.backends.mysql',
