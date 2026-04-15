@@ -65,12 +65,22 @@ WSGI_APPLICATION = 'aura_backend.wsgi.application'
 DATABASE_URL = os.environ.get('DATABASE_URL', '')
 
 if DATABASE_URL and DATABASE_URL.startswith('mysql'):
+    # Parse MySQL URL manually for better compatibility
+    import urllib.parse
+    parsed = urllib.parse.urlparse(DATABASE_URL)
     DATABASES = {
-        'default': dj_database_url.parse(
-            DATABASE_URL,
-            conn_max_age=600,
-            engine='django.db.backends.mysql'
-        )
+        'default': {
+            'ENGINE':   'django.db.backends.mysql',
+            'NAME':     parsed.path[1:],  # removes leading /
+            'USER':     parsed.username,
+            'PASSWORD': parsed.password,
+            'HOST':     parsed.hostname,
+            'PORT':     str(parsed.port),
+            'OPTIONS': {
+                'ssl': {'ssl-mode': 'REQUIRED'},
+                'charset': 'utf8mb4',
+            }
+        }
     }
 else:
     DATABASES = {
