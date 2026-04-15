@@ -6,6 +6,7 @@ from rest_framework.authtoken.models import Token
 from users.permissions import IsAdmin
 from .serializers import RegisterSerializer, LoginSerializer, UserSerializer
 from .models import User
+from django.contrib.auth import login
 
 ROLE_ID_MAP = {
     'admin':     1,
@@ -63,6 +64,7 @@ class LoginView(APIView):
         serializer = LoginSerializer(data=request.data)
         if serializer.is_valid():
             user = serializer.validated_data
+            login(request, user)  
             token, _ = Token.objects.get_or_create(user=user)
             return Response({
                 'token':   token.key,

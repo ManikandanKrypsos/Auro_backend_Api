@@ -97,6 +97,12 @@ else:
 # ── Auth ───────────────────────────────────────────────────
 AUTH_USER_MODEL = 'users.User'
 
+# Custom auth backend — allow email login
+AUTHENTICATION_BACKENDS = [
+    'users.backends.EmailBackend',
+    'django.contrib.auth.backends.ModelBackend',
+]
+
 AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
     {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator'},
