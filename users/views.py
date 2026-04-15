@@ -1,6 +1,7 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import permissions
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.authtoken.models import Token
 from users.permissions import IsAdmin
 from .serializers import RegisterSerializer, LoginSerializer, UserSerializer
@@ -79,6 +80,8 @@ class LoginView(APIView):
 
 
 class MeView(APIView):
+    permission_classes = [IsAuthenticated] 
+
     def get(self, request):
         user = request.user
         return Response({
