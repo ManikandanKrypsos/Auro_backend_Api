@@ -1,10 +1,11 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import permissions
-from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.tokens import RefreshToken, TokenError
 from users.permissions import IsAdmin
 from .serializers import RegisterSerializer, LoginSerializer, UserSerializer
 from .models import User
+
 
 ROLE_ID_MAP = {
     'admin':     1,
@@ -80,6 +81,20 @@ class LoginView(APIView):
         return Response(serializer.errors, status=400)
 
 
+class LogoutView(APIView):
+    """POST /api/users/logout/ — blacklist the refresh token"""
+    def post(self, request):
+        try:
+            refresh_token = request.data.get('refresh_token')
+            token = RefreshToken(refresh_token)
+            token.blacklist()
+            return Response({'message': 'Logged out successfully'})
+        except TokenError:
+            return Response({'error': 'Invalid token'}, status=400)
+        except Exception:
+            return Response({'error': 'Something went wrong'}, status=400)
+
+
 class RefreshTokenView(APIView):
     """POST /api/users/refresh/ — get new access token using refresh token"""
     permission_classes = [permissions.AllowAny]
@@ -95,12 +110,14 @@ class RefreshTokenView(APIView):
 class MeView(APIView):
     def get(self, request):
         user = request.user
+        if not user.is_authenticated:
+            return Response({'error': 'Not authenticated'}, status=401)
         return Response({
-            'id':      user.id,
+            'id':       user.id,
             'username': user.username,
-            'email':   user.email,
-            'role':    user.role,
-            'role_id': ROLE_ID_MAP.get(user.role, 1),
+            'email':    user.email,
+            'role':     user.role,
+            'role_id':  ROLE_ID_MAP.get(user.role, 1),
         })
 
 
@@ -108,5 +125,11 @@ class UserListView(APIView):
     permission_classes = [IsAdmin]
 
     def get(self, request):
-        users = User.objects.all()
-        return Response(UserSerializer(users, many=True).data)
+        users = User.objects.all().values(
+            'id', 'username', 'email', 'role'
+        )
+        result = []
+        for u in users:
+            u['role_id'] = ROLE_ID_MAP.get(u['role'], 1)
+            result.append(u)
+        return Response(result)

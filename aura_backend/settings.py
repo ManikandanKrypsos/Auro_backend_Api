@@ -29,6 +29,7 @@ INSTALLED_APPS = [
     'treatments',
     'leads',
     'dashboard',
+    'rest_framework_simplejwt.token_blacklist'
 ]
 
 MIDDLEWARE = [
@@ -124,9 +125,11 @@ REST_FRAMEWORK = {
 
 # JWT settings
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME':  timedelta(days=1),    
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=30),   
-    'AUTH_HEADER_TYPES':      ('Bearer',),          
+    'ACCESS_TOKEN_LIFETIME':  timedelta(days=1),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=30),
+    'AUTH_HEADER_TYPES':      ('Bearer',),
+    'BLACKLIST_AFTER_ROTATION': True,  
+    'ROTATE_REFRESH_TOKENS':    True,   
 }
 
 # ── CORS ───────────────────────────────────────────────────
