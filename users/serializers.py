@@ -1,5 +1,4 @@
 from rest_framework import serializers
-from django.contrib.auth import authenticate
 from .models import User
 
 ROLE_MAP = {
@@ -12,17 +11,19 @@ ROLE_MAP = {
 class RegisterSerializer(serializers.ModelSerializer):
     password         = serializers.CharField(write_only=True, min_length=6)
     confirm_password = serializers.CharField(write_only=True)
-    role_id          = serializers.IntegerField(write_only=True)  # 👈 accept role_id
+    role_id          = serializers.IntegerField(write_only=True)
 
     class Meta:
         model  = User
-        fields = ['id', 'email', 'password', 'confirm_password', 'role_id']
+        fields = ['id', 'username', 'email', 'password', 'confirm_password', 'role_id']
 
     def validate(self, data):
         if data['password'] != data['confirm_password']:
             raise serializers.ValidationError("Passwords do not match")
         if data['role_id'] not in ROLE_MAP:
-            raise serializers.ValidationError("Invalid role_id. Must be 1, 2, 3 or 4")
+            raise serializers.ValidationError("Invalid role_id. Use 1=Admin, 2=Receptionist, 3=Therapist, 4=Client")
+        if User.objects.filter(email=data['email']).exists():
+            raise serializers.ValidationError("Email already registered")
         return data
 
     def create(self, validated_data):
@@ -30,7 +31,7 @@ class RegisterSerializer(serializers.ModelSerializer):
         role_id  = validated_data.pop('role_id')
         role     = ROLE_MAP[role_id]
         email    = validated_data['email']
-        username = email.split('@')[0]  # auto generate username from email
+        username = validated_data.get('username', email.split('@')[0])
 
         user = User.objects.create_user(
             username=username,
@@ -58,4 +59,4 @@ class LoginSerializer(serializers.Serializer):
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model  = User
-        fields = ['id', 'email', 'role']
+        fields = ['id', 'username', 'email', 'role']

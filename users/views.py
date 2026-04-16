@@ -1,7 +1,7 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import permissions
-from rest_framework.authtoken.models import Token
+from rest_framework_simplejwt.tokens import RefreshToken
 from users.permissions import IsAdmin
 from .serializers import RegisterSerializer, LoginSerializer, UserSerializer
 from .models import User
@@ -13,17 +13,23 @@ ROLE_ID_MAP = {
     'client':    4,
 }
 
+def get_tokens_for_user(user):
+    refresh = RefreshToken.for_user(user)
+    return {
+        'refresh': str(refresh),
+        'access':  str(refresh.access_token),
+    }
+
 class RolesListView(APIView):
     permission_classes = [permissions.AllowAny]
 
     def get(self, request):
-        roles = [
+        return Response([
             {"id": 1, "role": "admin",     "title": "Admin",        "level": "LEVEL: EXECUTIVE"},
             {"id": 2, "role": "reception", "title": "Receptionist", "level": "LEVEL: OPERATIONS"},
             {"id": 3, "role": "therapist", "title": "Therapist",    "level": "LEVEL: CLINICAL"},
             {"id": 4, "role": "client",    "title": "Client",       "level": "LEVEL: CLIENT"},
-        ]
-        return Response(roles)
+        ])
 
 
 class RegisterView(APIView):
@@ -32,14 +38,16 @@ class RegisterView(APIView):
     def post(self, request):
         serializer = RegisterSerializer(data=request.data)
         if serializer.is_valid():
-            user  = serializer.save()
-            token, _ = Token.objects.get_or_create(user=user)
+            user   = serializer.save()
+            tokens = get_tokens_for_user(user)
             return Response({
-                'token':   f'Bearer {token.key}',  # 👈 Bearer token
-                'role_id': ROLE_ID_MAP.get(user.role, 1),
-                'role':    user.role,
+                'token':         tokens['access'],   # 👈 Bearer JWT
+                'refresh_token': tokens['refresh'],
+                'role_id':       ROLE_ID_MAP.get(user.role, 1),
+                'role':          user.role,
                 'user': {
                     'id':      user.id,
+                    'username': user.username,
                     'email':   user.email,
                     'role':    user.role,
                     'role_id': ROLE_ID_MAP.get(user.role, 1),
@@ -54,14 +62,16 @@ class LoginView(APIView):
     def post(self, request):
         serializer = LoginSerializer(data=request.data)
         if serializer.is_valid():
-            user  = serializer.validated_data
-            token, _ = Token.objects.get_or_create(user=user)
+            user   = serializer.validated_data
+            tokens = get_tokens_for_user(user)
             return Response({
-                'token':   f'Bearer {token.key}',  # 👈 Bearer token
-                'role_id': ROLE_ID_MAP.get(user.role, 1),
-                'role':    user.role,
+                'token':         tokens['access'],   # 👈 Bearer JWT
+                'refresh_token': tokens['refresh'],
+                'role_id':       ROLE_ID_MAP.get(user.role, 1),
+                'role':          user.role,
                 'user': {
                     'id':      user.id,
+                    'username': user.username,
                     'email':   user.email,
                     'role':    user.role,
                     'role_id': ROLE_ID_MAP.get(user.role, 1),
@@ -70,11 +80,24 @@ class LoginView(APIView):
         return Response(serializer.errors, status=400)
 
 
+class RefreshTokenView(APIView):
+    """POST /api/users/refresh/ — get new access token using refresh token"""
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        try:
+            refresh = RefreshToken(request.data.get('refresh_token'))
+            return Response({'token': str(refresh.access_token)})
+        except Exception:
+            return Response({'error': 'Invalid refresh token'}, status=400)
+
+
 class MeView(APIView):
     def get(self, request):
         user = request.user
         return Response({
             'id':      user.id,
+            'username': user.username,
             'email':   user.email,
             'role':    user.role,
             'role_id': ROLE_ID_MAP.get(user.role, 1),

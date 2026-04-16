@@ -19,12 +19,12 @@ def api_root(request):
     })
 
 urlpatterns = [
-    path('', api_root),
+    path('',       api_root),
     path('admin/', admin.site.urls),
-    path('api/users/', include('users.urls')),
-    path('api/patients/', include('patients.urls')),
-    path('api/treatments/', include('treatments.urls')),
+    path('api/users/',        include('users.urls')),
+    path('api/patients/',     include('patients.urls')),
+    path('api/treatments/',   include('treatments.urls')),
     path('api/appointments/', include('appointments.urls')),
-    path('api/leads/', include('leads.urls')),
-    path('api/dashboard/', include('dashboard.urls')),
+    path('api/leads/',        include('leads.urls')),
+    path('api/dashboard/',    include('dashboard.urls')),
 ]

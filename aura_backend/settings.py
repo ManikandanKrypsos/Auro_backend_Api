@@ -2,6 +2,7 @@ from pathlib import Path
 import os
 import dj_database_url
 from dotenv import load_dotenv
+from datetime import timedelta
 
 load_dotenv()
 
@@ -111,13 +112,21 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 # ── REST Framework ─────────────────────────────────────────
+
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
-        'rest_framework.authentication.TokenAuthentication',
+        'rest_framework_simplejwt.authentication.JWTAuthentication',  # 👈 JWT
     ],
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
     ],
+}
+
+# JWT settings
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME':  timedelta(days=1),    
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=30),   
+    'AUTH_HEADER_TYPES':      ('Bearer',),          
 }
 
 # ── CORS ───────────────────────────────────────────────────
