@@ -3,7 +3,6 @@ from rest_framework.response import Response
 from django.utils import timezone
 from django.db.models import Count, Sum, Avg, Q
 import datetime
-
 from appointments.models import Appointment
 from patients.models import Patient
 from treatments.models import Treatment
@@ -26,7 +25,7 @@ class DashboardOverviewView(APIView):
         # ── Time ranges ───────────────────────────────
         start_of_today    = now.replace(hour=0, minute=0, second=0, microsecond=0)
         start_of_week     = now - datetime.timedelta(days=now.weekday())
-        start_of_month    = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
         start_of_last_month = (start_of_month - datetime.timedelta(days=1)).replace(day=1)
 
         # ── Appointments ──────────────────────────────
@@ -106,7 +105,7 @@ class BestServicesView(APIView):
     permission_classes = [IsAdmin]
 
     def get(self, request):
-        start_of_month = timezone.now().replace(day=1, hour=0, minute=0, second=0)
+        start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
         services = (
             Appointment.objects
@@ -143,7 +142,7 @@ class StaffPerformanceView(APIView):
     permission_classes = [IsAdmin]
 
     def get(self, request):
-        start_of_month = timezone.now().replace(day=1, hour=0, minute=0, second=0)
+        start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
         staff_list = User.objects.filter(role='therapist')
         result = []
@@ -211,7 +210,7 @@ class RebookingRateView(APIView):
     permission_classes = [IsAdmin]
 
     def get(self, request):
-        start_of_month = timezone.now().replace(day=1, hour=0, minute=0, second=0)
+        start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
         # Patients with more than 1 appointment this month
         returning = (

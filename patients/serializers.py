@@ -16,12 +16,14 @@ class PatientSerializer(serializers.ModelSerializer):
         data['createdAt']        = data.pop('created_at')
         return data
 
-    def to_internal_value(self, data):
-        """Accept both camelCase and snake_case from Flutter."""
-        if 'bloodType' in data:
-            data['blood_type'] = data.pop('bloodType')
-        if 'skinType' in data:
-            data['skin_type'] = data.pop('skinType')
-        if 'marketingSource' in data:
-            data['marketing_source'] = data.pop('marketingSource')
-        return super().to_internal_value(data)
+def to_internal_value(self, data):
+    """Accept both camelCase and snake_case from Flutter."""
+    # ✅ Fixed: copy data first to avoid mutating QueryDict
+    data = data.copy()
+    if 'bloodType' in data:
+        data['blood_type'] = data.pop('bloodType')
+    if 'skinType' in data:
+        data['skin_type'] = data.pop('skinType')
+    if 'marketingSource' in data:
+        data['marketing_source'] = data.pop('marketingSource')
+    return super().to_internal_value(data)

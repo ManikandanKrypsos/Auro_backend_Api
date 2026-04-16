@@ -65,10 +65,11 @@ class AppointmentViewSet(viewsets.ModelViewSet):
             return [IsAdminOrReception()]
         return [IsAuthenticated()]
 
-    def perform_create(self, serializer):
-        appt = serializer.save()
-        appt_time = appt.date_time
+def perform_create(self, serializer):
+    appt = serializer.save()
+    appt_time = appt.date_time
 
+    try:
         send_booking_confirmation.delay(appt.id)
         send_reminder_24h.apply_async(
             args=[appt.id],
@@ -86,6 +87,9 @@ class AppointmentViewSet(viewsets.ModelViewSet):
             args=[appt.id],
             eta=appt_time + datetime.timedelta(days=30)
         )
+    except Exception as e:
+        # Don't crash if Redis/Celery not available
+        print(f"Celery task error: {e}")
 
     @action(detail=False, methods=['get'], url_path='today')   # 👈 indented inside class
     def today(self, request):
