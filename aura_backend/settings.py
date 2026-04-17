@@ -73,6 +73,7 @@ if DATABASE_URL and DATABASE_URL.startswith('mysql'):
             'default': dj_database_url.config(
         default='sqlite:///db.sqlite3',  # fallback
         conn_max_age=600
+            )
     }
 else:
     DATABASES = {
