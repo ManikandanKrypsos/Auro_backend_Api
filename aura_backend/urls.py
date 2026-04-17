@@ -21,6 +21,7 @@ def api_root(request):
 urlpatterns = [
     path('',       api_root),
     path('admin/', admin.site.urls),
+    path('api-auth/', include('rest_framework.urls')),
     path('api/users/',        include('users.urls')),
     path('api/patients/',     include('patients.urls')),
     path('api/treatments/',   include('treatments.urls')),
