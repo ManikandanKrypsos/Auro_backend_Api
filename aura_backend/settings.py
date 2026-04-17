@@ -63,27 +63,22 @@ TEMPLATES = [
 WSGI_APPLICATION = 'aura_backend.wsgi.application'
 
 # ── Database ───────────────────────────────────────────────
-DATABASE_URL = os.environ.get('DATABASE_URL', '')
+# ── Database ───────────────────────────────────────────────
+DATABASE_URL = os.environ.get('DATABASE_URL')
 
-if DATABASE_URL and DATABASE_URL.startswith('mysql'):
-    # Parse MySQL URL manually for better compatibility
-    import urllib.parse
-    parsed = urllib.parse.urlparse(DATABASE_URL)
+if DATABASE_URL:
     DATABASES = {
-            'default': dj_database_url.config(
-        default='sqlite:///db.sqlite3',  # fallback
-        conn_max_age=600
-            )
+        'default': dj_database_url.parse(DATABASE_URL, conn_max_age=600)
     }
 else:
     DATABASES = {
         'default': {
-            'ENGINE':   'django.db.backends.mysql',
-            'NAME':     'aura_clinic',
-            'USER':     'root',
+            'ENGINE': 'django.db.backends.mysql',
+            'NAME': 'aura_clinic',
+            'USER': 'root',
             'PASSWORD': os.environ.get('DB_PASSWORD', '@Deepak.10'),
-            'HOST':     'localhost',
-            'PORT':     '3306',
+            'HOST': 'localhost',
+            'PORT': '3306',
         }
     }
     
