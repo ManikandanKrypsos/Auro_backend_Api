@@ -70,18 +70,9 @@ if DATABASE_URL and DATABASE_URL.startswith('mysql'):
     import urllib.parse
     parsed = urllib.parse.urlparse(DATABASE_URL)
     DATABASES = {
-        'default': {
-            'ENGINE':   'django.db.backends.mysql',
-            'NAME':     parsed.path[1:],  # removes leading /
-            'USER':     parsed.username,
-            'PASSWORD': parsed.password,
-            'HOST':     parsed.hostname,
-            'PORT':     str(parsed.port),
-            'OPTIONS': {
-                'ssl': {'ssl-mode': 'REQUIRED'},
-                'charset': 'utf8mb4',
-            }
-        }
+            'default': dj_database_url.config(
+        default='sqlite:///db.sqlite3',  # fallback
+        conn_max_age=600
     }
 else:
     DATABASES = {
