@@ -1,36 +1,6 @@
 from django.db import migrations, models
 
 
-def fix_marketing_source_data(apps, schema_editor):
-    """Fix all invalid marketing_source values before changing column type"""
-    vendor = schema_editor.connection.vendor
-
-    with schema_editor.connection.cursor() as cursor:
-        if vendor == 'postgresql':
-            # PostgreSQL — need to handle text column differently
-            # First set all non-numeric values to NULL
-            cursor.execute("""
-                UPDATE patients_patient
-                SET marketing_source = NULL
-                WHERE marketing_source IS NULL
-                OR marketing_source = ''
-                OR marketing_source ~ '[^0-9]'
-                OR marketing_source NOT IN ('1','2','3','4','5','6')
-            """)
-        elif vendor == 'mysql':
-            cursor.execute("""
-                UPDATE patients_patient
-                SET marketing_source = NULL
-                WHERE marketing_source = ''
-                OR marketing_source IS NULL
-                OR marketing_source NOT REGEXP '^[1-6]$'
-            """)
-
-
-def reverse_fix(apps, schema_editor):
-    pass
-
-
 class Migration(migrations.Migration):
 
     dependencies = [
@@ -38,10 +8,23 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunPython(
-            fix_marketing_source_data,
-            reverse_fix,
+        # Step 1 — First make the column nullable so bad data doesn't block us
+        migrations.RunSQL(
+            sql="ALTER TABLE patients_patient ALTER COLUMN marketing_source DROP NOT NULL",
+            reverse_sql="ALTER TABLE patients_patient ALTER COLUMN marketing_source SET NOT NULL",
         ),
+        # Step 2 — Set all invalid text values to NULL
+        migrations.RunSQL(
+            sql="""
+                UPDATE patients_patient
+                SET marketing_source = NULL
+                WHERE marketing_source::text = ''
+                OR marketing_source::text ~ '[^0-9]'
+                OR marketing_source::text NOT IN ('1','2','3','4','5','6')
+            """,
+            reverse_sql=migrations.RunSQL.noop,
+        ),
+        # Step 3 — Now safely change the field type
         migrations.AlterField(
             model_name='patient',
             name='marketing_source',
