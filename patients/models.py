@@ -58,9 +58,10 @@ class Patient(models.Model):
 
     # CRM
     category          = models.CharField(max_length=20, choices=CATEGORY_CHOICES, default='New')
-    marketing_source  = models.IntegerField(   # 👈 now integer ID like role
+    marketing_source  = models.IntegerField(   
                             choices=MARKETING_SOURCE_CHOICES,
-                            null=True, blank=True
+                            null=True, blank=True,
+                            default=None
                         )
     tags              = models.CharField(max_length=100, blank=True)
     created_at        = models.DateTimeField(auto_now_add=True)

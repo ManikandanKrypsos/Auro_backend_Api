@@ -6,8 +6,26 @@ from users.permissions import IsAdminOrReception
 from .models import Patient
 from .serializers import PatientSerializer
 from django.db.models import Q
+from rest_framework.views import APIView
 
+class MarketingSourceListView(APIView):
+    """
+    GET /api/patients/marketing-sources/
+    Returns all marketing sources with their IDs — same pattern as roles
+    """
+    permission_classes = [IsAuthenticated]
 
+    def get(self, request):
+        return Response([
+            {"id": 1, "value": "Instagram", "label": "Instagram"},
+            {"id": 2, "value": "Website",   "label": "Website"},
+            {"id": 3, "value": "Walk-in",   "label": "Walk-in"},
+            {"id": 4, "value": "Referral",  "label": "Referral"},
+            {"id": 5, "value": "WhatsApp",  "label": "WhatsApp"},
+            {"id": 6, "value": "Other",     "label": "Other"},
+        ])
+
+        
 class PatientViewSet(viewsets.ModelViewSet):
     serializer_class = PatientSerializer
     filter_backends = [filters.SearchFilter]
