@@ -63,29 +63,47 @@ TEMPLATES = [
 WSGI_APPLICATION = 'aura_backend.wsgi.application'
 
 # ── Database ───────────────────────────────────────────────
-# ── Database ───────────────────────────────────────────────
-DATABASE_URL = os.environ.get('DATABASE_URL')
+DATABASE_URL = os.environ.get('DATABASE_URL', '')
 
-if DATABASE_URL:
+if DATABASE_URL and 'postgres' in DATABASE_URL:
+    # Render PostgreSQL
     DATABASES = {
-        'default': dj_database_url.config(
-        default='sqlite:///db.sqlite3',
-        conn_max_age=600,
-        ssl_require=True
+        'default': dj_database_url.parse(
+            DATABASE_URL,
+            conn_max_age=600
         )
     }
-else:
+elif DATABASE_URL and 'mysql' in DATABASE_URL:
+    # DigitalOcean MySQL
+    import urllib.parse
+    parsed = urllib.parse.urlparse(DATABASE_URL)
     DATABASES = {
         'default': {
-            'ENGINE': 'django.db.backends.mysql',
-            'NAME': 'aura_clinic',
-            'USER': 'root',
-            'PASSWORD': os.environ.get('DB_PASSWORD', '@Deepak.10'),
-            'HOST': 'localhost',
-            'PORT': '3306',
+            'ENGINE':   'django.db.backends.mysql',
+            'NAME':     parsed.path[1:],
+            'USER':     parsed.username,
+            'PASSWORD': parsed.password,
+            'HOST':     parsed.hostname,
+            'PORT':     str(parsed.port),
+            'OPTIONS': {
+                'ssl': {'ssl-mode': 'REQUIRED'},
+                'charset': 'utf8mb4',
+            }
         }
     }
-    
+else:
+    # Local MySQL
+    DATABASES = {
+        'default': {
+            'ENGINE':   'django.db.backends.mysql',
+            'NAME':     'aura_clinic',
+            'USER':     'root',
+            'PASSWORD': os.environ.get('DB_PASSWORD', '@Deepak.10'),
+            'HOST':     'localhost',
+            'PORT':     '3306',
+        }
+    }
+        
 # ── Auth ───────────────────────────────────────────────────
 AUTH_USER_MODEL = 'users.User'
 
