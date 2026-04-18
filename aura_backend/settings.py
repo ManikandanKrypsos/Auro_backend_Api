@@ -63,10 +63,14 @@ TEMPLATES = [
 WSGI_APPLICATION = 'aura_backend.wsgi.application'
 
 # ── Database ───────────────────────────────────────────────
+# ── Database ───────────────────────────────────────────────
 DATABASE_URL = os.environ.get('DATABASE_URL', '')
 
-if DATABASE_URL and 'postgres' in DATABASE_URL:
-    # Render PostgreSQL
+# Render gives postgres:// but dj_database_url needs postgresql://
+if DATABASE_URL.startswith('postgres://'):
+    DATABASE_URL = DATABASE_URL.replace('postgres://', 'postgresql://', 1)
+
+if DATABASE_URL and 'postgresql' in DATABASE_URL:
     DATABASES = {
         'default': dj_database_url.parse(
             DATABASE_URL,
@@ -74,7 +78,6 @@ if DATABASE_URL and 'postgres' in DATABASE_URL:
         )
     }
 elif DATABASE_URL and 'mysql' in DATABASE_URL:
-    # DigitalOcean MySQL
     import urllib.parse
     parsed = urllib.parse.urlparse(DATABASE_URL)
     DATABASES = {
@@ -92,7 +95,6 @@ elif DATABASE_URL and 'mysql' in DATABASE_URL:
         }
     }
 else:
-    # Local MySQL
     DATABASES = {
         'default': {
             'ENGINE':   'django.db.backends.mysql',
