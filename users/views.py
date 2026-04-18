@@ -125,11 +125,19 @@ class UserListView(APIView):
     permission_classes = [IsAdmin]
 
     def get(self, request):
-        users = User.objects.all().values(
-            'id', 'username', 'email', 'role'
-        )
+        role = request.query_params.get('role')  # 👈 filter by role
+        users = User.objects.all()
+
+        if role:
+            users = users.filter(role=role)
+
         result = []
         for u in users:
-            u['role_id'] = ROLE_ID_MAP.get(u['role'], 1)
-            result.append(u)
+            result.append({
+                'id':      u.id,
+                'username': u.username or u.email.split('@')[0],
+                'email':   u.email,
+                'role':    u.role,
+                'role_id': ROLE_ID_MAP.get(u.role, 1),
+            })
         return Response(result)
