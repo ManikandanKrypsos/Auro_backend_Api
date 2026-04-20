@@ -39,9 +39,10 @@ class PatientViewSet(viewsets.ModelViewSet):
 
         if search:
             qs = qs.filter(
-                Q(name__istartswith=search) |    # 👈 starts with search
+                Q(name__istartswith=search)  |    # 👈 starts with search
                 Q(phone__istartswith=search) |   # 👈 phone starts with search
-                Q(email__istartswith=search)     # 👈 email starts with search
+                Q(email__istartswith=search) |   # 👈 email starts with search
+                Q(patient_id__istartswith=search)
             )
 
         if category:

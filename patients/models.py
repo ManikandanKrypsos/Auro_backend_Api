@@ -35,6 +35,9 @@ class Patient(models.Model):
         ('O+', 'O+'), ('O-', 'O-'),
     )
 
+    # 👈 Custom patient ID
+    patient_id        = models.CharField(max_length=20, unique=True, blank=True)
+
     # Basic info
     name              = models.CharField(max_length=100)
     phone             = models.CharField(max_length=15)
@@ -58,13 +61,22 @@ class Patient(models.Model):
 
     # CRM
     category          = models.CharField(max_length=20, choices=CATEGORY_CHOICES, default='New')
-    marketing_source  = models.IntegerField(   
+    marketing_source  = models.IntegerField(
                             choices=MARKETING_SOURCE_CHOICES,
-                            null=True, blank=True,
-                            default=None
+                            null=True, blank=True, default=None
                         )
     tags              = models.CharField(max_length=100, blank=True)
     created_at        = models.DateTimeField(auto_now_add=True)
 
+    def save(self, *args, **kwargs):
+        # Auto-generate patient_id like Aura1, Aura2...
+        if not self.patient_id:
+            super().save(*args, **kwargs)  # save first to get auto id
+            self.patient_id = f'Aura{self.id}'
+            Patient.objects.filter(id=self.id).update(patient_id=self.patient_id)
+        else:
+            super().save(*args, **kwargs)
+
     def __str__(self):
-        return self.name
+        return f'{self.patient_id} — {self.name}'
+        

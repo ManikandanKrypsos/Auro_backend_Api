@@ -14,6 +14,7 @@ class PatientSerializer(serializers.ModelSerializer):
     class Meta:
         model  = Patient
         fields = '__all__'
+        read_only_fields = ['patient_id', 'id'] 
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
@@ -21,6 +22,7 @@ class PatientSerializer(serializers.ModelSerializer):
         data['bloodType']        = data.pop('blood_type')
         data['skinType']         = data.pop('skin_type')
         data['createdAt']        = data.pop('created_at')
+        data['patientId']       = data.pop('patient_id')
         # 👈 return both id and label for marketing source
         marketing_id = data.pop('marketing_source')
         data['marketingSource'] = {
