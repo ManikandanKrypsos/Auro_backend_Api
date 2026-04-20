@@ -173,6 +173,12 @@ EMAIL_HOST_USER    = os.environ.get('EMAIL_HOST_USER', '')
 EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
 DEFAULT_FROM_EMAIL = f'Aura Clinic <{os.environ.get("EMAIL_HOST_USER", "")}>'
 
+# ── Cache (for OTP storage) ────────────────────────────────
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+    }
+}
 
 # ── i18n ───────────────────────────────────────────────────
 LANGUAGE_CODE = 'en-us'
