@@ -74,6 +74,17 @@ class PatientViewSet(viewsets.ModelViewSet):
             return [IsAdminOrReception()]
         return [IsAuthenticated()]
 
+    def destroy(self, request, *args, **kwargs):
+        patient = self.get_object()
+        patient_id = patient.patient_id
+        patient_name = patient.name
+        patient.delete()
+        return Response({
+            'message': f'Patient {patient_name} ({patient_id}) deleted successfully',
+            'deleted_id': patient_id,
+            'deleted_name': patient_name,
+        }, status=200)
+
     @action(detail=False, methods=['get'], url_path='form-choices',
             permission_classes=[IsAuthenticated])
     def form_choices(self, request):
