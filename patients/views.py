@@ -82,7 +82,7 @@ class PatientViewSet(viewsets.ModelViewSet):
         return Response({
             'message': f'Patient {patient_name} ({patient_id}) deleted successfully',
             'deleted_id': patient_id,
-            'deleted_name': patient_name,
+            'deleted_patients': patient_name,
         }, status=200)
 
     @action(detail=False, methods=['get'], url_path='form-choices',
