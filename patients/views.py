@@ -3,6 +3,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
+from rest_framework.exceptions import NotFound
 from users.permissions import IsAdminOrReception
 from .models import Patient
 from .serializers import PatientSerializer
@@ -25,7 +26,7 @@ class MarketingSourceListView(APIView):
 
 class PatientViewSet(viewsets.ModelViewSet):
     serializer_class = PatientSerializer
-    filter_backends = []  # 👈 remove default filter — using custom get_queryset
+    filter_backends = []
 
     def get_queryset(self):
         qs = Patient.objects.all().order_by('-created_at')
@@ -34,10 +35,10 @@ class PatientViewSet(viewsets.ModelViewSet):
 
         if search:
             qs = qs.filter(
-                Q(name__icontains=search)       |   # 👈 icontains for anywhere in string
+                Q(name__icontains=search)       |
                 Q(phone__istartswith=search)    |
                 Q(email__istartswith=search)    |
-                Q(patient_id__icontains=search)     # 👈 Aura6, aura6, AURA6 all work
+                Q(patient_id__icontains=search)
             )
 
         if category:
@@ -47,29 +48,25 @@ class PatientViewSet(viewsets.ModelViewSet):
 
     def get_object(self):
         """
-        Override to support both:
-        - /api/patients/Aura6/  (patient_id)
-        - /api/patients/6/      (numeric id)
+        Support both Aura6 and numeric 6 as lookup
         """
-        pk = self.kwargs.get('pk')
-        queryset = self.get_queryset()
+        pk = self.kwargs.get('pk', '')
 
-        # Try patient_id first (e.g. Aura6)
+        # Try patient_id first (Aura6, aura6)
         if pk and not pk.isdigit():
             try:
                 obj = Patient.objects.get(patient_id__iexact=pk)
                 self.check_object_permissions(self.request, obj)
                 return obj
             except Patient.DoesNotExist:
-                pass
+                raise NotFound(f"Patient '{pk}' not found")
 
         # Try numeric id
         try:
-            obj = Patient.objects.get(id=pk)
+            obj = Patient.objects.get(id=int(pk))
             self.check_object_permissions(self.request, obj)
             return obj
-        except (Patient.DoesNotExist, ValueError):
-            from rest_framework.exceptions import NotFound
+        except (Patient.DoesNotExist, ValueError, TypeError):
             raise NotFound(f"Patient '{pk}' not found")
 
     def get_permissions(self):

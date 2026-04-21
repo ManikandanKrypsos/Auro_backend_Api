@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from .models import Patient, MARKETING_SOURCE_CHOICES
+from django.utils import timezone
 
 MARKETING_SOURCE_MAP = {
     1: 'Instagram',
@@ -11,17 +12,30 @@ MARKETING_SOURCE_MAP = {
 }
 
 class PatientSerializer(serializers.ModelSerializer):
+    age = serializers.SerializerMethodField()  # 👈 calculated field
+
     class Meta:
         model  = Patient
         fields = '__all__'
         read_only_fields = ['patient_id', 'id']
 
+    def get_age(self, obj):
+        """Calculate age from dob"""
+        if not obj.dob:
+            return None
+        today = timezone.localdate()
+        age = today.year - obj.dob.year
+        # Check if birthday has passed this year
+        if (today.month, today.day) < (obj.dob.month, obj.dob.day):
+            age -= 1
+        return age
+
     def to_representation(self, instance):
         data = super().to_representation(instance)
 
-        # 👈 Replace numeric id with patientId (Aura1, Aura2...)
-        data.pop('id')                              # remove numeric id
-        data['id'] = data.pop('patient_id')         # make patientId the main id
+        # 👈 Replace numeric id with Aura patient_id
+        data.pop('id')
+        data['id'] = data.pop('patient_id')
 
         # camelCase for Flutter
         data['bloodType']       = data.pop('blood_type')
