@@ -445,22 +445,76 @@ class WorkingHoursListView(APIView):
         return Response(result)
 
     def post(self, request, staff_id):
+        """
+        Accepts either a single day or a list of days in one request.
+
+        Single day:
+        {
+            "day": "Mon", "start_time": "09:00", "end_time": "17:00"
+        }
+
+        Bulk (all days at once) — send a list:
+        [
+            { "day": "Mon", "start_time": "09:00", "end_time": "17:00" },
+            { "day": "Tue", "start_time": "09:00", "end_time": "17:00" },
+            { "day": "Wed", "day_off": true },
+            ...
+        ]
+        For days with "day_off": true, any existing entry is deleted (sets to day off).
+        For working days, existing entries are updated and new ones are created.
+        """
         staff = _get_staff_member(staff_id)
         if not staff:
             return Response({'error': 'Staff member not found.'}, status=404)
 
-        # Prevent duplicate day
-        day = request.data.get('day', '')
-        if StaffWorkingHours.objects.filter(staff=staff, day=day).exists():
-            return Response(
-                {'error': f'{day} already has working hours. Use PUT to edit it.'},
-                status=400
-            )
+        data = request.data
 
-        serializer = WorkingHoursSerializer(data=request.data)
+        # ── Bulk mode: list of days ──────────────────────────────────────────
+        if isinstance(data, list):
+            VALID_DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+            errors  = {}
+            results = []
+
+            for item in data:
+                day = item.get('day', '')
+                if day not in VALID_DAYS:
+                    errors[day or 'unknown'] = 'Invalid day. Use Mon Tue Wed Thu Fri Sat Sun.'
+                    continue
+
+                # day_off: true — delete the entry if it exists
+                if item.get('day_off', False):
+                    StaffWorkingHours.objects.filter(staff=staff, day=day).delete()
+                    results.append({'day': day, 'day_off': True})
+                    continue
+
+                # Working day — upsert (update or create)
+                existing = StaffWorkingHours.objects.filter(staff=staff, day=day).first()
+                serializer = WorkingHoursSerializer(
+                    existing if existing else None,
+                    data={'day': day, 'start_time': item.get('start_time'), 'end_time': item.get('end_time')},
+                    partial=False
+                )
+                if serializer.is_valid():
+                    serializer.save(staff=staff)
+                    results.append({**serializer.data, 'day_off': False})
+                else:
+                    errors[day] = serializer.errors
+
+            if errors:
+                return Response({'errors': errors, 'saved': results}, status=400)
+            return Response(results, status=201)
+
+        # ── Single day mode ──────────────────────────────────────────────────
+        day = data.get('day', '')
+        existing = StaffWorkingHours.objects.filter(staff=staff, day=day).first()
+        serializer = WorkingHoursSerializer(
+            existing if existing else None,
+            data=data,
+            partial=False
+        )
         if serializer.is_valid():
             serializer.save(staff=staff)
-            return Response(serializer.data, status=201)
+            return Response({**serializer.data, 'day_off': False}, status=201)
         return Response(serializer.errors, status=400)
 
 
