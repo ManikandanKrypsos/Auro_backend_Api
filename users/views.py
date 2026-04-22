@@ -569,7 +569,24 @@ class WorkingHoursListView(APIView):
 
         if errors:
             return Response({'errors': errors, 'saved': results}, status=400)
-        return Response(results)
+
+        # Return full 7-day schedule after update so you can confirm all days are preserved
+        DAYS_ORDER = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+        all_entries = {wh.day: wh for wh in StaffWorkingHours.objects.filter(staff=staff)}
+        full_schedule = []
+        for day in DAYS_ORDER:
+            if day in all_entries:
+                wh = all_entries[day]
+                full_schedule.append({
+                    'id':         wh.id,
+                    'day':        day,
+                    'start_time': wh.start_time,
+                    'end_time':   wh.end_time,
+                    'day_off':    False,
+                })
+            else:
+                full_schedule.append({'day': day, 'day_off': True})
+        return Response(full_schedule)
 
 
 class WorkingHoursDetailView(APIView):
