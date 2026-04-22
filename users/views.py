@@ -374,7 +374,7 @@ class StaffDetailView(APIView):
             return Response({'error': 'Staff member not found.'}, status=404)
         return Response(_format_staff(user))
 
-    def put(self, request, pk):
+    def _update(self, request, pk):
         user = self._get_staff_or_404(pk)
         if user is None:
             return Response({'error': 'Staff member not found.'}, status=404)
@@ -386,6 +386,12 @@ class StaffDetailView(APIView):
             data['message'] = 'Staff member updated successfully.'
             return Response(data)
         return Response(serializer.errors, status=400)
+
+    def put(self, request, pk):
+        return self._update(request, pk)
+
+    def patch(self, request, pk):
+        return self._update(request, pk)
 
 # ─── Staff Schedule Views ─────────────────────────────────────────────────────
 
@@ -475,7 +481,7 @@ class WorkingHoursDetailView(APIView):
         except StaffWorkingHours.DoesNotExist:
             return None
 
-    def put(self, request, staff_id, pk):
+    def _update(self, request, staff_id, pk):
         if not _get_staff_member(staff_id):
             return Response({'error': 'Staff member not found.'}, status=404)
         entry = self._get_entry(staff_id, pk)
@@ -487,6 +493,12 @@ class WorkingHoursDetailView(APIView):
             serializer.save()
             return Response(serializer.data)
         return Response(serializer.errors, status=400)
+
+    def put(self, request, staff_id, pk):
+        return self._update(request, staff_id, pk)
+
+    def patch(self, request, staff_id, pk):
+        return self._update(request, staff_id, pk)
 
     def delete(self, request, staff_id, pk):
         if not _get_staff_member(staff_id):
@@ -551,7 +563,7 @@ class BreakTimeDetailView(APIView):
         except StaffBreakTime.DoesNotExist:
             return None
 
-    def put(self, request, staff_id, pk):
+    def _update(self, request, staff_id, pk):
         if not _get_staff_member(staff_id):
             return Response({'error': 'Staff member not found.'}, status=404)
         entry = self._get_entry(staff_id, pk)
@@ -563,6 +575,12 @@ class BreakTimeDetailView(APIView):
             serializer.save()
             return Response(serializer.data)
         return Response(serializer.errors, status=400)
+
+    def put(self, request, staff_id, pk):
+        return self._update(request, staff_id, pk)
+
+    def patch(self, request, staff_id, pk):
+        return self._update(request, staff_id, pk)
 
     def delete(self, request, staff_id, pk):
         if not _get_staff_member(staff_id):
@@ -626,7 +644,7 @@ class LeaveDetailView(APIView):
         except StaffLeave.DoesNotExist:
             return None
 
-    def put(self, request, staff_id, pk):
+    def _update(self, request, staff_id, pk):
         if not _get_staff_member(staff_id):
             return Response({'error': 'Staff member not found.'}, status=404)
         entry = self._get_entry(staff_id, pk)
@@ -638,6 +656,12 @@ class LeaveDetailView(APIView):
             serializer.save()
             return Response(serializer.data)
         return Response(serializer.errors, status=400)
+
+    def put(self, request, staff_id, pk):
+        return self._update(request, staff_id, pk)
+
+    def patch(self, request, staff_id, pk):
+        return self._update(request, staff_id, pk)
 
     def delete(self, request, staff_id, pk):
         if not _get_staff_member(staff_id):

@@ -70,7 +70,10 @@ class StaffUpdateSerializer(serializers.ModelSerializer):
     Used by PUT /api/users/staff/<id>/
     All fields optional — only provided fields are updated.
     """
-    role_id = serializers.IntegerField(write_only=True, required=False)
+    role_id  = serializers.IntegerField(write_only=True, required=False)
+    # Override username to skip AbstractUser's unique validator —
+    # uniqueness is checked manually in validate_username instead.
+    username = serializers.CharField(required=False, allow_blank=True, max_length=150)
 
     class Meta:
         model  = User
@@ -78,6 +81,12 @@ class StaffUpdateSerializer(serializers.ModelSerializer):
             'username', 'email', 'role_id',
             'phone', 'specialist_area', 'joining_date', 'years_of_experience',
         ]
+
+    def validate_username(self, value):
+        user = self.instance
+        if User.objects.filter(username=value).exclude(pk=user.pk).exists():
+            raise serializers.ValidationError("This name is already taken by another staff member.")
+        return value
 
     def validate_role_id(self, value):
         if value not in ROLE_MAP:
