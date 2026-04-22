@@ -518,6 +518,60 @@ class WorkingHoursListView(APIView):
         return Response(serializer.errors, status=400)
 
 
+    def patch(self, request, staff_id):
+        """
+        Bulk update working hours in one request.
+
+        PATCH /api/users/staff/<staff_id>/working-hours/
+        [
+            { "day": "Mon", "start_time": "09:00", "end_time": "13:00" },
+            { "day": "Tue", "day_off": true },
+            { "day": "Wed", "start_time": "10:00", "end_time": "18:00" }
+        ]
+
+        - Working day: updates if exists, creates if not
+        - day_off: true: deletes the entry (sets to day off)
+        """
+        staff = _get_staff_member(staff_id)
+        if not staff:
+            return Response({'error': 'Staff member not found.'}, status=404)
+
+        data = request.data
+        if not isinstance(data, list):
+            return Response({'error': 'Send a list of days.'}, status=400)
+
+        VALID_DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+        errors  = {}
+        results = []
+
+        for item in data:
+            day = item.get('day', '')
+            if day not in VALID_DAYS:
+                errors[day or 'unknown'] = 'Invalid day. Use Mon Tue Wed Thu Fri Sat Sun.'
+                continue
+
+            if item.get('day_off', False):
+                StaffWorkingHours.objects.filter(staff=staff, day=day).delete()
+                results.append({'day': day, 'day_off': True})
+                continue
+
+            existing = StaffWorkingHours.objects.filter(staff=staff, day=day).first()
+            serializer = WorkingHoursSerializer(
+                existing if existing else None,
+                data={'day': day, 'start_time': item.get('start_time'), 'end_time': item.get('end_time')},
+                partial=False
+            )
+            if serializer.is_valid():
+                serializer.save(staff=staff)
+                results.append({**serializer.data, 'day_off': False})
+            else:
+                errors[day] = serializer.errors
+
+        if errors:
+            return Response({'errors': errors, 'saved': results}, status=400)
+        return Response(results)
+
+
 class WorkingHoursDetailView(APIView):
     """
     PUT    /api/users/staff/<staff_id>/working-hours/<id>/
