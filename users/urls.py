@@ -3,18 +3,38 @@ from .views import (
     RegisterView, LoginView, LogoutView,
     MeView, UserListView, RolesListView,
     RefreshTokenView, ForgotPasswordView,
-    VerifyOTPView, ResetPasswordView
+    VerifyOTPView, ResetPasswordView,
+    StaffDetailView,
+    WorkingHoursListView, WorkingHoursDetailView,
+    BreakTimeListView, BreakTimeDetailView,
+    LeaveListView, LeaveDetailView,
 )
 
 urlpatterns = [
-    path('register/',         RegisterView.as_view()),
-    path('login/',            LoginView.as_view()),
-    path('logout/',           LogoutView.as_view()),
-    path('refresh/',          RefreshTokenView.as_view()),
-    path('me/',               MeView.as_view()),
-    path('staff/',            UserListView.as_view()),
-    path('roles/',            RolesListView.as_view()),
-    path('forgot-password/',  ForgotPasswordView.as_view()),
-    path('verify-otp/',       VerifyOTPView.as_view()),
-    path('reset-password/',   ResetPasswordView.as_view()),
+    # ── Auth ──────────────────────────────────────────────────────
+    path('register/',                   RegisterView.as_view()),
+    path('login/',                      LoginView.as_view()),
+    path('logout/',                     LogoutView.as_view()),
+    path('refresh/',                    RefreshTokenView.as_view()),
+    path('me/',                         MeView.as_view()),
+    path('roles/',                      RolesListView.as_view()),
+    path('forgot-password/',            ForgotPasswordView.as_view()),
+    path('verify-otp/',                 VerifyOTPView.as_view()),
+    path('reset-password/',             ResetPasswordView.as_view()),
+
+    # ── Staff CRUD ────────────────────────────────────────────────
+    path('staff/',                      UserListView.as_view()),         # GET ?search=  ?role=
+    path('staff/<int:pk>/',             StaffDetailView.as_view()),      # GET + PUT
+
+    # ── Working Hours ─────────────────────────────────────────────
+    path('staff/<int:staff_id>/working-hours/',          WorkingHoursListView.as_view()),    # GET, POST
+    path('staff/<int:staff_id>/working-hours/<int:pk>/', WorkingHoursDetailView.as_view()), # PUT, DELETE
+
+    # ── Break Times ───────────────────────────────────────────────
+    path('staff/<int:staff_id>/break-times/',             BreakTimeListView.as_view()),      # GET, POST
+    path('staff/<int:staff_id>/break-times/<int:pk>/',    BreakTimeDetailView.as_view()),    # PUT, DELETE
+
+    # ── Leaves ───────────────────────────────────────────────────
+    path('staff/<int:staff_id>/leaves/',                  LeaveListView.as_view()),          # GET, POST
+    path('staff/<int:staff_id>/leaves/<int:pk>/',         LeaveDetailView.as_view()),        # PUT, DELETE
 ]

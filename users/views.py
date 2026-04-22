@@ -3,7 +3,7 @@ from rest_framework.response import Response
 from rest_framework import permissions
 from rest_framework_simplejwt.tokens import RefreshToken, TokenError
 from users.permissions import IsAdmin
-from .serializers import RegisterSerializer, LoginSerializer, UserSerializer
+from .serializers import RegisterSerializer, LoginSerializer, UserSerializer, StaffUpdateSerializer
 from .models import User
 from django.db.models import Q
 from django.core.mail import send_mail
@@ -179,19 +179,24 @@ class UserListView(APIView):
             users = users.filter(role=role)
 
         if search:
+            # Match name (startswith) OR email (startswith) — for live search as user types
             users = users.filter(
-                Q(username__icontains=search) |
+                Q(username__istartswith=search) |
                 Q(email__istartswith=search)
             )
 
         result = []
         for u in users:
             result.append({
-                'id':       u.id,
-                'username': u.username or u.email.split('@')[0],
-                'email':    u.email,
-                'role':     u.role,
-                'role_id':  ROLE_ID_MAP.get(u.role, 1),
+                'id':                   u.id,
+                'username':             u.username or u.email.split('@')[0],
+                'email':                u.email,
+                'role':                 u.role,
+                'role_id':              ROLE_ID_MAP.get(u.role, 1),
+                'phone':                u.phone,
+                'specialist_area':      u.specialist_area,
+                'joining_date':         u.joining_date,
+                'years_of_experience':  u.years_of_experience,
             })
         return Response(result)
 
@@ -319,3 +324,327 @@ class ResetPasswordView(APIView):
         user.save()
 
         return Response({'message': 'Password reset successfully. Please login again.'})
+
+
+def _format_staff(user):
+    """Shared helper — returns a consistent staff dict."""
+    return {
+        'id':                   user.id,
+        'username':             user.username or user.email.split('@')[0],
+        'email':                user.email,
+        'role':                 user.role,
+        'role_id':              ROLE_ID_MAP.get(user.role, 1),
+        'phone':                user.phone,
+        'specialist_area':      user.specialist_area,
+        'joining_date':         user.joining_date,
+        'years_of_experience':  user.years_of_experience,
+    }
+
+
+class StaffDetailView(APIView):
+    """
+    Look up, retrieve, and edit a single staff member by their ID.
+    The ID is obtained from StaffSearchView above.
+
+    GET /api/users/staff/<id>/   — retrieve a single staff member
+    PUT /api/users/staff/<id>/   — update staff details (all fields optional)
+
+    Body for PUT (all fields optional):
+    {
+        "username":            "Jane Smith",
+        "email":               "jane@auraclinic.com",
+        "role_id":             3,              // 1=Admin 2=Receptionist 3=Therapist 4=Client
+        "phone":               "+1 (555) 000-0000",
+        "specialist_area":     "Medical Aesthetician",
+        "joining_date":        "2024-04-24",   // ISO format YYYY-MM-DD
+        "years_of_experience": 6
+    }
+    """
+    permission_classes = [IsAdmin]
+
+    def _get_staff_or_404(self, pk):
+        try:
+            return User.objects.get(pk=pk, role__in=['reception', 'therapist'])
+        except User.DoesNotExist:
+            return None
+
+    def get(self, request, pk):
+        user = self._get_staff_or_404(pk)
+        if user is None:
+            return Response({'error': 'Staff member not found.'}, status=404)
+        return Response(_format_staff(user))
+
+    def put(self, request, pk):
+        user = self._get_staff_or_404(pk)
+        if user is None:
+            return Response({'error': 'Staff member not found.'}, status=404)
+
+        serializer = StaffUpdateSerializer(user, data=request.data, partial=True)
+        if serializer.is_valid():
+            updated_user = serializer.save()
+            data = _format_staff(updated_user)
+            data['message'] = 'Staff member updated successfully.'
+            return Response(data)
+        return Response(serializer.errors, status=400)
+
+# ─── Staff Schedule Views ─────────────────────────────────────────────────────
+
+from .models import StaffWorkingHours, StaffBreakTime, StaffLeave
+from .serializers import WorkingHoursSerializer, BreakTimeSerializer, LeaveSerializer
+
+
+def _get_staff_member(pk):
+    """Return staff (reception/therapist) by pk, or None."""
+    try:
+        return User.objects.get(pk=pk, role__in=['reception', 'therapist'])
+    except User.DoesNotExist:
+        return None
+
+
+# ── Working Hours ─────────────────────────────────────────────────────────────
+
+class WorkingHoursListView(APIView):
+    """
+    GET  /api/users/staff/<staff_id>/working-hours/
+         Returns all 7 days. Days with no entry are shown as 'day_off: true'.
+
+    POST /api/users/staff/<staff_id>/working-hours/
+         Add a working day.
+         Body: { "day": "Mon", "start_time": "09:00", "end_time": "17:00" }
+         Day options: Mon Tue Wed Thu Fri Sat Sun
+    """
+    permission_classes = [IsAdmin]
+
+    DAYS_ORDER = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+
+    def get(self, request, staff_id):
+        staff = _get_staff_member(staff_id)
+        if not staff:
+            return Response({'error': 'Staff member not found.'}, status=404)
+
+        entries = {wh.day: wh for wh in StaffWorkingHours.objects.filter(staff=staff)}
+        result = []
+        for day in self.DAYS_ORDER:
+            if day in entries:
+                wh = entries[day]
+                result.append({
+                    'id':         wh.id,
+                    'day':        day,
+                    'start_time': wh.start_time,
+                    'end_time':   wh.end_time,
+                    'day_off':    False,
+                })
+            else:
+                result.append({'day': day, 'day_off': True})
+        return Response(result)
+
+    def post(self, request, staff_id):
+        staff = _get_staff_member(staff_id)
+        if not staff:
+            return Response({'error': 'Staff member not found.'}, status=404)
+
+        # Prevent duplicate day
+        day = request.data.get('day', '')
+        if StaffWorkingHours.objects.filter(staff=staff, day=day).exists():
+            return Response(
+                {'error': f'{day} already has working hours. Use PUT to edit it.'},
+                status=400
+            )
+
+        serializer = WorkingHoursSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save(staff=staff)
+            return Response(serializer.data, status=201)
+        return Response(serializer.errors, status=400)
+
+
+class WorkingHoursDetailView(APIView):
+    """
+    PUT    /api/users/staff/<staff_id>/working-hours/<id>/
+           Edit start/end time for a day.
+           Body: { "start_time": "10:00", "end_time": "18:00" }
+
+    DELETE /api/users/staff/<staff_id>/working-hours/<id>/
+           Mark the day as day off (removes the entry).
+    """
+    permission_classes = [IsAdmin]
+
+    def _get_entry(self, staff_id, pk):
+        try:
+            return StaffWorkingHours.objects.get(pk=pk, staff_id=staff_id)
+        except StaffWorkingHours.DoesNotExist:
+            return None
+
+    def put(self, request, staff_id, pk):
+        if not _get_staff_member(staff_id):
+            return Response({'error': 'Staff member not found.'}, status=404)
+        entry = self._get_entry(staff_id, pk)
+        if not entry:
+            return Response({'error': 'Working hours entry not found.'}, status=404)
+
+        serializer = WorkingHoursSerializer(entry, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        return Response(serializer.errors, status=400)
+
+    def delete(self, request, staff_id, pk):
+        if not _get_staff_member(staff_id):
+            return Response({'error': 'Staff member not found.'}, status=404)
+        entry = self._get_entry(staff_id, pk)
+        if not entry:
+            return Response({'error': 'Working hours entry not found.'}, status=404)
+
+        day = entry.day
+        entry.delete()
+        return Response({'message': f'{day} set to day off.'})
+
+
+# ── Break Times ───────────────────────────────────────────────────────────────
+
+class BreakTimeListView(APIView):
+    """
+    GET  /api/users/staff/<staff_id>/break-times/
+         Returns all break times for the staff member.
+
+    POST /api/users/staff/<staff_id>/break-times/
+         Add a break time.
+         Body: { "start_time": "13:00", "end_time": "14:00", "label": "Lunch" }
+         label is optional.
+    """
+    permission_classes = [IsAdmin]
+
+    def get(self, request, staff_id):
+        staff = _get_staff_member(staff_id)
+        if not staff:
+            return Response({'error': 'Staff member not found.'}, status=404)
+
+        breaks = StaffBreakTime.objects.filter(staff=staff)
+        return Response(BreakTimeSerializer(breaks, many=True).data)
+
+    def post(self, request, staff_id):
+        staff = _get_staff_member(staff_id)
+        if not staff:
+            return Response({'error': 'Staff member not found.'}, status=404)
+
+        serializer = BreakTimeSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save(staff=staff)
+            return Response(serializer.data, status=201)
+        return Response(serializer.errors, status=400)
+
+
+class BreakTimeDetailView(APIView):
+    """
+    PUT    /api/users/staff/<staff_id>/break-times/<id>/
+           Edit a break time.
+           Body: { "start_time": "13:30", "end_time": "14:30", "label": "Prayer" }
+
+    DELETE /api/users/staff/<staff_id>/break-times/<id>/
+           Remove a break time.
+    """
+    permission_classes = [IsAdmin]
+
+    def _get_entry(self, staff_id, pk):
+        try:
+            return StaffBreakTime.objects.get(pk=pk, staff_id=staff_id)
+        except StaffBreakTime.DoesNotExist:
+            return None
+
+    def put(self, request, staff_id, pk):
+        if not _get_staff_member(staff_id):
+            return Response({'error': 'Staff member not found.'}, status=404)
+        entry = self._get_entry(staff_id, pk)
+        if not entry:
+            return Response({'error': 'Break time not found.'}, status=404)
+
+        serializer = BreakTimeSerializer(entry, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        return Response(serializer.errors, status=400)
+
+    def delete(self, request, staff_id, pk):
+        if not _get_staff_member(staff_id):
+            return Response({'error': 'Staff member not found.'}, status=404)
+        entry = self._get_entry(staff_id, pk)
+        if not entry:
+            return Response({'error': 'Break time not found.'}, status=404)
+
+        entry.delete()
+        return Response({'message': 'Break time deleted.'})
+
+
+# ── Leaves ────────────────────────────────────────────────────────────────────
+
+class LeaveListView(APIView):
+    """
+    GET  /api/users/staff/<staff_id>/leaves/
+         Returns all leave records for the staff member.
+
+    POST /api/users/staff/<staff_id>/leaves/
+         Add a leave.
+         Body: { "from_date": "2026-04-23", "to_date": "2026-04-24", "reason": "Sick" }
+         reason is optional.
+    """
+    permission_classes = [IsAdmin]
+
+    def get(self, request, staff_id):
+        staff = _get_staff_member(staff_id)
+        if not staff:
+            return Response({'error': 'Staff member not found.'}, status=404)
+
+        leaves = StaffLeave.objects.filter(staff=staff)
+        return Response(LeaveSerializer(leaves, many=True).data)
+
+    def post(self, request, staff_id):
+        staff = _get_staff_member(staff_id)
+        if not staff:
+            return Response({'error': 'Staff member not found.'}, status=404)
+
+        serializer = LeaveSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save(staff=staff)
+            return Response(serializer.data, status=201)
+        return Response(serializer.errors, status=400)
+
+
+class LeaveDetailView(APIView):
+    """
+    PUT    /api/users/staff/<staff_id>/leaves/<id>/
+           Edit a leave record.
+           Body: { "from_date": "2026-04-25", "to_date": "2026-04-26", "reason": "Holiday" }
+
+    DELETE /api/users/staff/<staff_id>/leaves/<id>/
+           Delete a leave record.
+    """
+    permission_classes = [IsAdmin]
+
+    def _get_entry(self, staff_id, pk):
+        try:
+            return StaffLeave.objects.get(pk=pk, staff_id=staff_id)
+        except StaffLeave.DoesNotExist:
+            return None
+
+    def put(self, request, staff_id, pk):
+        if not _get_staff_member(staff_id):
+            return Response({'error': 'Staff member not found.'}, status=404)
+        entry = self._get_entry(staff_id, pk)
+        if not entry:
+            return Response({'error': 'Leave record not found.'}, status=404)
+
+        serializer = LeaveSerializer(entry, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        return Response(serializer.errors, status=400)
+
+    def delete(self, request, staff_id, pk):
+        if not _get_staff_member(staff_id):
+            return Response({'error': 'Staff member not found.'}, status=404)
+        entry = self._get_entry(staff_id, pk)
+        if not entry:
+            return Response({'error': 'Leave record not found.'}, status=404)
+
+        entry.delete()
+        return Response({'message': 'Leave deleted.'})
