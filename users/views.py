@@ -318,9 +318,7 @@ class ResetPasswordView(APIView):
 
 def _format_staff(user, request=None):
     """Shared helper — returns a consistent staff dict."""
-    image_url = None
-    if user.profile_image:
-        image_url = user.profile_image.url
+    image_url = user.profile_image if user.profile_image else None
 
     return {
         'id':                   user.id,
