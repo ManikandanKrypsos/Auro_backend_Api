@@ -656,7 +656,10 @@ class BreakTimeListView(APIView):
             return Response({'error': 'Staff member not found.'}, status=404)
 
         breaks = StaffBreakTime.objects.filter(staff=staff)
-        return Response(BreakTimeSerializer(breaks, many=True).data)
+        return Response({
+            'is_added': breaks.count() > 0,
+            'breaks':   BreakTimeSerializer(breaks, many=True).data,
+        })
 
     def post(self, request, staff_id):
         staff = _get_staff_member(staff_id)
@@ -666,7 +669,11 @@ class BreakTimeListView(APIView):
         serializer = BreakTimeSerializer(data=request.data)
         if serializer.is_valid():
             serializer.save(staff=staff)
-            return Response(serializer.data, status=201)
+            total = StaffBreakTime.objects.filter(staff=staff).count()
+            return Response({
+                'is_added': total > 0,
+                'breaks':   [serializer.data],
+            }, status=201)
         return Response(serializer.errors, status=400)
 
 
