@@ -79,7 +79,7 @@ class StaffUpdateSerializer(serializers.ModelSerializer):
         model  = User
         fields = [
             'username', 'email', 'role_id',
-            'phone', 'specialist_area', 'joining_date', 'years_of_experience',
+            'profile_image', 'phone', 'specialist_area', 'joining_date', 'years_of_experience',
         ]
 
     def validate_username(self, value):

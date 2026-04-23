@@ -187,17 +187,7 @@ class UserListView(APIView):
 
         result = []
         for u in users:
-            result.append({
-                'id':                   u.id,
-                'username':             u.username or u.email.split('@')[0],
-                'email':                u.email,
-                'role':                 u.role,
-                'role_id':              ROLE_ID_MAP.get(u.role, 1),
-                'phone':                u.phone,
-                'specialist_area':      u.specialist_area,
-                'joining_date':         u.joining_date,
-                'years_of_experience':  u.years_of_experience,
-            })
+            result.append(_format_staff(u))
         return Response(result)
 
 
@@ -326,14 +316,19 @@ class ResetPasswordView(APIView):
         return Response({'message': 'Password reset successfully. Please login again.'})
 
 
-def _format_staff(user):
+def _format_staff(user, request=None):
     """Shared helper — returns a consistent staff dict."""
+    image_url = None
+    if user.profile_image:
+        image_url = user.profile_image.url
+
     return {
         'id':                   user.id,
         'username':             user.username or user.email.split('@')[0],
         'email':                user.email,
         'role':                 user.role,
         'role_id':              ROLE_ID_MAP.get(user.role, 1),
+        'profile_image':        image_url,
         'phone':                user.phone,
         'specialist_area':      user.specialist_area,
         'joining_date':         user.joining_date,
