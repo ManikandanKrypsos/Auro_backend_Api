@@ -422,11 +422,11 @@ class WorkingHoursListView(APIView):
             return Response({'error': 'Staff member not found.'}, status=404)
 
         entries = {wh.day: wh for wh in StaffWorkingHours.objects.filter(staff=staff)}
-        result = []
+        days = []
         for day in self.DAYS_ORDER:
             if day in entries:
                 wh = entries[day]
-                result.append({
+                days.append({
                     'id':         wh.id,
                     'day':        day,
                     'start_time': wh.start_time,
@@ -434,8 +434,12 @@ class WorkingHoursListView(APIView):
                     'day_off':    False,
                 })
             else:
-                result.append({'day': day, 'day_off': True})
-        return Response(result)
+                days.append({'day': day, 'day_off': False})
+
+        return Response({
+            'is_added': len(entries) > 0,
+            'days':     days,
+        })
 
     def post(self, request, staff_id):
         """
@@ -477,7 +481,7 @@ class WorkingHoursListView(APIView):
                 # day_off: true — delete the entry if it exists
                 if item.get('day_off', False):
                     StaffWorkingHours.objects.filter(staff=staff, day=day).delete()
-                    results.append({'day': day, 'day_off': True})
+                    results.append({'day': day, 'day_off': False, 'is_added': False})
                     continue
 
                 # Working day — upsert (update or create)
@@ -489,13 +493,14 @@ class WorkingHoursListView(APIView):
                 )
                 if serializer.is_valid():
                     serializer.save(staff=staff)
-                    results.append({**serializer.data, 'day_off': False})
+                    results.append({**serializer.data, 'day_off': False, 'is_added': True})
                 else:
                     errors[day] = serializer.errors
 
             if errors:
                 return Response({'errors': errors, 'saved': results}, status=400)
-            return Response(results, status=201)
+            total = StaffWorkingHours.objects.filter(staff=staff).count()
+            return Response({'is_added': total > 0, 'days': results}, status=201)
 
         # ── Single day mode ──────────────────────────────────────────────────
         day = data.get('day', '')
@@ -507,7 +512,8 @@ class WorkingHoursListView(APIView):
         )
         if serializer.is_valid():
             serializer.save(staff=staff)
-            return Response({**serializer.data, 'day_off': False}, status=201)
+            total = StaffWorkingHours.objects.filter(staff=staff).count()
+            return Response({'is_added': total > 0, 'days': [serializer.data]}, status=201)
         return Response(serializer.errors, status=400)
 
 
@@ -545,7 +551,7 @@ class WorkingHoursListView(APIView):
 
             if item.get('day_off', False):
                 StaffWorkingHours.objects.filter(staff=staff, day=day).delete()
-                results.append({'day': day, 'day_off': True})
+                results.append({'day': day, 'day_off': False, 'is_added': False})
                 continue
 
             existing = StaffWorkingHours.objects.filter(staff=staff, day=day).first()
@@ -556,14 +562,14 @@ class WorkingHoursListView(APIView):
             )
             if serializer.is_valid():
                 serializer.save(staff=staff)
-                results.append({**serializer.data, 'day_off': False})
+                results.append({**serializer.data, 'day_off': False, 'is_added': True})
             else:
                 errors[day] = serializer.errors
 
         if errors:
             return Response({'errors': errors, 'saved': results}, status=400)
 
-        # Return full 7-day schedule after update so you can confirm all days are preserved
+        # Return full 7-day schedule after update
         DAYS_ORDER = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
         all_entries = {wh.day: wh for wh in StaffWorkingHours.objects.filter(staff=staff)}
         full_schedule = []
@@ -578,8 +584,8 @@ class WorkingHoursListView(APIView):
                     'day_off':    False,
                 })
             else:
-                full_schedule.append({'day': day, 'day_off': True})
-        return Response(full_schedule)
+                full_schedule.append({'day': day, 'day_off': False})
+        return Response({'is_added': len(all_entries) > 0, 'days': full_schedule})
 
 
 class WorkingHoursDetailView(APIView):
