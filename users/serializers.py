@@ -74,7 +74,7 @@ class StaffUpdateSerializer(serializers.ModelSerializer):
     # Override username to skip AbstractUser's unique validator —
     # uniqueness is checked manually in validate_username instead.
     username             = serializers.CharField(required=False, allow_blank=True, max_length=150)
-    years_of_experience  = serializers.IntegerField(required=False, allow_null=True, min_value=0, max_value=100)
+    years_of_experience  = serializers.FloatField(required=False, allow_null=True, min_value=0, max_value=100)
 
     class Meta:
         model  = User

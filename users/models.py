@@ -18,7 +18,7 @@ class User(AbstractUser):
     phone              = models.CharField(max_length=30, blank=True)
     specialist_area    = models.CharField(max_length=100, blank=True)
     joining_date       = models.DateField(null=True, blank=True)
-    years_of_experience = models.PositiveIntegerField(null=True, blank=True)
+    years_of_experience = models.FloatField(null=True, blank=True)
 
     USERNAME_FIELD  = 'email'    
     REQUIRED_FIELDS = []         
