@@ -4,7 +4,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('users', '0006_staff_schedule_models'),
+        ('users', '0007_remove_staffworkinghours_unique_staff_day_and_more'),
     ]
 
     operations = [
