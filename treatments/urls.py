@@ -1,7 +1,8 @@
-from django.urls import path, include
-from rest_framework.routers import DefaultRouter
-from .views import TreatmentViewSet
+from django.urls import path
+from .views import TreatmentListView, TreatmentDetailView, TreatmentMetaView
 
-router = DefaultRouter()
-router.register(r'', TreatmentViewSet, basename='treatment')
-urlpatterns = [path('', include(router.urls))]
+urlpatterns = [
+    path('',          TreatmentListView.as_view()),    # GET, POST
+    path('meta/',     TreatmentMetaView.as_view()),    # GET dropdown options
+    path('<int:pk>/', TreatmentDetailView.as_view()),  # GET, PATCH, PUT, DELETE
+]
