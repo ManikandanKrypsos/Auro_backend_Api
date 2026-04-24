@@ -19,6 +19,7 @@ class Treatment(models.Model):
     category    = models.CharField(max_length=10, choices=CATEGORY_CHOICES, default='face')
     description = models.TextField(blank=True)
     duration    = models.PositiveIntegerField(help_text="Duration in minutes")
+    price       = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)  # legacy — use price_plans instead
     image_url   = models.URLField(max_length=500, blank=True)
 
     # ── Price Plans ───────────────────────────────────────────────

@@ -11,6 +11,16 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
+        migrations.AlterField(
+            model_name='treatment',
+            name='price',
+            field=models.DecimalField(decimal_places=2, max_digits=10, null=True, blank=True),
+        ),
+        migrations.AlterField(
+            model_name='treatment',
+            name='description',
+            field=models.TextField(blank=True),
+        ),
         # Add new fields
         migrations.AddField(
             model_name='treatment',
