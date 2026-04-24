@@ -1,7 +1,7 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from .models import Room
-from .serializers import RoomSerializer
+from .serializers import RoomSerializer, RoomCreateUpdateSerializer
 from users.permissions import IsAdmin
 
 
@@ -25,10 +25,10 @@ class RoomListView(APIView):
         return Response(RoomSerializer(rooms, many=True).data)
 
     def post(self, request):
-        serializer = RoomSerializer(data=request.data)
+        serializer = RoomCreateUpdateSerializer(data=request.data)
         if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data, status=201)
+            room = serializer.save()
+            return Response(RoomSerializer(room).data, status=201)
         return Response(serializer.errors, status=400)
 
 
@@ -56,10 +56,10 @@ class RoomDetailView(APIView):
         room = self._get_room(pk)
         if not room:
             return Response({'error': 'Room not found.'}, status=404)
-        serializer = RoomSerializer(room, data=request.data, partial=True)
+        serializer = RoomCreateUpdateSerializer(room, data=request.data, partial=True)
         if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data)
+            room = serializer.save()
+            return Response(RoomSerializer(room).data)
         return Response(serializer.errors, status=400)
 
     def put(self, request, pk):
@@ -81,7 +81,7 @@ class RoomTypesView(APIView):
 
     def get(self, request):
         types = [
-            {'value': k, 'label': v}
-            for k, v in Room.ROOM_TYPE_CHOICES
+            {'id': idx + 1, 'value': k, 'label': v}
+            for idx, (k, v) in enumerate(Room.ROOM_TYPE_CHOICES)
         ]
         return Response(types)
