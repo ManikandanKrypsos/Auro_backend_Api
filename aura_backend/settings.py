@@ -29,7 +29,8 @@ INSTALLED_APPS = [
     'leads',
     'dashboard',
     'rest_framework_simplejwt.token_blacklist',
-    'rooms'
+    'rooms',
+    'clinic'
 ]
 
 MIDDLEWARE = [
