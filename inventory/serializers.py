@@ -10,14 +10,12 @@ CATEGORY_MAP = {
 CATEGORY_ID_MAP = {v: k for k, v in CATEGORY_MAP.items()}
 
 UNIT_MAP = {
-    1: 'piece',
-    2: 'bottle',
-    3: 'box',
-    4: 'ml',
+    1: 'ml',
+    2: 'pcs',
+    3: 'units',
+    4: 'kg',
     5: 'g',
-    6: 'pair',
-    7: 'set',
-    8: 'roll',
+    6: 'l',
 }
 UNIT_ID_MAP = {v: k for k, v in UNIT_MAP.items()}
 
@@ -124,7 +122,7 @@ class InventoryItemWriteSerializer(serializers.Serializer):
     def validate_unit_id(self, value):
         if value not in UNIT_MAP:
             raise serializers.ValidationError(
-                "Invalid unit_id. Use 1=Piece, 2=Bottle, 3=Box, 4=ml, 5=g, 6=Pair, 7=Set, 8=Roll"
+                "Invalid unit_id. Use 1=ml, 2=pcs, 3=units, 4=kg, 5=g, 6=l"
             )
         return value
 

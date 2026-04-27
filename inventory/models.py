@@ -10,14 +10,12 @@ class InventoryItem(models.Model):
     ]
 
     UNIT_CHOICES = [
-        ('piece',       'Piece'),
-        ('bottle',      'Bottle'),
-        ('box',         'Box'),
-        ('ml',          'ml'),
-        ('g',           'g'),
-        ('pair',        'Pair'),
-        ('set',         'Set'),
-        ('roll',        'Roll'),
+        ('ml',    'ml'),
+        ('pcs',   'pcs'),
+        ('units', 'units'),
+        ('kg',    'kg'),
+        ('g',     'g'),
+        ('l',     'l'),
     ]
 
     # Basic Info
