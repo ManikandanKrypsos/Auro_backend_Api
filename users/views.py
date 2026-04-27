@@ -481,7 +481,7 @@ class WorkingHoursListView(APIView):
                 # day_off: true — delete the entry if it exists
                 if item.get('day_off', False):
                     StaffWorkingHours.objects.filter(staff=staff, day=day).delete()
-                    results.append({'day': day, 'day_off': False, 'is_added': False})
+                    results.append({'day': day, 'day_off': True, 'is_added': False})
                     continue
 
                 # Working day — upsert (update or create)
@@ -551,7 +551,7 @@ class WorkingHoursListView(APIView):
 
             if item.get('day_off', False):
                 StaffWorkingHours.objects.filter(staff=staff, day=day).delete()
-                results.append({'day': day, 'day_off': False, 'is_added': False})
+                results.append({'day': day, 'day_off': True, 'is_added': False})
                 continue
 
             existing = StaffWorkingHours.objects.filter(staff=staff, day=day).first()
