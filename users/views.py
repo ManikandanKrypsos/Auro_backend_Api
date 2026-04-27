@@ -434,7 +434,7 @@ class WorkingHoursListView(APIView):
                     'day_off':    False,
                 })
             else:
-                days.append({'day': day, 'day_off': False})
+                days.append({'day': day, 'day_off': True, 'is_added': False})
 
         return Response({
             'is_added': len(entries) > 0,
@@ -582,9 +582,10 @@ class WorkingHoursListView(APIView):
                     'start_time': wh.start_time,
                     'end_time':   wh.end_time,
                     'day_off':    False,
+                    'is_added':   True,
                 })
             else:
-                full_schedule.append({'day': day, 'day_off': False})
+                full_schedule.append({'day': day, 'day_off': True, 'is_added': False})
         return Response({'is_added': len(all_entries) > 0, 'days': full_schedule})
 
 
