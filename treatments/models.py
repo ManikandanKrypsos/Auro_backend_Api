@@ -31,7 +31,7 @@ class Treatment(models.Model):
     contraindications      = models.JSONField(default=list, blank=True)
 
     # ── Resources ─────────────────────────────────────────────────
-    room_type   = models.CharField(max_length=50, blank=True)  # facial_treatment / body_treatment
+    room_types  = models.JSONField(default=list, blank=True)  # e.g. ['facial_treatment', 'body_treatment']
 
     # ── Staff Assignment ──────────────────────────────────────────
     staff       = models.ManyToManyField(

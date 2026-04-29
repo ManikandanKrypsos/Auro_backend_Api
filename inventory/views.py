@@ -118,6 +118,40 @@ class InventoryDetailView(APIView):
         return Response({'message': 'Item deleted successfully.'})
 
 
+class OutOfStockView(APIView):
+    """
+    GET /api/inventory/out-of-stock/
+    Returns items where current_stock = 0 or current_stock <= minimum_stock_alert.
+
+    ?type=zero        — only completely out of stock (current_stock = 0)
+    ?type=low         — only low stock (current_stock <= minimum_stock_alert)
+    Default           — both zero and low stock combined
+    """
+    permission_classes = [IsAdmin]
+
+    def get(self, request):
+        from django.db.models import F
+        stock_type = request.query_params.get('type', '').strip()
+
+        if stock_type == 'zero':
+            items = InventoryItem.objects.filter(current_stock=0)
+        elif stock_type == 'low':
+            items = InventoryItem.objects.filter(
+                current_stock__gt=0,
+                current_stock__lte=F('minimum_stock_alert')
+            )
+        else:
+            items = InventoryItem.objects.filter(
+                current_stock__lte=F('minimum_stock_alert')
+            )
+
+        data = InventoryItemListSerializer(items, many=True).data
+        return Response({
+            'count':  len(data),
+            'items':  data,
+        })
+
+
 class StockMovementListView(APIView):
     """
     GET  /api/inventory/<id>/movements/     — list all movements for an item

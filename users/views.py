@@ -386,6 +386,35 @@ class StaffDetailView(APIView):
     def patch(self, request, pk):
         return self._update(request, pk)
 
+    def delete(self, request, pk):
+        user = self._get_staff_or_404(pk)
+        if user is None:
+            return Response({'error': 'Staff member not found.'}, status=404)
+        user.delete()
+        return Response({'message': 'Staff member deleted successfully.'})
+
+class StaffImageUploadView(APIView):
+    permission_classes = [IsAdmin]
+
+    def post(self, request, pk):
+        try:
+            user = User.objects.get(pk=pk, role__in=['reception', 'therapist'])
+        except User.DoesNotExist:
+            return Response({'error': 'Staff member not found.'}, status=404)
+
+        image = request.data.get('profile_image', '').strip()
+        if not image:
+            return Response({'error': 'profile_image is required.'}, status=400)
+
+        user.profile_image = image
+        user.save()
+
+        return Response({
+            'message':       'Profile image updated successfully.',
+            'profile_image': user.profile_image,
+        })
+
+
 # ─── Staff Schedule Views ─────────────────────────────────────────────────────
 
 from .models import StaffWorkingHours, StaffBreakTime, StaffLeave
