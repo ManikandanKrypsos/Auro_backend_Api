@@ -47,7 +47,7 @@ class TreatmentSerializer(serializers.ModelSerializer):
             'pre_care_instructions', 'post_care_instructions',
             'contraindications',
             'room_types', 'room_type_ids', 'room_types_detail',
-            'staff_ids', 'staffs',
+            'staffs',
             'recommended_frequency_value',
             'recommended_frequency_unit', 'recommended_frequency_unit_id',
             'created_at', 'updated_at',
@@ -103,6 +103,7 @@ class TreatmentWriteSerializer(serializers.Serializer):
     post_care_instructions        = serializers.CharField(required=False, allow_blank=True)
     contraindications             = serializers.ListField(child=serializers.CharField(), required=False)
     room_type_ids                 = serializers.ListField(child=serializers.IntegerField(), required=False)
+    room_type_id                  = serializers.IntegerField(required=False, allow_null=True)  # singular alias
     staff_ids                     = serializers.ListField(child=serializers.IntegerField(), required=False)
     recommended_frequency_value   = serializers.IntegerField(required=False, allow_null=True)
     recommended_frequency_unit_id = serializers.IntegerField(required=False, allow_null=True)
@@ -116,6 +117,11 @@ class TreatmentWriteSerializer(serializers.Serializer):
         for v in value:
             if v not in ROOM_TYPE_MAP:
                 raise serializers.ValidationError(f"Invalid room_type_id {v}. Use 1=Facial Treatment Room, 2=Body Treatment Room.")
+        return value
+
+    def validate_room_type_id(self, value):
+        if value is not None and value not in ROOM_TYPE_MAP:
+            raise serializers.ValidationError("Invalid room_type_id. Use 1=Facial Treatment Room, 2=Body Treatment Room.")
         return value
 
     def validate_recommended_frequency_unit_id(self, value):
@@ -135,11 +141,16 @@ class TreatmentWriteSerializer(serializers.Serializer):
         category_id      = validated_data.pop('category_id', None)
         room_type_ids    = validated_data.pop('room_type_ids', None)
         freq_unit_id     = validated_data.pop('recommended_frequency_unit_id', None)
+        validated_data.pop('room_type_id', None)  # handled separately below
 
         if category_id is not None:
             validated_data['category'] = CATEGORY_MAP[category_id]
+        # Support singular room_type_id as alias for room_type_ids
+        room_type_id = validated_data.pop('room_type_id', None)
+        if room_type_id is not None and room_type_ids is None:
+            room_type_ids = [room_type_id]
         if room_type_ids is not None:
-            validated_data['room_types'] = [ROOM_TYPE_MAP[r] for r in room_type_ids]
+            validated_data['room_types'] = [ROOM_TYPE_MAP[r] for r in room_type_ids if r in ROOM_TYPE_MAP]
         if freq_unit_id is not None:
             validated_data['recommended_frequency_unit'] = FREQUENCY_UNIT_MAP[freq_unit_id]
 
