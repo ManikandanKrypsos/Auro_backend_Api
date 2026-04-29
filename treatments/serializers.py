@@ -32,7 +32,6 @@ class TreatmentSerializer(serializers.ModelSerializer):
     price_plans     = PricePlanSerializer(many=True, read_only=True)
     staffs                = serializers.SerializerMethodField()
     category_id           = serializers.SerializerMethodField()
-    room_type_ids         = serializers.SerializerMethodField()
     room_types_detail     = serializers.SerializerMethodField()
     recommended_frequency_unit_id = serializers.SerializerMethodField()
 
@@ -45,7 +44,7 @@ class TreatmentSerializer(serializers.ModelSerializer):
             'price_plans',
             'pre_care_instructions', 'post_care_instructions',
             'contraindications',
-            'room_types', 'room_type_ids', 'room_types_detail',
+            'room_types_detail',
             'staffs',
             'recommended_frequency_value',
             'recommended_frequency_unit', 'recommended_frequency_unit_id',
@@ -57,9 +56,6 @@ class TreatmentSerializer(serializers.ModelSerializer):
 
     def get_category_id(self, obj):
         return CATEGORY_ID_MAP.get(obj.category)
-
-    def get_room_type_ids(self, obj):
-        return [ROOM_TYPE_ID_MAP.get(r) for r in (obj.room_types or []) if r in ROOM_TYPE_ID_MAP]
 
     def get_recommended_frequency_unit_id(self, obj):
         return FREQUENCY_UNIT_ID_MAP.get(obj.recommended_frequency_unit)
@@ -139,13 +135,12 @@ class TreatmentWriteSerializer(serializers.Serializer):
         staff_ids        = validated_data.pop('staff_ids', None)
         category_id      = validated_data.pop('category_id', None)
         room_type_ids    = validated_data.pop('room_type_ids', None)
+        room_type_id     = validated_data.pop('room_type_id', None)
         freq_unit_id     = validated_data.pop('recommended_frequency_unit_id', None)
-        validated_data.pop('room_type_id', None)  # handled separately below
 
         if category_id is not None:
             validated_data['category'] = CATEGORY_MAP[category_id]
         # Support singular room_type_id as alias for room_type_ids
-        room_type_id = validated_data.pop('room_type_id', None)
         if room_type_id is not None and room_type_ids is None:
             room_type_ids = [room_type_id]
         if room_type_ids is not None:
