@@ -30,9 +30,11 @@ class PricePlanSerializer(serializers.ModelSerializer):
 
 class TreatmentSerializer(serializers.ModelSerializer):
     price_plans     = PricePlanSerializer(many=True, read_only=True)
-    staff_ids       = serializers.SerializerMethodField()
-    category_id     = serializers.SerializerMethodField()
-    room_type_ids   = serializers.SerializerMethodField()
+    staff_ids             = serializers.SerializerMethodField()
+    staffs                = serializers.SerializerMethodField()
+    category_id           = serializers.SerializerMethodField()
+    room_type_ids         = serializers.SerializerMethodField()
+    room_types_detail     = serializers.SerializerMethodField()
     recommended_frequency_unit_id = serializers.SerializerMethodField()
 
     class Meta:
@@ -44,8 +46,8 @@ class TreatmentSerializer(serializers.ModelSerializer):
             'price_plans',
             'pre_care_instructions', 'post_care_instructions',
             'contraindications',
-            'room_types', 'room_type_ids',
-            'staff_ids',
+            'room_types', 'room_type_ids', 'room_types_detail',
+            'staff_ids', 'staffs',
             'recommended_frequency_value',
             'recommended_frequency_unit', 'recommended_frequency_unit_id',
             'created_at', 'updated_at',
@@ -62,6 +64,32 @@ class TreatmentSerializer(serializers.ModelSerializer):
 
     def get_recommended_frequency_unit_id(self, obj):
         return FREQUENCY_UNIT_ID_MAP.get(obj.recommended_frequency_unit)
+
+    def get_staffs(self, obj):
+        return [
+            {
+                'staff_id':   s.id,
+                'staff_name': s.username or s.email.split('@')[0],
+                'staff_role': s.role,
+                'staff_email': s.email,
+                'profile_image': s.profile_image or None,
+            }
+            for s in obj.staff.all()
+        ]
+
+    def get_room_types_detail(self, obj):
+        ROOM_TYPE_LABELS = {
+            'facial_treatment': 'Facial Treatment Room',
+            'body_treatment':   'Body Treatment Room',
+        }
+        return [
+            {
+                'room_type_id':    ROOM_TYPE_ID_MAP.get(r),
+                'room_type_value': r,
+                'room_type_label': ROOM_TYPE_LABELS.get(r, r),
+            }
+            for r in (obj.room_types or []) if r in ROOM_TYPE_ID_MAP
+        ]
 
 
 class TreatmentWriteSerializer(serializers.Serializer):
