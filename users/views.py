@@ -16,7 +16,6 @@ ROLE_ID_MAP = {
     'admin':     1,
     'reception': 2,
     'therapist': 3,
-    'client':    4,
 }
 
 def get_tokens_for_user(user):
@@ -35,7 +34,7 @@ class RolesListView(APIView):
             {"id": 1, "role": "admin",     "title": "Admin",        "level": "LEVEL: EXECUTIVE"},
             {"id": 2, "role": "reception", "title": "Receptionist", "level": "LEVEL: OPERATIONS"},
             {"id": 3, "role": "therapist", "title": "Therapist",    "level": "LEVEL: CLINICAL"},
-            {"id": 4, "role": "client",    "title": "Client",       "level": "LEVEL: CLIENT"},
+
         ])
 
 
@@ -372,9 +371,18 @@ class StaffDetailView(APIView):
         if user is None:
             return Response({'error': 'Staff member not found.'}, status=404)
 
+        # Support both JSON and multipart (form-data for image upload)
         serializer = StaffUpdateSerializer(user, data=request.data, partial=True)
         if serializer.is_valid():
             updated_user = serializer.save()
+            # Handle image file upload
+            image_file = request.FILES.get('profile_image')
+            if image_file:
+                import base64, os
+                ext       = os.path.splitext(image_file.name)[1].lower()
+                image_b64 = base64.b64encode(image_file.read()).decode('utf-8')
+                updated_user.profile_image = f"data:image/{ext.strip('.')};base64,{image_b64}"
+                updated_user.save()
             data = _format_staff(updated_user)
             data['message'] = 'Staff member updated successfully.'
             return Response(data)
@@ -392,28 +400,6 @@ class StaffDetailView(APIView):
             return Response({'error': 'Staff member not found.'}, status=404)
         user.delete()
         return Response({'message': 'Staff member deleted successfully.'})
-
-class StaffImageUploadView(APIView):
-    permission_classes = [IsAdmin]
-
-    def post(self, request, pk):
-        try:
-            user = User.objects.get(pk=pk, role__in=['reception', 'therapist'])
-        except User.DoesNotExist:
-            return Response({'error': 'Staff member not found.'}, status=404)
-
-        image = request.data.get('profile_image', '').strip()
-        if not image:
-            return Response({'error': 'profile_image is required.'}, status=400)
-
-        user.profile_image = image
-        user.save()
-
-        return Response({
-            'message':       'Profile image updated successfully.',
-            'profile_image': user.profile_image,
-        })
-
 
 # ─── Staff Schedule Views ─────────────────────────────────────────────────────
 

@@ -5,7 +5,6 @@ ROLE_MAP = {
     1: 'admin',
     2: 'reception',
     3: 'therapist',
-    4: 'client',
 }
 
 class RegisterSerializer(serializers.ModelSerializer):
@@ -21,7 +20,7 @@ class RegisterSerializer(serializers.ModelSerializer):
         if data['password'] != data['confirm_password']:
             raise serializers.ValidationError("Passwords do not match")
         if data['role_id'] not in ROLE_MAP:
-            raise serializers.ValidationError("Invalid role_id. Use 1=Admin, 2=Receptionist, 3=Therapist, 4=Client")
+            raise serializers.ValidationError("Invalid role_id. Use 1=Admin, 2=Receptionist, 3=Therapist")
         if User.objects.filter(email=data['email']).exists():
             raise serializers.ValidationError("Email already registered")
         return data
@@ -75,7 +74,7 @@ class StaffUpdateSerializer(serializers.ModelSerializer):
     # uniqueness is checked manually in validate_username instead.
     username             = serializers.CharField(required=False, allow_blank=True, max_length=150)
     years_of_experience  = serializers.FloatField(required=False, allow_null=True, min_value=0, max_value=100)
-    profile_image        = serializers.CharField(required=False, allow_blank=True, allow_null=True)  # URL string from gallery upload
+    profile_image        = serializers.ImageField(required=False, allow_null=True, allow_empty_file=False)
 
     class Meta:
         model  = User
@@ -92,7 +91,7 @@ class StaffUpdateSerializer(serializers.ModelSerializer):
 
     def validate_role_id(self, value):
         if value not in ROLE_MAP:
-            raise serializers.ValidationError("Invalid role_id. Use 1=Admin, 2=Receptionist, 3=Therapist, 4=Client")
+            raise serializers.ValidationError("Invalid role_id. Use 1=Admin, 2=Receptionist, 3=Therapist")
         return value
 
     def validate_email(self, value):

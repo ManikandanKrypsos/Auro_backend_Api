@@ -4,7 +4,7 @@ from .views import (
     MeView, UserListView, RolesListView,
     RefreshTokenView, ForgotPasswordView,
     VerifyOTPView, ResetPasswordView,
-    StaffDetailView, StaffImageUploadView,
+    StaffDetailView,
     WorkingHoursListView, WorkingHoursDetailView,
     BreakTimeListView, BreakTimeDetailView,
     LeaveListView, LeaveDetailView,
@@ -22,10 +22,9 @@ urlpatterns = [
     path('verify-otp/',                 VerifyOTPView.as_view()),
     path('reset-password/',             ResetPasswordView.as_view()),
 
-    # Staff CRUD
-    path('staff/',                      UserListView.as_view()),          # GET ?search=
-    path('staff/<int:pk>/',             StaffDetailView.as_view()),       # GET, PATCH, DELETE
-    path('staff/<int:pk>/upload-image/',StaffImageUploadView.as_view()),  # POST image
+    # Staff CRUD — image upload via multipart/form-data in PATCH
+    path('staff/',                      UserListView.as_view()),
+    path('staff/<int:pk>/',             StaffDetailView.as_view()),  # GET, PATCH, DELETE
 
     # Working Hours
     path('staff/<int:staff_id>/working-hours/',          WorkingHoursListView.as_view()),

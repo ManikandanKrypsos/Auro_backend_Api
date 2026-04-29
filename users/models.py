@@ -6,7 +6,6 @@ class User(AbstractUser):
         ('admin',     'Admin'),
         ('reception', 'Receptionist'),
         ('therapist', 'Therapist'),
-        ('client',    'Client'),
     )
 
     email              = models.EmailField(unique=True)
