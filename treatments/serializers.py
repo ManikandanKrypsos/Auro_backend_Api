@@ -30,7 +30,6 @@ class PricePlanSerializer(serializers.ModelSerializer):
 
 class TreatmentSerializer(serializers.ModelSerializer):
     price_plans     = PricePlanSerializer(many=True, read_only=True)
-    staff_ids             = serializers.SerializerMethodField()
     staffs                = serializers.SerializerMethodField()
     category_id           = serializers.SerializerMethodField()
     room_type_ids         = serializers.SerializerMethodField()
