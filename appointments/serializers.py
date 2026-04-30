@@ -33,7 +33,7 @@ class AppointmentSerializer(serializers.ModelSerializer):
             'consent_status', 'consent_form_url',
             'payment_amount', 'payment_status', 'payment_type',
             'notes',
-            'created_at', 'updated_at',
+            'updated_at',
         ]
 
     def get_patient_detail(self, obj):
