@@ -84,12 +84,12 @@ class AppointmentSerializer(serializers.ModelSerializer):
         }
 
     def get_room_detail(self, obj):
-        if not obj.room:
+        if not obj.room_fk:
             return None
         return {
-            'id':         obj.room.id,
-            'name':       obj.room.name,
-            'room_type':  obj.room.room_type,
+            'id':         obj.room_fk.id,
+            'name':       obj.room_fk.name,
+            'room_type':  obj.room_fk.room_type,
         }
 
 
@@ -180,7 +180,7 @@ class AppointmentWriteSerializer(serializers.Serializer):
             if 'duration' not in validated_data:
                 validated_data['duration'] = t.duration
         if room_id is not None:
-            validated_data['room'] = Room.objects.get(id=room_id) if room_id else None
+            validated_data['room_fk'] = Room.objects.get(id=room_id) if room_id else None
         if price_plan_id is not None:
             validated_data['price_plan'] = PricePlan.objects.get(id=price_plan_id) if price_plan_id else None
 

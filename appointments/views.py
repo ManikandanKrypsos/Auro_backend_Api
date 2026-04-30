@@ -64,7 +64,7 @@ class AppointmentListView(APIView):
 
     def get(self, request):
         qs = Appointment.objects.select_related(
-            'patient', 'staff', 'treatment', 'room', 'price_plan'
+            'patient', 'staff', 'treatment', 'room_fk', 'price_plan'
         ).all()
 
         user = request.user
@@ -132,7 +132,7 @@ class AppointmentDetailView(APIView):
     def _get(self, pk):
         try:
             return Appointment.objects.select_related(
-                'patient', 'staff', 'treatment', 'room', 'price_plan'
+                'patient', 'staff', 'treatment', 'room_fk', 'price_plan'
             ).get(pk=pk)
         except Appointment.DoesNotExist:
             return None
@@ -289,7 +289,7 @@ class TodayAppointmentsView(APIView):
     def get(self, request):
         today = timezone.now().date()
         qs = Appointment.objects.select_related(
-            'patient', 'staff', 'treatment', 'room'
+            'patient', 'staff', 'treatment', 'room_fk'
         ).filter(date_time__date=today)
 
         if request.user.role == 'therapist':
@@ -320,7 +320,7 @@ class CalendarView(APIView):
 
     def get(self, request):
         qs = Appointment.objects.select_related(
-            'patient', 'staff', 'treatment', 'room'
+            'patient', 'staff', 'treatment', 'room_fk'
         ).all()
 
         if request.user.role == 'therapist':

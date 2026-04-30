@@ -33,7 +33,7 @@ class Appointment(models.Model):
     patient         = models.ForeignKey(Patient, on_delete=models.CASCADE, related_name='appointments')
     staff           = models.ForeignKey(User, on_delete=models.CASCADE, related_name='appointments')
     treatment       = models.ForeignKey(Treatment, on_delete=models.CASCADE, related_name='appointments')
-    room            = models.ForeignKey(Room, on_delete=models.SET_NULL, null=True, blank=True, related_name='appointments')
+    room_fk         = models.ForeignKey(Room, on_delete=models.SET_NULL, null=True, blank=True, related_name='appointments', db_column='room_fk_id')
     price_plan      = models.ForeignKey(PricePlan, on_delete=models.SET_NULL, null=True, blank=True)
 
     # Scheduling
