@@ -13,7 +13,7 @@ class User(AbstractUser):
     role               = models.CharField(max_length=20, choices=ROLE_CHOICES, blank=True)
 
     # Staff profile fields (used for reception & therapist)
-    profile_image      = models.URLField(max_length=500, blank=True)
+    profile_image      = models.TextField(blank=True)  # stores URL or base64 image
     phone              = models.CharField(max_length=30, blank=True)
     specialist_area    = models.CharField(max_length=100, blank=True)
     joining_date       = models.DateField(null=True, blank=True)
