@@ -9,7 +9,10 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.RunSQL(
-            sql="ALTER TABLE treatments_treatment ALTER COLUMN room_type DROP NOT NULL;",
+            sql="""
+                ALTER TABLE treatments_treatment ALTER COLUMN room_type DROP NOT NULL;
+                ALTER TABLE treatments_treatment ALTER COLUMN room_types DROP NOT NULL;
+            """,
             reverse_sql="SELECT 1;",
         ),
     ]
