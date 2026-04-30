@@ -6,9 +6,36 @@ from treatments.models import Treatment, PricePlan
 from rooms.models import Room
 import datetime
 
+STATUS_MAP = {
+    1: 'upcoming',
+    2: 'completed',
+    3: 'cancelled',
+    4: 'no_show',
+}
+PAYMENT_STATUS_MAP = {
+    1: 'pending',
+    2: 'paid',
+    3: 'refunded',
+}
+PAYMENT_TYPE_MAP = {
+    1: 'single',
+    2: 'package',
+}
+CONSENT_STATUS_MAP = {
+    1: 'pending',
+    2: 'signed',
+}
+
+
 
 class AppointmentSerializer(serializers.ModelSerializer):
     """Full read serializer with all nested objects."""
+
+    # Status IDs
+    status_id          = serializers.SerializerMethodField()
+    consent_status_id  = serializers.SerializerMethodField()
+    payment_status_id  = serializers.SerializerMethodField()
+    payment_type_id    = serializers.SerializerMethodField()
 
     # Patient
     patient_detail = serializers.SerializerMethodField()
@@ -29,9 +56,12 @@ class AppointmentSerializer(serializers.ModelSerializer):
             'room_detail',
             'date_time', 'duration',
             'session_number', 'total_sessions',
-            'status', 'patient_arrived',
-            'consent_status', 'consent_form_url',
-            'payment_amount', 'payment_status', 'payment_type',
+            'status', 'status_id',
+            'patient_arrived',
+            'consent_status', 'consent_status_id', 'consent_form_url',
+            'payment_amount',
+            'payment_status', 'payment_status_id',
+            'payment_type', 'payment_type_id',
             'notes',
             'updated_at',
         ]
@@ -83,6 +113,18 @@ class AppointmentSerializer(serializers.ModelSerializer):
             'sessions': plan.sessions if plan else obj.total_sessions,
         }
 
+    def get_status_id(self, obj):
+        return {'upcoming':1,'completed':2,'cancelled':3,'no_show':4}.get(obj.status)
+
+    def get_consent_status_id(self, obj):
+        return {'pending':1,'signed':2}.get(obj.consent_status)
+
+    def get_payment_status_id(self, obj):
+        return {'pending':1,'paid':2,'refunded':3}.get(obj.payment_status)
+
+    def get_payment_type_id(self, obj):
+        return {'single':1,'package':2}.get(obj.payment_type)
+
     def get_room_detail(self, obj):
         if not obj.room_fk:
             return None
@@ -125,21 +167,38 @@ class AppointmentWriteSerializer(serializers.Serializer):
     duration        = serializers.IntegerField(min_value=1, required=False)
     session_number  = serializers.IntegerField(min_value=1, required=False)
     total_sessions  = serializers.IntegerField(min_value=1, required=False)
-    status          = serializers.ChoiceField(
-                        choices=['upcoming','completed','cancelled','no_show'],
-                        required=False
-                      )
-    patient_arrived = serializers.BooleanField(required=False)
-    consent_status  = serializers.ChoiceField(choices=['pending','signed'], required=False)
+    status_id        = serializers.IntegerField(required=False)   # 1=upcoming 2=completed 3=cancelled 4=no_show
+    patient_arrived  = serializers.BooleanField(required=False)
+    consent_status_id = serializers.IntegerField(required=False)  # 1=pending 2=signed
     consent_form_url = serializers.URLField(required=False, allow_blank=True)
-    payment_amount  = serializers.DecimalField(max_digits=10, decimal_places=2, required=False, allow_null=True)
-    payment_status  = serializers.ChoiceField(choices=['pending','paid','refunded'], required=False)
-    payment_type    = serializers.ChoiceField(choices=['single','package'], required=False)
+    payment_amount   = serializers.DecimalField(max_digits=10, decimal_places=2, required=False, allow_null=True)
+    payment_status_id = serializers.IntegerField(required=False)  # 1=pending 2=paid 3=refunded
+    payment_type_id  = serializers.IntegerField(required=False)   # 1=single 2=package
     notes           = serializers.CharField(required=False, allow_blank=True)
 
     def validate_patient_id(self, value):
         if not Patient.objects.filter(id=value).exists():
             raise serializers.ValidationError("Patient not found.")
+        return value
+
+    def validate_status_id(self, value):
+        if value not in STATUS_MAP:
+            raise serializers.ValidationError("Invalid status_id. Use 1=Upcoming, 2=Completed, 3=Cancelled, 4=No Show.")
+        return value
+
+    def validate_payment_status_id(self, value):
+        if value not in PAYMENT_STATUS_MAP:
+            raise serializers.ValidationError("Invalid payment_status_id. Use 1=Pending, 2=Paid, 3=Refunded.")
+        return value
+
+    def validate_payment_type_id(self, value):
+        if value not in PAYMENT_TYPE_MAP:
+            raise serializers.ValidationError("Invalid payment_type_id. Use 1=Single, 2=Package.")
+        return value
+
+    def validate_consent_status_id(self, value):
+        if value not in CONSENT_STATUS_MAP:
+            raise serializers.ValidationError("Invalid consent_status_id. Use 1=Pending, 2=Signed.")
         return value
 
     def validate_staff_id(self, value):
@@ -168,6 +227,22 @@ class AppointmentWriteSerializer(serializers.Serializer):
         treatment_id  = validated_data.pop('treatment_id', None)
         room_id       = validated_data.pop('room_id', None)
         price_plan_id = validated_data.pop('price_plan_id', None)
+        # ID fields handled below
+
+        # Map IDs to values
+        status_id         = validated_data.pop('status_id', None)
+        payment_status_id = validated_data.pop('payment_status_id', None)
+        payment_type_id   = validated_data.pop('payment_type_id', None)
+        consent_status_id = validated_data.pop('consent_status_id', None)
+
+        if status_id:
+            validated_data['status'] = STATUS_MAP[status_id]
+        if payment_status_id:
+            validated_data['payment_status'] = PAYMENT_STATUS_MAP[payment_status_id]
+        if payment_type_id:
+            validated_data['payment_type'] = PAYMENT_TYPE_MAP[payment_type_id]
+        if consent_status_id:
+            validated_data['consent_status'] = CONSENT_STATUS_MAP[consent_status_id]
 
         if patient_id:
             validated_data['patient']    = Patient.objects.get(id=patient_id)
@@ -176,7 +251,6 @@ class AppointmentWriteSerializer(serializers.Serializer):
         if treatment_id:
             t = Treatment.objects.get(id=treatment_id)
             validated_data['treatment']  = t
-            # Auto-set duration from treatment if not provided
             if 'duration' not in validated_data:
                 validated_data['duration'] = t.duration
         if room_id is not None:

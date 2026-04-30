@@ -282,6 +282,37 @@ class AvailableSlotsView(APIView):
         })
 
 
+class AppointmentMetaView(APIView):
+    """
+    GET /api/appointments/meta/
+    Returns all dropdown options with IDs for the booking form.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        return Response({
+            'statuses': [
+                {'id': 1, 'value': 'upcoming',  'label': 'Upcoming'},
+                {'id': 2, 'value': 'completed', 'label': 'Completed'},
+                {'id': 3, 'value': 'cancelled', 'label': 'Cancelled'},
+                {'id': 4, 'value': 'no_show',   'label': 'No Show'},
+            ],
+            'payment_statuses': [
+                {'id': 1, 'value': 'pending',  'label': 'Pending'},
+                {'id': 2, 'value': 'paid',     'label': 'Paid'},
+                {'id': 3, 'value': 'refunded', 'label': 'Refunded'},
+            ],
+            'payment_types': [
+                {'id': 1, 'value': 'single',  'label': 'Single'},
+                {'id': 2, 'value': 'package', 'label': 'Package'},
+            ],
+            'consent_statuses': [
+                {'id': 1, 'value': 'pending', 'label': 'Pending'},
+                {'id': 2, 'value': 'signed',  'label': 'Signed'},
+            ],
+        })
+
+
 class TodayAppointmentsView(APIView):
     """
     GET /api/appointments/today/
