@@ -1,12 +1,7 @@
 from rest_framework import serializers
 from .models import Treatment, PricePlan
 from users.models import User
-
-ROOM_TYPE_MAP = {
-    1: 'facial_treatment',
-    2: 'body_treatment',
-}
-ROOM_TYPE_ID_MAP = {v: k for k, v in ROOM_TYPE_MAP.items()}
+from rooms.models import Room
 
 CATEGORY_MAP = {
     1: 'face',
@@ -32,7 +27,7 @@ class TreatmentSerializer(serializers.ModelSerializer):
     price_plans     = PricePlanSerializer(many=True, read_only=True)
     staffs                = serializers.SerializerMethodField()
     category_id           = serializers.SerializerMethodField()
-    room_types_detail     = serializers.SerializerMethodField()
+    rooms_detail          = serializers.SerializerMethodField()
     recommended_frequency_unit_id = serializers.SerializerMethodField()
 
     class Meta:
@@ -44,7 +39,7 @@ class TreatmentSerializer(serializers.ModelSerializer):
             'price_plans',
             'pre_care_instructions', 'post_care_instructions',
             'contraindications',
-            'room_types_detail',
+            'rooms_detail',
             'staffs',
             'recommended_frequency_value',
             'recommended_frequency_unit', 'recommended_frequency_unit_id',
@@ -72,18 +67,15 @@ class TreatmentSerializer(serializers.ModelSerializer):
             for s in obj.staff.all()
         ]
 
-    def get_room_types_detail(self, obj):
-        ROOM_TYPE_LABELS = {
-            'facial_treatment': 'Facial Treatment Room',
-            'body_treatment':   'Body Treatment Room',
-        }
+    def get_rooms_detail(self, obj):
         return [
             {
-                'room_type_id':    ROOM_TYPE_ID_MAP.get(r),
-                'room_type_value': r,
-                'room_type_label': ROOM_TYPE_LABELS.get(r, r),
+                'room_id':    r.id,
+                'room_name':  r.name,
+                'room_type':  r.room_type,
+                'room_type_label': dict(Room.ROOM_TYPE_CHOICES).get(r.room_type, r.room_type),
             }
-            for r in (obj.room_types or []) if r in ROOM_TYPE_ID_MAP
+            for r in obj.rooms.all()
         ]
 
 
@@ -97,8 +89,8 @@ class TreatmentWriteSerializer(serializers.Serializer):
     pre_care_instructions         = serializers.CharField(required=False, allow_blank=True)
     post_care_instructions        = serializers.CharField(required=False, allow_blank=True)
     contraindications             = serializers.ListField(child=serializers.CharField(), required=False)
-    room_type_ids                 = serializers.ListField(child=serializers.IntegerField(), required=False)
-    room_type_id                  = serializers.IntegerField(required=False, allow_null=True)  # singular alias
+    room_ids                      = serializers.ListField(child=serializers.IntegerField(), required=False)
+    room_id                       = serializers.IntegerField(required=False, allow_null=True)  # singular alias
     staff_ids                     = serializers.ListField(child=serializers.IntegerField(), required=False)
     recommended_frequency_value   = serializers.IntegerField(required=False, allow_null=True)
     recommended_frequency_unit_id = serializers.IntegerField(required=False, allow_null=True)
@@ -108,15 +100,15 @@ class TreatmentWriteSerializer(serializers.Serializer):
             raise serializers.ValidationError("Invalid category_id. Use 1=Face, 2=Body.")
         return value
 
-    def validate_room_type_ids(self, value):
-        for v in value:
-            if v not in ROOM_TYPE_MAP:
-                raise serializers.ValidationError(f"Invalid room_type_id {v}. Use 1=Facial Treatment Room, 2=Body Treatment Room.")
+    def validate_room_ids(self, value):
+        existing = Room.objects.filter(id__in=value)
+        if existing.count() != len(value):
+            raise serializers.ValidationError("One or more room IDs are invalid.")
         return value
 
-    def validate_room_type_id(self, value):
-        if value is not None and value not in ROOM_TYPE_MAP:
-            raise serializers.ValidationError("Invalid room_type_id. Use 1=Facial Treatment Room, 2=Body Treatment Room.")
+    def validate_room_id(self, value):
+        if value is not None and not Room.objects.filter(id=value).exists():
+            raise serializers.ValidationError(f"Room with id {value} does not exist.")
         return value
 
     def validate_recommended_frequency_unit_id(self, value):
@@ -134,17 +126,15 @@ class TreatmentWriteSerializer(serializers.Serializer):
         price_plans_data = validated_data.pop('price_plans', None)
         staff_ids        = validated_data.pop('staff_ids', None)
         category_id      = validated_data.pop('category_id', None)
-        room_type_ids    = validated_data.pop('room_type_ids', None)
-        room_type_id     = validated_data.pop('room_type_id', None)
+        room_ids         = validated_data.pop('room_ids', None)
+        room_id          = validated_data.pop('room_id', None)
         freq_unit_id     = validated_data.pop('recommended_frequency_unit_id', None)
 
         if category_id is not None:
             validated_data['category'] = CATEGORY_MAP[category_id]
-        # Support singular room_type_id as alias for room_type_ids
-        if room_type_id is not None and room_type_ids is None:
-            room_type_ids = [room_type_id]
-        if room_type_ids is not None:
-            validated_data['room_types'] = [ROOM_TYPE_MAP[r] for r in room_type_ids if r in ROOM_TYPE_MAP]
+        # Support singular room_id as alias for room_ids
+        if room_id is not None and room_ids is None:
+            room_ids = [room_id]
         if freq_unit_id is not None:
             validated_data['recommended_frequency_unit'] = FREQUENCY_UNIT_MAP[freq_unit_id]
 
@@ -162,6 +152,9 @@ class TreatmentWriteSerializer(serializers.Serializer):
 
         if staff_ids is not None:
             instance.staff.set(staff_ids)
+
+        if room_ids is not None:
+            instance.rooms.set(room_ids)
 
         return instance
 

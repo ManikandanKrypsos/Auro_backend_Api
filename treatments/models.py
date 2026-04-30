@@ -1,5 +1,6 @@
 from django.db import models
 from users.models import User
+from rooms.models import Room
 
 
 class Treatment(models.Model):
@@ -31,7 +32,7 @@ class Treatment(models.Model):
     contraindications      = models.JSONField(default=list, blank=True)
 
     # ── Resources ─────────────────────────────────────────────────
-    room_types  = models.JSONField(default=list, blank=True)  # e.g. ['facial_treatment', 'body_treatment']
+    rooms       = models.ManyToManyField(Room, blank=True, related_name='treatments')
 
     # ── Staff Assignment ──────────────────────────────────────────
     staff       = models.ManyToManyField(
