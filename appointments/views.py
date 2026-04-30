@@ -63,16 +63,17 @@ class AppointmentListView(APIView):
         return [IsAdminOrReception()] if self.request.method == 'POST' else [IsAuthenticated()]
 
     def get(self, request):
+        from django.db.models import Q
         qs = Appointment.objects.select_related(
             'patient', 'staff', 'treatment', 'room_fk', 'price_plan'
         ).all()
 
         user = request.user
-        if user.role == 'therapist':
+        if hasattr(user, 'role') and user.role == 'therapist':
             qs = qs.filter(staff=user)
 
-        today    = request.query_params.get('today')
-        date     = request.query_params.get('date')
+        today     = request.query_params.get('today')
+        date      = request.query_params.get('date')
         date_from = request.query_params.get('date_from')
         date_to   = request.query_params.get('date_to')
         staff_id  = request.query_params.get('staff_id')
@@ -99,10 +100,12 @@ class AppointmentListView(APIView):
         if status:
             qs = qs.filter(status=status)
         if search:
-            qs = qs.filter(patient__name__icontains=search) | \
-                 qs.filter(treatment__name__icontains=search)
+            qs = qs.filter(
+                Q(patient__name__icontains=search) |
+                Q(treatment__name__icontains=search)
+            )
 
-        return Response(AppointmentSerializer(qs, many=True).data)
+        return Response(AppointmentSerializer(qs.distinct(), many=True).data)
 
     def post(self, request):
         serializer = AppointmentWriteSerializer(data=request.data)
