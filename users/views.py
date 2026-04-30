@@ -375,13 +375,28 @@ class StaffDetailView(APIView):
         serializer = StaffUpdateSerializer(user, data=request.data, partial=True)
         if serializer.is_valid():
             updated_user = serializer.save()
-            # Handle image file upload
+            # Handle image file upload — save file and return URL
             image_file = request.FILES.get('profile_image')
             if image_file:
-                import base64, os
+                import os
+                from django.conf import settings
+
+                # Save to MEDIA_ROOT/staff/
+                upload_dir = os.path.join(settings.MEDIA_ROOT, 'staff')
+                os.makedirs(upload_dir, exist_ok=True)
+
                 ext       = os.path.splitext(image_file.name)[1].lower()
-                image_b64 = base64.b64encode(image_file.read()).decode('utf-8')
-                updated_user.profile_image = f"data:image/{ext.strip('.')};base64,{image_b64}"
+                filename  = f"staff_{updated_user.id}{ext}"
+                filepath  = os.path.join(upload_dir, filename)
+
+                with open(filepath, 'wb+') as f:
+                    for chunk in image_file.chunks():
+                        f.write(chunk)
+
+                # Build absolute URL
+                base_url  = request.build_absolute_uri('/')
+                image_url = f"{base_url.rstrip('/')}{ settings.MEDIA_URL}staff/{filename}"
+                updated_user.profile_image = image_url
                 updated_user.save()
             data = _format_staff(updated_user)
             data['message'] = 'Staff member updated successfully.'
