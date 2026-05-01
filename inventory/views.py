@@ -157,15 +157,17 @@ class StockCountView(APIView):
 
     def get(self, request):
         from django.db.models import F
-        zero_count = InventoryItem.objects.filter(current_stock=0).count()
-        low_count  = InventoryItem.objects.filter(
+        zero_count  = InventoryItem.objects.filter(current_stock=0).count()
+        low_count   = InventoryItem.objects.filter(
             current_stock__gt=0,
             current_stock__lte=F('minimum_stock_alert')
         ).count()
+        total_stock = InventoryItem.objects.count()
         return Response({
-            'zero_stock_count': zero_count,
-            'low_stock_count':  low_count,
-            'total':            zero_count + low_count,
+            'low_stock_count':       low_count,
+            'zero_stock_count':      zero_count,
+            'total_low_zero_count':  zero_count + low_count,
+            'total_stock':           total_stock,
         })
 
 
