@@ -145,10 +145,27 @@ class OutOfStockView(APIView):
                 current_stock__lte=F('minimum_stock_alert')
             )
 
-        data = InventoryItemListSerializer(items, many=True).data
+        return Response(InventoryItemListSerializer(items, many=True).data)
+
+
+class StockCountView(APIView):
+    """
+    GET /api/inventory/stock-count/
+    Returns count of low stock and zero stock items.
+    """
+    permission_classes = [IsAdmin]
+
+    def get(self, request):
+        from django.db.models import F
+        zero_count = InventoryItem.objects.filter(current_stock=0).count()
+        low_count  = InventoryItem.objects.filter(
+            current_stock__gt=0,
+            current_stock__lte=F('minimum_stock_alert')
+        ).count()
         return Response({
-            'count':  len(data),
-            'items':  data,
+            'zero_stock_count': zero_count,
+            'low_stock_count':  low_count,
+            'total':            zero_count + low_count,
         })
 
 
