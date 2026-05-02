@@ -20,8 +20,8 @@ class Appointment(models.Model):
     )
 
     PAYMENT_TYPE_CHOICES = (
-        ('single',  'Single'),
-        ('package', 'Package'),
+        ('online', 'Online Payment'),
+        ('cash',   'Cash'),
     )
 
     CONSENT_STATUS_CHOICES = (
@@ -55,7 +55,7 @@ class Appointment(models.Model):
     # Payment
     payment_amount  = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     payment_status  = models.CharField(max_length=20, choices=PAYMENT_STATUS_CHOICES, default='pending')
-    payment_type    = models.CharField(max_length=20, choices=PAYMENT_TYPE_CHOICES, default='single')
+    payment_type    = models.CharField(max_length=20, choices=PAYMENT_TYPE_CHOICES, default='cash')
 
     # Notes
     notes           = models.TextField(blank=True)

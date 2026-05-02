@@ -18,8 +18,8 @@ PAYMENT_STATUS_MAP = {
     3: 'refunded',
 }
 PAYMENT_TYPE_MAP = {
-    1: 'single',
-    2: 'package',
+    1: 'online',
+    2: 'cash',
 }
 CONSENT_STATUS_MAP = {
     1: 'pending',
@@ -193,7 +193,7 @@ class AppointmentWriteSerializer(serializers.Serializer):
 
     def validate_payment_type_id(self, value):
         if value not in PAYMENT_TYPE_MAP:
-            raise serializers.ValidationError("Invalid payment_type_id. Use 1=Single, 2=Package.")
+            raise serializers.ValidationError("Invalid payment_type_id. Use 1=Online Payment, 2=Cash.")
         return value
 
     def validate_consent_status_id(self, value):
