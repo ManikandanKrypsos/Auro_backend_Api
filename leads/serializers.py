@@ -1,49 +1,158 @@
 from rest_framework import serializers
 from .models import Lead, LeadActivity
 
+SOURCE_MAP = {
+    1: 'instagram',
+    2: 'web',
+    3: 'walk_in',
+    4: 'referral',
+    5: 'whatsapp',
+    6: 'other',
+}
+SOURCE_ID_MAP = {v: k for k, v in SOURCE_MAP.items()}
+
+STAGE_MAP = {
+    1: 'new_inquiries',
+    2: 'engaged',
+    3: 'consultation',
+    4: 'winning',
+    5: 'converted',
+    6: 'lost',
+}
+STAGE_ID_MAP = {v: k for k, v in STAGE_MAP.items()}
+
+
 class LeadActivitySerializer(serializers.ModelSerializer):
-    # ✅ Fixed: use email as fallback if username is empty
     created_by_name = serializers.SerializerMethodField()
 
     class Meta:
-        model = LeadActivity
-        fields = '__all__'
-        read_only_fields = ['created_by', 'created_at']
+        model  = LeadActivity
+        fields = ['id', 'action', 'note', 'created_by_name', 'created_at']
 
     def get_created_by_name(self, obj):
         if obj.created_by:
-            return obj.created_by.username or obj.created_by.email
+            return obj.created_by.username or obj.created_by.email.split('@')[0]
         return None
 
+
 class LeadSerializer(serializers.ModelSerializer):
-    activities       = LeadActivitySerializer(many=True, read_only=True)
-    # ✅ Fixed: use email as fallback
+    source_id      = serializers.SerializerMethodField()
+    stage_id       = serializers.SerializerMethodField()
+    activities     = LeadActivitySerializer(many=True, read_only=True)
     assigned_to_name = serializers.SerializerMethodField()
-    days_in_stage    = serializers.SerializerMethodField()
 
     class Meta:
-        model = Lead
-        fields = '__all__'
+        model  = Lead
+        fields = [
+            'id', 'name', 'phone', 'email',
+            'source', 'source_id',
+            'stage', 'stage_id',
+            'interest', 'notes', 'value',
+            'assigned_to', 'assigned_to_name',
+            'last_contacted',
+            'activities',
+            'created_at', 'updated_at',
+        ]
+
+    def get_source_id(self, obj):
+        return SOURCE_ID_MAP.get(obj.source)
+
+    def get_stage_id(self, obj):
+        return STAGE_ID_MAP.get(obj.stage)
 
     def get_assigned_to_name(self, obj):
         if obj.assigned_to:
-            return obj.assigned_to.username or obj.assigned_to.email
+            return obj.assigned_to.username or obj.assigned_to.email.split('@')[0]
         return None
 
-    def get_days_in_stage(self, obj):
-        from django.utils import timezone
-        delta = timezone.now() - obj.updated_at
-        return delta.days
 
-    def to_representation(self, instance):
-        data = super().to_representation(instance)
-        data['createdAt']     = data.pop('created_at')
-        data['updatedAt']     = data.pop('updated_at')
-        data['assignedTo']    = data.pop('assigned_to')
-        data['lastContacted'] = data.pop('last_contacted')
-        return data
+class LeadWriteSerializer(serializers.Serializer):
+    """
+    POST / PATCH body:
+    {
+        "name":          "Isabella Sterling",
+        "phone":         "+91 99887 76655",
+        "email":         "isabella@email.com",
+        "source_id":     1,     // 1=Instagram 2=Web 3=Walk-In 4=Referral 5=WhatsApp 6=Other
+        "stage_id":      1,     // 1=New Inquiries 2=Engaged 3=Consultation 4=Winning 5=Converted 6=Lost
+        "interest":      "Signature Glow",
+        "notes":         "Prefers evening slots",
+        "value":         1500.00,
+        "assigned_to":   8
+    }
+    """
+    name         = serializers.CharField(max_length=100, required=False)
+    phone        = serializers.CharField(max_length=20, required=False)
+    email        = serializers.EmailField(required=False, allow_null=True, allow_blank=True)
+    source_id    = serializers.IntegerField(required=False)
+    stage_id     = serializers.IntegerField(required=False)
+    interest     = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    notes        = serializers.CharField(required=False, allow_blank=True)
+    value        = serializers.DecimalField(max_digits=10, decimal_places=2, required=False)
+    assigned_to  = serializers.IntegerField(required=False, allow_null=True)
+
+    def validate_source_id(self, value):
+        if value not in SOURCE_MAP:
+            raise serializers.ValidationError(
+                "Invalid source_id. Use 1=Instagram, 2=Web, 3=Walk-In, 4=Referral, 5=WhatsApp, 6=Other"
+            )
+        return value
+
+    def validate_stage_id(self, value):
+        if value not in STAGE_MAP:
+            raise serializers.ValidationError(
+                "Invalid stage_id. Use 1=New Inquiries, 2=Engaged, 3=Consultation, 4=Winning, 5=Converted, 6=Lost"
+            )
+        return value
+
+    def _save(self, instance, validated_data):
+        from users.models import User
+        source_id   = validated_data.pop('source_id', None)
+        stage_id    = validated_data.pop('stage_id', None)
+        assigned_to = validated_data.pop('assigned_to', None)
+
+        if source_id:
+            validated_data['source'] = SOURCE_MAP[source_id]
+        if stage_id:
+            validated_data['stage'] = STAGE_MAP[stage_id]
+        if assigned_to is not None:
+            validated_data['assigned_to'] = User.objects.get(id=assigned_to) if assigned_to else None
+
+        if instance is None:
+            return Lead.objects.create(**validated_data)
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+        return instance
+
+    def create(self, validated_data):
+        return self._save(None, validated_data)
+
+    def update(self, instance, validated_data):
+        return self._save(instance, validated_data)
 
 
 class LeadStageUpdateSerializer(serializers.Serializer):
-    stage = serializers.ChoiceField(choices=Lead.STAGE_CHOICES)
-    note  = serializers.CharField(required=False, allow_blank=True)
+    """
+    PATCH /api/leads/<id>/stage/
+    { "stage_id": 2, "note": "Called and interested" }
+    """
+    stage_id = serializers.IntegerField()
+    note     = serializers.CharField(required=False, allow_blank=True)
+
+    def validate_stage_id(self, value):
+        if value not in STAGE_MAP:
+            raise serializers.ValidationError(
+                "Invalid stage_id. Use 1=New Inquiries, 2=Engaged, 3=Consultation, 4=Winning, 5=Converted, 6=Lost"
+            )
+        return value
+
+
+class LeadActivityWriteSerializer(serializers.Serializer):
+    """
+    POST /api/leads/<id>/activity/
+    { "action": "call", "note": "Called and confirmed appointment" }
+    Action options: call | whatsapp | email | meeting | note
+    """
+    action = serializers.ChoiceField(choices=['call', 'whatsapp', 'email', 'meeting', 'note'])
+    note   = serializers.CharField(required=False, allow_blank=True)

@@ -1,132 +1,265 @@
-from rest_framework import viewsets, filters
-from rest_framework.decorators import action
-from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
+import datetime
 from django.utils import timezone
-from django.db.models import Q
+from django.db.models import Q, Sum
+from rest_framework.views import APIView
+from rest_framework.response import Response
 from users.permissions import IsAdmin, IsAdminOrReception
 from .models import Lead, LeadActivity
-from .serializers import LeadSerializer, LeadActivitySerializer, LeadStageUpdateSerializer
-import datetime
+from .serializers import (
+    LeadSerializer, LeadWriteSerializer,
+    LeadStageUpdateSerializer, LeadActivityWriteSerializer,
+    STAGE_MAP, SOURCE_MAP,
+)
 
 
-class LeadViewSet(viewsets.ModelViewSet):
-    queryset = Lead.objects.all().order_by('-created_at')
-    serializer_class = LeadSerializer
-    filter_backends = [filters.SearchFilter]
-    search_fields = ['name', 'phone', 'email', 'source', 'stage']
+class LeadMetaView(APIView):
+    """
+    GET /api/leads/meta/  — all dropdown options with IDs
+    """
+    def get(self, request):
+        return Response({
+            'sources': [
+                {'id': 1, 'value': 'instagram', 'label': 'Instagram'},
+                {'id': 2, 'value': 'web',       'label': 'Web'},
+                {'id': 3, 'value': 'walk_in',   'label': 'Walk-In'},
+                {'id': 4, 'value': 'referral',  'label': 'Referral'},
+                {'id': 5, 'value': 'whatsapp',  'label': 'WhatsApp'},
+                {'id': 6, 'value': 'other',     'label': 'Other'},
+            ],
+            'stages': [
+                {'id': 1, 'value': 'new_inquiries', 'label': 'New Inquiries'},
+                {'id': 2, 'value': 'engaged',       'label': 'Engaged'},
+                {'id': 3, 'value': 'consultation',  'label': 'Consultation'},
+                {'id': 4, 'value': 'winning',       'label': 'Winning'},
+                {'id': 5, 'value': 'converted',     'label': 'Converted'},
+                {'id': 6, 'value': 'lost',          'label': 'Lost'},
+            ],
+        })
 
+
+class LeadStatsView(APIView):
+    """
+    GET /api/leads/stats/
+    Returns total leads, active count and total valuation — shown at top of pipeline.
+    """
+    def get(self, request):
+        total      = Lead.objects.count()
+        active     = Lead.objects.filter(
+            stage__in=['new_inquiries', 'engaged', 'consultation', 'winning']
+        ).count()
+        valuation  = Lead.objects.aggregate(total=Sum('value'))['total'] or 0
+
+        return Response({
+            'total_leads': total,
+            'active':      active,
+            'valuation':   float(valuation),
+        })
+
+
+class LeadPipelineView(APIView):
+    """
+    GET /api/leads/pipeline/
+    Returns leads grouped by pipeline stage — used for the kanban board.
+    """
+    def get(self, request):
+        pipeline_stages = [
+            ('new_inquiries', 'New Inquiries'),
+            ('engaged',       'Engaged'),
+            ('consultation',  'Consultation'),
+            ('winning',       'Winning'),
+        ]
+        result = []
+        for stage, label in pipeline_stages:
+            leads = Lead.objects.filter(stage=stage).order_by('-created_at')
+            result.append({
+                'stage':       stage,
+                'stage_label': label,
+                'count':       leads.count(),
+                'leads':       LeadSerializer(leads, many=True).data,
+            })
+        return Response(result)
+
+
+class LeadListView(APIView):
+    """
+    GET  /api/leads/           — list all leads
+         ?search=name/phone    search
+         ?stage=engaged        filter by stage
+         ?source=instagram     filter by source
+    POST /api/leads/           — create new inquiry
+    """
     def get_permissions(self):
-        if self.action == 'destroy':
+        return [IsAdminOrReception()]
+
+    def get(self, request):
+        leads  = Lead.objects.all()
+        search = request.query_params.get('search', '').strip()
+        stage  = request.query_params.get('stage', '').strip()
+        source = request.query_params.get('source', '').strip()
+
+        if search:
+            leads = leads.filter(
+                Q(name__icontains=search) |
+                Q(phone__icontains=search) |
+                Q(email__icontains=search)
+            )
+        if stage:
+            leads = leads.filter(stage=stage)
+        if source:
+            leads = leads.filter(source=source)
+
+        return Response(LeadSerializer(leads, many=True).data)
+
+    def post(self, request):
+        serializer = LeadWriteSerializer(data=request.data)
+        if serializer.is_valid():
+            lead = serializer.save()
+            return Response(LeadSerializer(lead).data, status=201)
+        return Response(serializer.errors, status=400)
+
+
+class LeadDetailView(APIView):
+    """
+    GET    /api/leads/<id>/
+    PATCH  /api/leads/<id>/
+    DELETE /api/leads/<id>/
+    """
+    def get_permissions(self):
+        if self.request.method == 'DELETE':
             return [IsAdmin()]
         return [IsAdminOrReception()]
 
-    @action(detail=False, methods=['get'], url_path='pipeline')
-    def pipeline(self, request):
-        # ✅ Fixed: use 'converted' not 'booked'
-        stages = ['new', 'contacted', 'consultation', 'converted', 'returning', 'vip', 'lost']
-        pipeline = {}
-        for stage in stages:
-            leads = Lead.objects.filter(stage=stage).order_by('-created_at')
-            pipeline[stage] = {
-                'count': leads.count(),
-                'leads': LeadSerializer(leads, many=True).data
-            }
-        return Response(pipeline)
+    def _get(self, pk):
+        try:
+            return Lead.objects.prefetch_related('activities').get(pk=pk)
+        except Lead.DoesNotExist:
+            return None
 
-    @action(detail=False, methods=['get'], url_path='stats')
-    def stats(self, request):
-        total = Lead.objects.count()
-        by_stage = {}
-        for stage, _ in Lead.STAGE_CHOICES:
-            count = Lead.objects.filter(stage=stage).count()
-            by_stage[stage] = {
-                'count': count,
-                'percentage': round((count / total * 100), 1) if total > 0 else 0
-            }
+    def get(self, request, pk):
+        lead = self._get(pk)
+        if not lead:
+            return Response({'error': 'Lead not found.'}, status=404)
+        return Response(LeadSerializer(lead).data)
 
-        by_source = {}
-        for source, _ in Lead.SOURCE_CHOICES:
-            by_source[source] = Lead.objects.filter(source=source).count()
+    def patch(self, request, pk):
+        lead = self._get(pk)
+        if not lead:
+            return Response({'error': 'Lead not found.'}, status=404)
+        serializer = LeadWriteSerializer(lead, data=request.data, partial=True)
+        if serializer.is_valid():
+            return Response(LeadSerializer(serializer.save()).data)
+        return Response(serializer.errors, status=400)
 
-        # ✅ Fixed: use 'converted' not 'booked'
-        converted = Lead.objects.filter(stage__in=['converted', 'returning', 'vip']).count()
-        conversion_rate = round((converted / total * 100), 1) if total > 0 else 0
+    def put(self, request, pk):
+        return self.patch(request, pk)
 
-        return Response({
-            'total_leads':     total,
-            'conversion_rate': f'{conversion_rate}%',
-            'by_stage':        by_stage,
-            'by_source':       by_source,
-        })
+    def delete(self, request, pk):
+        lead = self._get(pk)
+        if not lead:
+            return Response({'error': 'Lead not found.'}, status=404)
+        lead.delete()
+        return Response({'message': 'Lead deleted.'})
 
-    @action(detail=True, methods=['patch'], url_path='stage')
-    def update_stage(self, request, pk=None):
-        lead = self.get_object()
+
+class LeadStageView(APIView):
+    """
+    PATCH /api/leads/<id>/stage/
+    Move lead to a different pipeline stage.
+    Body: { "stage_id": 2, "note": "Called and interested" }
+    """
+    permission_classes = [IsAdminOrReception]
+
+    def patch(self, request, pk):
+        try:
+            lead = Lead.objects.get(pk=pk)
+        except Lead.DoesNotExist:
+            return Response({'error': 'Lead not found.'}, status=404)
+
         serializer = LeadStageUpdateSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=400)
 
         old_stage = lead.stage
-        new_stage = serializer.validated_data['stage']
+        new_stage = STAGE_MAP[serializer.validated_data['stage_id']]
         note      = serializer.validated_data.get('note', '')
 
         lead.stage = new_stage
-        lead.updated_at = timezone.now()
         lead.save()
 
         LeadActivity.objects.create(
             lead=lead,
             action='stage_change',
-            note=f"Stage changed: {old_stage} → {new_stage}. {note}",
+            note=f"Stage: {old_stage} → {new_stage}. {note}".strip(),
             created_by=request.user
         )
         return Response(LeadSerializer(lead).data)
 
-    @action(detail=True, methods=['post'], url_path='activity')
-    def add_activity(self, request, pk=None):
-        lead = self.get_object()
-        serializer = LeadActivitySerializer(data=request.data)
+
+class LeadActivityView(APIView):
+    """
+    GET  /api/leads/<id>/activity/   — list all activities for a lead
+    POST /api/leads/<id>/activity/   — log a new activity
+    Body: { "action": "call", "note": "Called and confirmed" }
+    Action options: call | whatsapp | email | meeting | note
+    """
+    permission_classes = [IsAdminOrReception]
+
+    def get(self, request, pk):
+        try:
+            lead = Lead.objects.get(pk=pk)
+        except Lead.DoesNotExist:
+            return Response({'error': 'Lead not found.'}, status=404)
+        from .serializers import LeadActivitySerializer
+        activities = LeadActivity.objects.filter(lead=lead)
+        return Response(LeadActivitySerializer(activities, many=True).data)
+
+    def post(self, request, pk):
+        try:
+            lead = Lead.objects.get(pk=pk)
+        except Lead.DoesNotExist:
+            return Response({'error': 'Lead not found.'}, status=404)
+
+        serializer = LeadActivityWriteSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=400)
 
-        activity = serializer.save(lead=lead, created_by=request.user)
+        activity = LeadActivity.objects.create(
+            lead=lead,
+            action=serializer.validated_data['action'],
+            note=serializer.validated_data.get('note', ''),
+            created_by=request.user
+        )
         lead.last_contacted = timezone.localdate()
         lead.save()
+
+        from .serializers import LeadActivitySerializer
         return Response(LeadActivitySerializer(activity).data, status=201)
 
-    @action(detail=False, methods=['get'], url_path='cold')
-    def cold_leads(self, request):
-        fourteen_days_ago = timezone.localdate() - datetime.timedelta(days=14)
-        cold = Lead.objects.filter(
-            stage__in=['new', 'contacted', 'consultation'],
-        ).filter(
-            Q(last_contacted__lte=fourteen_days_ago) |
-            Q(last_contacted__isnull=True)
-        ).order_by('last_contacted')
 
-        return Response({
-            'count': cold.count(),
-            'leads': LeadSerializer(cold, many=True).data
-        })
+class LeadConvertView(APIView):
+    """
+    POST /api/leads/<id>/convert/
+    Convert a lead to a patient.
+    """
+    permission_classes = [IsAdminOrReception]
 
-    @action(detail=True, methods=['post'], url_path='convert-to-patient')
-    def convert_to_patient(self, request, pk=None):
-        lead = self.get_object()
+    def post(self, request, pk):
+        try:
+            lead = Lead.objects.get(pk=pk)
+        except Lead.DoesNotExist:
+            return Response({'error': 'Lead not found.'}, status=404)
+
         from patients.models import Patient
-
         if Patient.objects.filter(phone=lead.phone).exists():
-            return Response({'error': 'Patient with this phone already exists'}, status=400)
+            return Response({'error': 'Patient with this phone already exists.'}, status=400)
 
         patient = Patient.objects.create(
             name=lead.name,
             phone=lead.phone,
             email=lead.email or '',
             notes=f"Converted from lead. Source: {lead.source}. {lead.notes}",
-            tags='New'
         )
 
-        # ✅ Fixed: use 'converted' not 'booked'
         lead.stage = 'converted'
         lead.save()
 
@@ -138,7 +271,7 @@ class LeadViewSet(viewsets.ModelViewSet):
         )
 
         return Response({
-            'message':      'Lead converted to patient successfully',
+            'message':      'Lead converted to patient successfully.',
             'patient_id':   patient.id,
-            'patient_name': patient.name
+            'patient_name': patient.name,
         }, status=201)
