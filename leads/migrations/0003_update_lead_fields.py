@@ -6,7 +6,7 @@ import django.db.models.deletion
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('leads', '0002_auto_20240101_0000'),  # replace with your actual 0002 migration name
+        ('leads', '0002_lead_interest_alter_lead_score_alter_lead_stage'),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
