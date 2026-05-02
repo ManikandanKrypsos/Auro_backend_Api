@@ -11,39 +11,134 @@ from users.models import User
 from treatments.models import Treatment
 
 
-def _get_available_slots(staff, date, duration):
+def _build_month_availability(staff, treatment, month_str, room=None):
     """
-    Generate 30-min slots from 9AM-5PM, remove already booked ones.
+    Build full month availability for a staff + treatment + optional room.
+    Returns list of date objects with slots.
     """
-    slot_start  = datetime.datetime.combine(date, datetime.time(9, 0))
-    slot_end    = datetime.datetime.combine(date, datetime.time(17, 0))
-    slot_gap    = datetime.timedelta(minutes=30)
-    dur_delta   = datetime.timedelta(minutes=duration)
+    import calendar
+    from users.models import User
+    from users.models import StaffWorkingHours, StaffLeave
 
-    booked = Appointment.objects.filter(
+    duration = treatment.duration
+    dur_delta = datetime.timedelta(minutes=duration)
+    today = datetime.date.today()
+    now   = datetime.datetime.now()
+
+    # Parse month
+    year, month = map(int, month_str.split('-'))
+    _, days_in_month = calendar.monthrange(year, month)
+
+    # Build staff working hours dict: {day_abbr: (start_time, end_time)}
+    working_hours = {
+        wh.day: (wh.start_time, wh.end_time)
+        for wh in StaffWorkingHours.objects.filter(staff=staff)
+    }
+
+    # Build staff leaves set: set of dates
+    leave_dates = set()
+    for leave in StaffLeave.objects.filter(staff=staff):
+        d = leave.from_date
+        while d <= leave.to_date:
+            leave_dates.add(d)
+            d += datetime.timedelta(days=1)
+
+    # Booked appointments for staff this month
+    staff_booked = Appointment.objects.filter(
         staff=staff,
-        date_time__date=date,
-        status__in=['upcoming']
+        date_time__year=year,
+        date_time__month=month,
+        status='upcoming'
     ).values_list('date_time', 'duration')
-
-    booked_ranges = [
-        (dt, dt + datetime.timedelta(minutes=d))
-        for dt, d in booked
+    staff_booked_ranges = [
+        (dt.replace(tzinfo=None) if dt.tzinfo else dt,
+         (dt.replace(tzinfo=None) if dt.tzinfo else dt) + datetime.timedelta(minutes=d))
+        for dt, d in staff_booked
     ]
 
-    slots   = []
-    current = slot_start
-    while current + dur_delta <= slot_end:
-        end = current + dur_delta
-        conflict = any(
-            not (end <= bs or current >= be)
-            for bs, be in booked_ranges
-        )
-        if not conflict:
-            slots.append(current.strftime('%I:%M %p').lstrip('0'))
-        current += slot_gap
+    # Room booked appointments this month
+    room_booked_ranges = []
+    if room:
+        room_booked = Appointment.objects.filter(
+            room_fk=room,
+            date_time__year=year,
+            date_time__month=month,
+            status='upcoming'
+        ).values_list('date_time', 'duration')
+        room_booked_ranges = [
+            (dt.replace(tzinfo=None) if dt.tzinfo else dt,
+             (dt.replace(tzinfo=None) if dt.tzinfo else dt) + datetime.timedelta(minutes=d))
+            for dt, d in room_booked
+        ]
 
-    return slots
+    DAY_MAP = {0:'Mon', 1:'Tue', 2:'Wed', 3:'Thu', 4:'Fri', 5:'Sat', 6:'Sun'}
+
+    dates = []
+    for day_num in range(1, days_in_month + 1):
+        date = datetime.date(year, month, day_num)
+        day_abbr = DAY_MAP[date.weekday()]
+
+        # Check if working day
+        is_working = (
+            day_abbr in working_hours and
+            date not in leave_dates
+        )
+
+        if not is_working:
+            dates.append({
+                'date':             str(date),
+                'is_working_day':   False,
+                'has_availability': False,
+                'slots':            [],
+            })
+            continue
+
+        # Build slots based on working hours
+        wh_start, wh_end = working_hours[day_abbr]
+        slot_start = datetime.datetime.combine(date, wh_start)
+        slot_end   = datetime.datetime.combine(date, wh_end)
+
+        slots = []
+        current = slot_start
+        while current + dur_delta <= slot_end:
+            # Skip past slots for today
+            if date == today and current <= now:
+                current += dur_delta
+                continue
+
+            slot_end_time = current + dur_delta
+
+            # Check staff conflict
+            staff_conflict = any(
+                not (slot_end_time <= bs or current >= be)
+                for bs, be in staff_booked_ranges
+            )
+
+            # Check room conflict
+            room_conflict = False
+            if room:
+                room_conflict = any(
+                    not (slot_end_time <= bs or current >= be)
+                    for bs, be in room_booked_ranges
+                )
+
+            status = 'booked' if (staff_conflict or room_conflict) else 'available'
+            slots.append({
+                'time':   current.strftime('%H:%M'),
+                'status': status,
+            })
+            current += dur_delta
+
+        has_availability = any(s['status'] == 'available' for s in slots)
+
+        dates.append({
+            'date':             str(date),
+            'is_working_day':   True,
+            'has_availability': has_availability,
+            'slots':            slots,
+        })
+
+    return dates
 
 
 class AppointmentListView(APIView):
@@ -250,35 +345,58 @@ class AppointmentConsentView(APIView):
 class AvailableSlotsView(APIView):
     """
     GET /api/appointments/available-slots/
-    ?staff_id=8&date=2026-04-30&duration=60
+    ?staff_id=3&service_id=7&month=2026-05&room_id=1(optional)
 
-    Returns available time slots for booking.
+    Returns full month availability with slots per day.
+    Checks: staff working hours, staff leaves, existing appointments, room availability.
     """
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        staff_id = request.query_params.get('staff_id')
-        date_str = request.query_params.get('date')
-        duration = int(request.query_params.get('duration', 60))
+        from treatments.models import Treatment
+        from rooms.models import Room
 
-        if not staff_id or not date_str:
-            return Response({'error': 'staff_id and date are required.'}, status=400)
+        staff_id   = request.query_params.get('staff_id')
+        service_id = request.query_params.get('service_id')
+        month      = request.query_params.get('month')
+        room_id    = request.query_params.get('room_id')
+
+        if not staff_id or not service_id or not month:
+            return Response({'error': 'staff_id, service_id and month are required.'}, status=400)
+
+        # Validate month format
+        try:
+            year, mon = map(int, month.split('-'))
+            if not (1 <= mon <= 12):
+                raise ValueError
+        except Exception:
+            return Response({'error': 'Invalid month format. Use YYYY-MM.'}, status=400)
 
         try:
             staff = User.objects.get(id=staff_id, role__in=['therapist', 'reception'])
         except User.DoesNotExist:
             return Response({'error': 'Staff not found.'}, status=404)
 
-        date = parse_date(date_str)
-        if not date:
-            return Response({'error': 'Invalid date format. Use YYYY-MM-DD.'}, status=400)
+        try:
+            treatment = Treatment.objects.get(id=service_id)
+        except Treatment.DoesNotExist:
+            return Response({'error': 'Service not found.'}, status=404)
 
-        slots = _get_available_slots(staff, date, duration)
+        room = None
+        if room_id:
+            try:
+                room = Room.objects.get(id=room_id)
+            except Room.DoesNotExist:
+                return Response({'error': 'Room not found.'}, status=404)
+
+        dates = _build_month_availability(staff, treatment, month, room)
+
         return Response({
-            'staff_id': int(staff_id),
-            'date':     date_str,
-            'duration': duration,
-            'slots':    slots,
+            'month':                    month,
+            'staff_id':                 int(staff_id),
+            'service_id':               int(service_id),
+            'service_duration_minutes': treatment.duration,
+            'dates':                    dates,
         })
 
 
