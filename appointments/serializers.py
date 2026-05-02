@@ -163,17 +163,18 @@ class AppointmentWriteSerializer(serializers.Serializer):
     treatment_id    = serializers.IntegerField(required=False)
     room_id         = serializers.IntegerField(required=False, allow_null=True)
     price_plan_id   = serializers.IntegerField(required=False, allow_null=True)
-    date_time       = serializers.DateTimeField(required=False)
+    date            = serializers.DateField(required=False)
+    time            = serializers.CharField(required=False)  # e.g. "9:00" or "14:30"
     duration        = serializers.IntegerField(min_value=1, required=False)
     session_number  = serializers.IntegerField(min_value=1, required=False)
     total_sessions  = serializers.IntegerField(min_value=1, required=False)
-    status_id        = serializers.IntegerField(required=False)   # 1=upcoming 2=completed 3=cancelled 4=no_show
+    status_id        = serializers.IntegerField(required=False)
     patient_arrived  = serializers.BooleanField(required=False)
-    consent_status_id = serializers.IntegerField(required=False)  # 1=pending 2=signed
+    consent_status_id = serializers.IntegerField(required=False)
     consent_form_url = serializers.URLField(required=False, allow_blank=True)
     payment_amount   = serializers.DecimalField(max_digits=10, decimal_places=2, required=False, allow_null=True)
-    payment_status_id = serializers.IntegerField(required=False)  # 1=pending 2=paid 3=refunded
-    payment_type_id  = serializers.IntegerField(required=False)   # 1=single 2=package
+    payment_status_id = serializers.IntegerField(required=False)
+    payment_type_id  = serializers.IntegerField(required=False)
     notes           = serializers.CharField(required=False, allow_blank=True)
 
     def validate_patient_id(self, value):
@@ -256,8 +257,7 @@ class AppointmentWriteSerializer(serializers.Serializer):
             parsed_time = dt.datetime.strptime(f"{hour}:{minute}", '%H:%M').time()
             validated_data['date_time'] = dt.datetime.combine(date, parsed_time)
         elif not date and not time_str and self.instance is None:
-            from rest_framework import serializers as s
-            raise s.ValidationError({'date': 'date and time are required.'})
+            pass  # date_time validation handled at DB level
 
         if patient_id:
             validated_data['patient']    = Patient.objects.get(id=patient_id)
