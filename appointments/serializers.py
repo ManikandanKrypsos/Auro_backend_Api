@@ -249,12 +249,15 @@ class AppointmentWriteSerializer(serializers.Serializer):
         time_str = validated_data.pop('time', None)
         if date and time_str:
             import datetime as dt
-            # Parse time — support "9:00" or "09:00" or "14:30"
-            try:
-                parsed_time = dt.datetime.strptime(time_str.strip().zfill(5), '%H:%M').time()
-            except ValueError:
-                parsed_time = dt.datetime.strptime(time_str.strip(), '%H:%M').time()
+            # Normalize time — pad hour to 2 digits: "9:00" -> "09:00"
+            parts = time_str.strip().split(':')
+            hour   = parts[0].zfill(2)
+            minute = parts[1] if len(parts) > 1 else '00'
+            parsed_time = dt.datetime.strptime(f"{hour}:{minute}", '%H:%M').time()
             validated_data['date_time'] = dt.datetime.combine(date, parsed_time)
+        elif not date and not time_str and self.instance is None:
+            from rest_framework import serializers as s
+            raise s.ValidationError({'date': 'date and time are required.'})
 
         if patient_id:
             validated_data['patient']    = Patient.objects.get(id=patient_id)
