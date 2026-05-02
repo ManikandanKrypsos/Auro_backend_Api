@@ -43,16 +43,21 @@ class LeadStatsView(APIView):
     Returns total leads, active count and total valuation — shown at top of pipeline.
     """
     def get(self, request):
-        total      = Lead.objects.count()
-        active     = Lead.objects.filter(
+        total       = Lead.objects.count()
+        active      = Lead.objects.filter(
             stage__in=['new_inquiries', 'engaged', 'consultation', 'winning']
         ).count()
-        valuation  = Lead.objects.aggregate(total=Sum('value'))['total'] or 0
+        valuation   = Lead.objects.aggregate(total=Sum('value'))['total'] or 0
 
         return Response({
-            'total_leads': total,
-            'active':      active,
-            'valuation':   float(valuation),
+            'new_inquiries': Lead.objects.filter(stage='new_inquiries').count(),
+            'engaged':       Lead.objects.filter(stage='engaged').count(),
+            'consultation':  Lead.objects.filter(stage='consultation').count(),
+            'winning':       Lead.objects.filter(stage='winning').count(),
+            'lost':          Lead.objects.filter(stage='lost').count(),
+            'total_leads':   total,
+            'active':        active,
+            'valuation':     float(valuation),
         })
 
 
