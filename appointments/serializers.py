@@ -158,7 +158,7 @@ class AppointmentWriteSerializer(serializers.Serializer):
         "consent_status":  "pending"
     }
     """
-    patient_id      = serializers.IntegerField(required=False)
+    patient_id      = serializers.CharField(required=False)  # accepts DB id (41) or patient_id (Aura41)
     staff_id        = serializers.IntegerField(required=False)
     treatment_id    = serializers.IntegerField(required=False)
     room_id         = serializers.IntegerField(required=False, allow_null=True)
@@ -178,9 +178,12 @@ class AppointmentWriteSerializer(serializers.Serializer):
     notes           = serializers.CharField(required=False, allow_blank=True)
 
     def validate_patient_id(self, value):
-        if not Patient.objects.filter(id=value).exists():
-            raise serializers.ValidationError("Patient not found.")
-        return value
+        # Accept both integer DB id (41) or patient_id string (Aura41)
+        if Patient.objects.filter(id=value).exists():
+            return value
+        if Patient.objects.filter(patient_id=value).exists():
+            return value
+        raise serializers.ValidationError(f"Patient '{value}' not found.")
 
     def validate_status_id(self, value):
         if value not in STATUS_MAP:
@@ -260,7 +263,11 @@ class AppointmentWriteSerializer(serializers.Serializer):
             pass  # date_time validation handled at DB level
 
         if patient_id:
-            validated_data['patient']    = Patient.objects.get(id=patient_id)
+            # Try DB integer id first, then patient_id string
+            try:
+                validated_data['patient'] = Patient.objects.get(id=patient_id)
+            except (Patient.DoesNotExist, ValueError):
+                validated_data['patient'] = Patient.objects.get(patient_id=patient_id)
         if staff_id:
             validated_data['staff']      = User.objects.get(id=staff_id)
         if treatment_id:
