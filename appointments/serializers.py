@@ -244,6 +244,18 @@ class AppointmentWriteSerializer(serializers.Serializer):
         if consent_status_id:
             validated_data['consent_status'] = CONSENT_STATUS_MAP[consent_status_id]
 
+        # Combine date + time into date_time
+        date = validated_data.pop('date', None)
+        time_str = validated_data.pop('time', None)
+        if date and time_str:
+            import datetime as dt
+            # Parse time — support "9:00" or "09:00" or "14:30"
+            try:
+                parsed_time = dt.datetime.strptime(time_str.strip().zfill(5), '%H:%M').time()
+            except ValueError:
+                parsed_time = dt.datetime.strptime(time_str.strip(), '%H:%M').time()
+            validated_data['date_time'] = dt.datetime.combine(date, parsed_time)
+
         if patient_id:
             validated_data['patient']    = Patient.objects.get(id=patient_id)
         if staff_id:
