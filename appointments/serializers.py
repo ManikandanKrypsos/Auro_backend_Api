@@ -178,9 +178,12 @@ class AppointmentWriteSerializer(serializers.Serializer):
     notes           = serializers.CharField(required=False, allow_blank=True)
 
     def validate_patient_id(self, value):
-        # Accept both integer DB id (41) or patient_id string (Aura41)
-        if Patient.objects.filter(id=value).exists():
-            return value
+        # Try integer DB id first, then patient_id string
+        try:
+            if Patient.objects.filter(id=int(value)).exists():
+                return value
+        except (ValueError, TypeError):
+            pass
         if Patient.objects.filter(patient_id=value).exists():
             return value
         raise serializers.ValidationError(f"Patient '{value}' not found.")
