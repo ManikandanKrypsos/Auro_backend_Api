@@ -47,12 +47,8 @@ class PatientViewSet(viewsets.ModelViewSet):
         return qs
 
     def get_object(self):
-        """
-        Support both Aura6 and numeric 6 as lookup
-        """
         pk = self.kwargs.get('pk', '')
 
-        # Try patient_id first (Aura6, aura6)
         if pk and not pk.isdigit():
             try:
                 obj = Patient.objects.get(patient_id__iexact=pk)
@@ -61,7 +57,6 @@ class PatientViewSet(viewsets.ModelViewSet):
             except Patient.DoesNotExist:
                 raise NotFound(f"Patient '{pk}' not found")
 
-        # Try numeric id
         try:
             obj = Patient.objects.get(id=int(pk))
             self.check_object_permissions(self.request, obj)
@@ -76,13 +71,13 @@ class PatientViewSet(viewsets.ModelViewSet):
 
     def destroy(self, request, *args, **kwargs):
         patient = self.get_object()
-        patient_id = patient.patient_id
+        patient_id   = patient.patient_id
         patient_name = patient.name
         patient.delete()
         return Response({
-            'message': f'Patient {patient_name} ({patient_id}) deleted successfully',
-            'deleted_id': patient_id,
-            'deleted_patient': patient_name,
+            'message':          f'Patient {patient_name} ({patient_id}) deleted successfully',
+            'deleted_id':       patient_id,
+            'deleted_patient':  patient_name,
         }, status=200)
 
     @action(detail=False, methods=['get'], url_path='form-choices',
@@ -125,4 +120,50 @@ class PatientViewSet(viewsets.ModelViewSet):
                 {'id': 3, 'value': 'VIP',       'label': 'VIP'},
                 {'id': 4, 'value': 'Lead',      'label': 'Lead'},
             ],
+        })
+
+
+class PatientVIPView(APIView):
+    """
+    PATCH /api/patients/<id>/vip/
+    Mark or unmark a patient as VIP.
+    Body: { "is_vip": true }  or  { "is_vip": false }
+    """
+    permission_classes = [IsAdminOrReception]
+
+    def _get_patient(self, pk):
+        if pk and not str(pk).isdigit():
+            try:
+                return Patient.objects.get(patient_id__iexact=pk)
+            except Patient.DoesNotExist:
+                return None
+        try:
+            return Patient.objects.get(id=int(pk))
+        except (Patient.DoesNotExist, ValueError):
+            return None
+
+    def patch(self, request, pk):
+        patient = self._get_patient(pk)
+        if not patient:
+            return Response({'error': 'Patient not found.'}, status=404)
+
+        is_vip = request.data.get('is_vip', True)
+
+        if is_vip:
+            patient.category = 'VIP'
+            message = f'{patient.name} marked as VIP.'
+        else:
+            # Downgrade based on treatment count
+            from appointments.models import Appointment
+            completed_count = Appointment.objects.filter(
+                patient=patient, status='completed'
+            ).values('treatment').distinct().count()
+            patient.category = 'Returning' if completed_count > 1 else 'New'
+            message = f'{patient.name} VIP status removed. Category set to {patient.category}.'
+
+        patient.save()
+        return Response({
+            'message':    message,
+            'patient_id': patient.patient_id,
+            'category':   patient.category,
         })
