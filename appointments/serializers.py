@@ -256,10 +256,12 @@ class AppointmentWriteSerializer(serializers.Serializer):
         time_str = validated_data.pop('time', None)
         if date and time_str:
             import datetime as dt
-            # Normalize time — pad hour to 2 digits: "9:00" -> "09:00"
-            parts = time_str.strip().split(':')
+            # Accept both "9:00" and "09:00 - 10:00" (range format from slots)
+            # Extract only the start time
+            start_time_str = time_str.strip().split('-')[0].strip()
+            parts  = start_time_str.split(':')
             hour   = parts[0].zfill(2)
-            minute = parts[1] if len(parts) > 1 else '00'
+            minute = parts[1].strip() if len(parts) > 1 else '00'
             parsed_time = dt.datetime.strptime(f"{hour}:{minute}", '%H:%M').time()
             validated_data['date_time'] = dt.datetime.combine(date, parsed_time)
         elif not date and not time_str and self.instance is None:
