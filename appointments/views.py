@@ -43,6 +43,8 @@ def _build_month_availability(staff, treatment, month_str, room=None):
             leave_dates.add(d)
             d += datetime.timedelta(days=1)
 
+    slot_duration = treatment.duration  # use service duration to block slots
+
     # Booked appointments for staff this month
     staff_booked = Appointment.objects.filter(
         staff=staff,
@@ -50,11 +52,12 @@ def _build_month_availability(staff, treatment, month_str, room=None):
         date_time__month=month,
         status='upcoming'
     ).values_list('date_time', 'duration')
-    staff_booked_ranges = [
-        (dt.replace(tzinfo=None) if dt.tzinfo else dt,
-         (dt.replace(tzinfo=None) if dt.tzinfo else dt) + datetime.timedelta(minutes=d))
-        for dt, d in staff_booked
-    ]
+    staff_booked_ranges = []
+    for dt, d in staff_booked:
+        start = dt.replace(tzinfo=None) if dt.tzinfo else dt
+        # Block the full slot duration, not just appointment duration
+        block_mins = max(d, slot_duration)
+        staff_booked_ranges.append((start, start + datetime.timedelta(minutes=block_mins)))
 
     # Room booked appointments this month
     room_booked_ranges = []
@@ -65,11 +68,10 @@ def _build_month_availability(staff, treatment, month_str, room=None):
             date_time__month=month,
             status='upcoming'
         ).values_list('date_time', 'duration')
-        room_booked_ranges = [
-            (dt.replace(tzinfo=None) if dt.tzinfo else dt,
-             (dt.replace(tzinfo=None) if dt.tzinfo else dt) + datetime.timedelta(minutes=d))
-            for dt, d in room_booked
-        ]
+        for dt, d in room_booked:
+            start = dt.replace(tzinfo=None) if dt.tzinfo else dt
+            block_mins = max(d, slot_duration)
+            room_booked_ranges.append((start, start + datetime.timedelta(minutes=block_mins)))
 
     DAY_MAP = {0:'Mon', 1:'Tue', 2:'Wed', 3:'Thu', 4:'Fri', 5:'Sat', 6:'Sun'}
 
@@ -124,7 +126,7 @@ def _build_month_availability(staff, treatment, month_str, room=None):
 
             status = 'booked' if (staff_conflict or room_conflict) else 'available'
             slots.append({
-                'time':   current.strftime('%H:%M'),
+                'time':   f"{current.strftime('%H:%M')} - {slot_end_time.strftime('%H:%M')}",
                 'status': status,
             })
             current += dur_delta
