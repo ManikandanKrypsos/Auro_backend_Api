@@ -64,6 +64,13 @@ def _build_month_availability(staff, treatment, month_str, room=None):
             staff_leave_dates.add(d)
             d += datetime.timedelta(days=1)
 
+    # Staff break times — global breaks applied to every working day
+    from users.models import StaffBreakTime
+    staff_break_ranges = [
+        (bt.start_time, bt.end_time)
+        for bt in StaffBreakTime.objects.filter(staff=staff)
+    ]
+
     # Booked staff appointments
     staff_booked = Appointment.objects.filter(
         staff=staff,
@@ -149,8 +156,15 @@ def _build_month_availability(staff, treatment, month_str, room=None):
                 not (slot_end_time <= bs or current >= be)
                 for bs, be in room_booked_ranges
             )
+            # Break time conflict — slot overlaps with staff break
+            slot_time_start = current.time()
+            slot_time_end   = slot_end_time.time()
+            break_conflict  = any(
+                not (slot_time_end <= bs or slot_time_start >= be)
+                for bs, be in staff_break_ranges
+            )
 
-            status = 'booked' if (staff_conflict or room_conflict) else 'available'
+            status = 'booked' if (staff_conflict or room_conflict or break_conflict) else 'available'
             slots.append({
                 'time':   f"{current.strftime('%H:%M')} - {slot_end_time.strftime('%H:%M')}",
                 'status': status,
