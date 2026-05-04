@@ -123,7 +123,7 @@ class AppointmentSerializer(serializers.ModelSerializer):
         return {'pending':1,'paid':2,'refunded':3}.get(obj.payment_status)
 
     def get_payment_type_id(self, obj):
-        return {'single':1,'package':2}.get(obj.payment_type)
+        return {'online':1,'cash':2}.get(obj.payment_type)
 
     def get_room_detail(self, obj):
         if not obj.room_fk:
