@@ -107,15 +107,16 @@ class AppointmentSerializer(serializers.ModelSerializer):
         }
 
     def get_treatment_detail(self, obj):
-        t = obj.treatment
+        t    = obj.treatment
         plan = obj.price_plan
         return {
-            'id':       t.id,
-            'name':     t.name,
-            'duration': obj.duration,
-            'category': t.category,
-            'price':    str(plan.price) if plan else str(obj.payment_amount or ''),
-            'sessions': plan.sessions if plan else obj.total_sessions,
+            'id':           t.id,
+            'name':         t.name,
+            'duration':     obj.duration,
+            'category':     t.category,
+            'price':        str(plan.price) if plan else str(obj.payment_amount or ''),
+            'price_plan_id': plan.id if plan else None,
+            'sessions':     plan.sessions if plan else obj.total_sessions,
         }
 
     def get_date(self, obj):
