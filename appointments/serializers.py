@@ -120,16 +120,19 @@ class AppointmentSerializer(serializers.ModelSerializer):
 
     def get_date(self, obj):
         if obj.date_time:
-            return str(timezone.localtime(obj.date_time).date())
+            from django.utils import timezone as tz
+            dt = tz.localtime(obj.date_time) if tz.is_aware(obj.date_time) else obj.date_time
+            return str(dt.date())
         return None
 
     def get_time(self, obj):
         if obj.date_time:
             import datetime
-            local_dt  = timezone.localtime(obj.date_time)
-            start     = local_dt.strftime('%H:%M')
-            end_dt    = local_dt + datetime.timedelta(minutes=obj.duration or 0)
-            end       = end_dt.strftime('%H:%M')
+            from django.utils import timezone as tz
+            dt       = tz.localtime(obj.date_time) if tz.is_aware(obj.date_time) else obj.date_time
+            start    = dt.strftime('%H:%M')
+            end_dt   = dt + datetime.timedelta(minutes=obj.duration or 0)
+            end      = end_dt.strftime('%H:%M')
             return f"{start} - {end}"
         return None
 
@@ -293,7 +296,7 @@ class AppointmentWriteSerializer(serializers.Serializer):
             else:
                 use_date = dt.date.today()
 
-            validated_data['date_time'] = dt.datetime.combine(use_date, parsed_time)
+            validated_data['date_time'] = tz.make_aware(dt.datetime.combine(use_date, parsed_time))
 
         elif date:
             # Only date changed, keep existing time
@@ -303,7 +306,7 @@ class AppointmentWriteSerializer(serializers.Serializer):
                 existing_time = tz.localtime(instance.date_time).time()
             else:
                 existing_time = dt.time(9, 0)
-            validated_data['date_time'] = dt.datetime.combine(date, existing_time)
+            validated_data['date_time'] = tz.make_aware(dt.datetime.combine(date, existing_time))
 
         if patient_id:
             # Try DB integer id first, then patient_id string
