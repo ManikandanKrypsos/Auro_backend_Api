@@ -523,56 +523,78 @@ class TodayAppointmentsView(APIView):
 class CalendarView(APIView):
     """
     GET /api/appointments/calendar/
-    ?date=2026-04-30     appointments for that day
-    ?week=2026-04-28     appointments for the week starting that date
-    ?month=2026-04       appointments for the whole month
+    ?date=2026-04-30                           single day
+    ?start_date=2026-05-01&end_date=2026-05-31 date range
+
+    Returns appointments grouped by date within the range.
     """
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        from django.db.models import Q
         qs = Appointment.objects.select_related(
             'patient', 'staff', 'treatment', 'room_fk'
         ).all()
 
-        if request.user.role == 'therapist':
+        if hasattr(request.user, 'role') and request.user.role == 'therapist':
             qs = qs.filter(staff=request.user)
 
-        date  = request.query_params.get('date')
-        week  = request.query_params.get('week')
-        month = request.query_params.get('month')
+        date       = request.query_params.get('date')
+        start_date = request.query_params.get('start_date')
+        end_date   = request.query_params.get('end_date')
 
+        # Single day
         if date:
             parsed = parse_date(date)
-            if parsed:
-                qs = qs.filter(date_time__date=parsed)
-                return Response({
-                    'date':             str(parsed),
-                    'total':            qs.count(),
-                    'appointments':     AppointmentSerializer(qs, many=True).data,
-                })
+            if not parsed:
+                return Response({'error': 'Invalid date format. Use YYYY-MM-DD.'}, status=400)
+            qs = qs.filter(date_time__date=parsed)
+            return Response({
+                'start_date':   str(parsed),
+                'end_date':     str(parsed),
+                'total':        qs.count(),
+                'appointments': AppointmentSerializer(qs.order_by('date_time'), many=True).data,
+            })
 
-        if week:
-            parsed = parse_date(week)
-            if parsed:
-                week_end = parsed + datetime.timedelta(days=7)
-                qs = qs.filter(date_time__date__gte=parsed, date_time__date__lt=week_end)
-                return Response({
-                    'week_start':   str(parsed),
-                    'week_end':     str(week_end),
-                    'total':        qs.count(),
-                    'appointments': AppointmentSerializer(qs, many=True).data,
-                })
+        # Date range
+        if start_date and end_date:
+            parsed_start = parse_date(start_date)
+            parsed_end   = parse_date(end_date)
+            if not parsed_start or not parsed_end:
+                return Response({'error': 'Invalid date format. Use YYYY-MM-DD.'}, status=400)
+            if parsed_start > parsed_end:
+                return Response({'error': 'start_date must be before end_date.'}, status=400)
 
-        if month:
-            try:
-                year, mon = map(int, month.split('-'))
-                qs = qs.filter(date_time__year=year, date_time__month=mon)
-                return Response({
-                    'month':        month,
-                    'total':        qs.count(),
-                    'appointments': AppointmentSerializer(qs, many=True).data,
-                })
-            except Exception:
-                return Response({'error': 'Invalid month format. Use YYYY-MM.'}, status=400)
+            qs = qs.filter(
+                date_time__date__gte=parsed_start,
+                date_time__date__lte=parsed_end
+            ).order_by('date_time')
 
-        return Response({'error': 'Provide date, week, or month param.'}, status=400)
+            # Group by date
+            grouped = {}
+            for appt in qs:
+                day = str(appt.date_time.date())
+                if day not in grouped:
+                    grouped[day] = []
+                grouped[day].append(AppointmentSerializer(appt).data)
+
+            # Fill all days in range even if no appointments
+            result = []
+            current = parsed_start
+            while current <= parsed_end:
+                day_str = str(current)
+                result.append({
+                    'date':         day_str,
+                    'total':        len(grouped.get(day_str, [])),
+                    'appointments': grouped.get(day_str, []),
+                })
+                current += datetime.timedelta(days=1)
+
+            return Response({
+                'start_date': str(parsed_start),
+                'end_date':   str(parsed_end),
+                'total':      qs.count(),
+                'days':       result,
+            })
+
+        return Response({'error': 'Provide date or start_date and end_date params.'}, status=400)
