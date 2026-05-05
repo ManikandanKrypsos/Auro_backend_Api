@@ -220,10 +220,16 @@ class AppointmentListView(APIView):
             'patient', 'staff', 'treatment', 'room_fk', 'price_plan'
         ).all()
 
-        user = request.user
-        user_role = getattr(user, 'role', '') or ''
+        # Filter by role — fetch fresh from DB to ensure role is loaded
+        from users.models import User as UserModel
+        try:
+            current_user = UserModel.objects.get(pk=request.user.pk)
+            user_role    = current_user.role or ''
+        except Exception:
+            user_role = ''
+
         if user_role == 'therapist':
-            qs = qs.filter(staff=user)
+            qs = qs.filter(staff_id=request.user.pk)
 
         today     = request.query_params.get('today')
         date      = request.query_params.get('date')

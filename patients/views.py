@@ -31,13 +31,18 @@ class PatientViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         qs = Patient.objects.all().order_by('-created_at')
 
-        # Therapist sees only their own patients
-        user = self.request.user
-        user_role = getattr(user, 'role', '') or ''
+        # Fetch role fresh from DB
+        from users.models import User as UserModel
+        try:
+            current_user = UserModel.objects.get(pk=self.request.user.pk)
+            user_role    = current_user.role or ''
+        except Exception:
+            user_role = ''
+
         if user_role == 'therapist':
             from appointments.models import Appointment
             patient_ids = Appointment.objects.filter(
-                staff=user
+                staff_id=self.request.user.pk
             ).values_list('patient_id', flat=True).distinct()
             qs = qs.filter(id__in=patient_ids)
 
