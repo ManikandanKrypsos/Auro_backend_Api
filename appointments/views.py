@@ -239,13 +239,15 @@ class AppointmentListView(APIView):
         if user_role == 'therapist':
             qs = qs.filter(staff_id=request.user.pk)
 
-        today     = request.query_params.get('today')
-        date      = request.query_params.get('date')
-        date_from = request.query_params.get('date_from')
-        date_to   = request.query_params.get('date_to')
-        staff_id  = request.query_params.get('staff_id')
-        status    = request.query_params.get('status')
-        search    = request.query_params.get('search', '').strip()
+        today      = request.query_params.get('today')
+        date       = request.query_params.get('date')
+        date_from  = request.query_params.get('date_from')
+        date_to    = request.query_params.get('date_to')
+        staff_id   = request.query_params.get('staff_id')
+        status     = request.query_params.get('status')
+        consent    = request.query_params.get('consent_status')
+        payment_st = request.query_params.get('payment_status')
+        search     = request.query_params.get('search', '').strip()
 
         if today == 'true':
             today_date = timezone.now().date()
@@ -266,6 +268,10 @@ class AppointmentListView(APIView):
             qs = qs.filter(staff__id=staff_id)
         if status:
             qs = qs.filter(status=status)
+        if consent:
+            qs = qs.filter(consent_status=consent)
+        if payment_st:
+            qs = qs.filter(payment_status=payment_st)
         if search:
             qs = qs.filter(
                 Q(patient__name__icontains=search) |
