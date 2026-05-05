@@ -272,20 +272,38 @@ class AppointmentWriteSerializer(serializers.Serializer):
             validated_data['consent_status'] = CONSENT_STATUS_MAP[consent_status_id]
 
         # Combine date + time into date_time
-        date = validated_data.pop('date', None)
+        date     = validated_data.pop('date', None)
         time_str = validated_data.pop('time', None)
-        if date and time_str:
+
+        if time_str:
             import datetime as dt
-            # Accept both "9:00" and "09:00 - 10:00" (range format from slots)
-            # Extract only the start time
+            from django.utils import timezone as tz
+            # Extract start time from range format "09:00 - 10:20" or plain "09:00"
             start_time_str = time_str.strip().split('-')[0].strip()
             parts  = start_time_str.split(':')
             hour   = parts[0].zfill(2)
             minute = parts[1].strip() if len(parts) > 1 else '00'
             parsed_time = dt.datetime.strptime(f"{hour}:{minute}", '%H:%M').time()
-            validated_data['date_time'] = dt.datetime.combine(date, parsed_time)
-        elif not date and not time_str and self.instance is None:
-            pass  # date_time validation handled at DB level
+
+            # Use provided date, or fall back to existing date_time date
+            if date:
+                use_date = date
+            elif instance and instance.date_time:
+                use_date = tz.localtime(instance.date_time).date()
+            else:
+                use_date = dt.date.today()
+
+            validated_data['date_time'] = dt.datetime.combine(use_date, parsed_time)
+
+        elif date:
+            # Only date changed, keep existing time
+            import datetime as dt
+            from django.utils import timezone as tz
+            if instance and instance.date_time:
+                existing_time = tz.localtime(instance.date_time).time()
+            else:
+                existing_time = dt.time(9, 0)
+            validated_data['date_time'] = dt.datetime.combine(date, existing_time)
 
         if patient_id:
             # Try DB integer id first, then patient_id string
