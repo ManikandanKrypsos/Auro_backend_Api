@@ -259,6 +259,12 @@ class AppointmentWriteSerializer(serializers.Serializer):
         price_plan_id = validated_data.pop('price_plan_id', None)
         # ID fields handled below
 
+        # Resolve treatment early so duration is available for slot conflict check
+        treatment_obj = None
+        if treatment_id:
+            treatment_obj = Treatment.objects.get(id=treatment_id)
+            validated_data['treatment'] = treatment_obj
+
         # Map IDs to values
         status_id         = validated_data.pop('status_id', None)
         payment_status_id = validated_data.pop('payment_status_id', None)
@@ -309,13 +315,9 @@ class AppointmentWriteSerializer(serializers.Serializer):
 
             # Get duration from treatment or existing appointment
             duration = None
-            treatment_id = validated_data.get('treatment')
-            if treatment_id:
-                try:
-                    duration = Treat.objects.get(id=treatment_id).duration
-                except Exception:
-                    pass
-            if not duration and instance:
+            if treatment_obj:
+                duration = treatment_obj.duration
+            elif instance:
                 duration = instance.duration
             if not duration:
                 duration = 60
@@ -374,18 +376,15 @@ class AppointmentWriteSerializer(serializers.Serializer):
             validated_data['date_time'] = tz.make_aware(dt.datetime.combine(date, existing_time))
 
         if patient_id:
-            # Try DB integer id first, then patient_id string
             try:
                 validated_data['patient'] = Patient.objects.get(id=patient_id)
             except (Patient.DoesNotExist, ValueError):
                 validated_data['patient'] = Patient.objects.get(patient_id=patient_id)
         if staff_id:
-            validated_data['staff']      = User.objects.get(id=staff_id)
-        if treatment_id:
-            t = Treatment.objects.get(id=treatment_id)
-            validated_data['treatment']  = t
-            if 'duration' not in validated_data:
-                validated_data['duration'] = t.duration
+            validated_data['staff'] = User.objects.get(id=staff_id)
+        # treatment already set above via treatment_obj
+        if treatment_obj and 'duration' not in validated_data:
+            validated_data['duration'] = treatment_obj.duration
         if room_id is not None:
             validated_data['room_fk'] = Room.objects.get(id=room_id) if room_id else None
         if price_plan_id is not None:
