@@ -26,8 +26,7 @@ def _build_month_availability(staff, treatment, month_str, room=None):
        - Otherwise → available
     """
     import calendar
-    import pytz
-    from django.conf import settings
+    from django.utils import timezone as dj_tz
     from users.models import StaffWorkingHours, StaffLeave, StaffBreakTime
     from clinic.models import ClinicHours, PlannedClosure
 
@@ -35,11 +34,7 @@ def _build_month_availability(staff, treatment, month_str, room=None):
     dur_delta = datetime.timedelta(minutes=duration)
     today     = datetime.date.today()
 
-    try:
-        local_tz  = pytz.timezone(settings.TIME_ZONE)
-        now_local = datetime.datetime.now(local_tz).replace(tzinfo=None)
-    except Exception:
-        now_local = datetime.datetime.now()
+    now_local = datetime.datetime.now()
 
     year, month = map(int, month_str.split('-'))
     _, days_in_month = calendar.monthrange(year, month)
@@ -84,7 +79,7 @@ def _build_month_availability(staff, treatment, month_str, room=None):
     def to_local_naive(dt):
         if dt.tzinfo:
             try:
-                return dt.astimezone(local_tz).replace(tzinfo=None)
+                return dj_tz.localtime(dt).replace(tzinfo=None)
             except Exception:
                 return dt.replace(tzinfo=None)
         return dt
