@@ -1,18 +1,14 @@
 from django.urls import path
 from .views import (
+    DashboardView,
     ReceptionDashboardView,
-    DashboardOverviewView,
-    BestServicesView,
-    StaffPerformanceView,
-    RevenueChartView,
-    RebookingRateView,
+    TherapistDashboardView,
+    AdminDashboardView,
 )
 
 urlpatterns = [
-    path('',                   DashboardOverviewView.as_view()),   # Admin dashboard
-    path('reception/',         ReceptionDashboardView.as_view()),  # Reception dashboard
-    path('best-services/',     BestServicesView.as_view()),
-    path('staff-performance/', StaffPerformanceView.as_view()),
-    path('revenue-chart/',     RevenueChartView.as_view()),
-    path('rebooking-rate/',    RebookingRateView.as_view()),
+    path('',             DashboardView.as_view()),          # auto-detects role
+    path('reception/',   ReceptionDashboardView.as_view()), # force reception view
+    path('therapist/',   TherapistDashboardView.as_view()), # force therapist view
+    path('admin/',       AdminDashboardView.as_view()),     # force admin view
 ]

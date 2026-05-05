@@ -1,5 +1,6 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
 from django.utils import timezone
 from django.db.models import Count, Sum, Q
 import datetime
@@ -8,70 +9,6 @@ from patients.models import Patient
 from treatments.models import Treatment
 from leads.models import Lead
 from users.models import User
-from users.permissions import IsAdmin, IsAdminOrReception
-
-
-class ReceptionDashboardView(APIView):
-    """
-    GET /api/dashboard/reception/
-    Reception dashboard — today's stats + next up appointments.
-    Shows: today's appointments, checked in, cancelled, new patients, next up.
-    """
-    permission_classes = [IsAdminOrReception]
-
-    def get(self, request):
-        today = timezone.localdate()
-        now   = timezone.now()
-        start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-
-        # Today's appointments
-        todays_appts = Appointment.objects.filter(
-            date_time__date=today
-        ).select_related('patient', 'staff', 'treatment', 'room_fk')
-
-        # Stats
-        total_today  = todays_appts.count()
-        checked_in   = todays_appts.filter(patient_arrived=True).count()
-        cancelled    = todays_appts.filter(status='cancelled').count()
-        new_patients = Patient.objects.filter(
-            created_at__gte=start_of_month
-        ).count()
-
-        # Next up — upcoming appointments from now, ordered by time
-        next_up = Appointment.objects.filter(
-            date_time__date=today,
-            date_time__gte=now,
-            status='upcoming'
-        ).select_related(
-            'patient', 'staff', 'treatment', 'room_fk'
-        ).order_by('date_time')[:5]
-
-        def fmt_appt(a):
-            return {
-                'id':            a.id,
-                'time':          a.date_time.strftime('%I:%M %p') if a.date_time else None,
-                'patient_name':  a.patient.name if a.patient else None,
-                'treatment':     a.treatment.name if a.treatment else None,
-                'staff_name':    a.staff.username if a.staff else None,
-                'duration':      a.duration,
-                'room':          a.room_fk.name if a.room_fk else None,
-                'status':        a.status,
-                'patient_arrived': a.patient_arrived,
-                'consent_status':  a.consent_status,
-            }
-
-        return Response({
-            'greeting':  _get_greeting(),
-            'staff_name': request.user.username or request.user.email.split('@')[0],
-            'date':       str(today),
-            'stats': {
-                'todays_appointments': total_today,
-                'checked_in':          checked_in,
-                'cancelled':           cancelled,
-                'new_patients':        new_patients,
-            },
-            'next_up': [fmt_appt(a) for a in next_up],
-        })
 
 
 def _get_greeting():
@@ -83,229 +20,263 @@ def _get_greeting():
     return 'Good Evening'
 
 
-class DashboardOverviewView(APIView):
+def _fmt_appt(a):
+    return {
+        'id':              a.id,
+        'time':            timezone.localtime(a.date_time).strftime('%I:%M %p') if a.date_time else None,
+        'time_24':         timezone.localtime(a.date_time).strftime('%H:%M') if a.date_time else None,
+        'patient_name':    a.patient.name if a.patient else None,
+        'treatment':       a.treatment.name if a.treatment else None,
+        'staff_name':      a.staff.username if a.staff else None,
+        'duration':        a.duration,
+        'room':            a.room_fk.name if a.room_fk else None,
+        'status':          a.status,
+        'patient_arrived': a.patient_arrived,
+        'consent_status':  a.consent_status,
+    }
+
+
+class DashboardView(APIView):
     """
     GET /api/dashboard/
-    Full admin dashboard — revenue, patients, appointments, leads.
+    Returns the correct dashboard based on logged-in user role:
+    - Admin     → full overview (revenue, leads, best services, staff performance)
+    - Reception → today's stats + next up appointments
+    - Therapist → my schedule (today's sessions, current session, next up)
     """
-    permission_classes = [IsAdmin]
+    permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        role = getattr(request.user, 'role', '')
+        if role == 'therapist':
+            return self._therapist_dashboard(request)
+        elif role == 'reception':
+            return self._reception_dashboard(request)
+        else:
+            return self._admin_dashboard(request)
+
+    # ── Therapist Dashboard ───────────────────────────────────────────────────
+    def _therapist_dashboard(self, request):
         today = timezone.localdate()
         now   = timezone.now()
 
-        start_of_today      = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        start_of_month      = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        start_of_last_month = (start_of_month - datetime.timedelta(days=1)).replace(day=1)
+        appts = Appointment.objects.filter(
+            staff=request.user,
+            date_time__date=today
+        ).select_related('patient', 'treatment', 'room_fk').order_by('date_time')
+
+        total_today  = appts.count()
+        completed    = appts.filter(status='completed').count()
+        pending      = appts.filter(status='upcoming').count()
+
+        # Current session — upcoming appointment happening now
+        current = appts.filter(
+            date_time__lte=now,
+            status='upcoming'
+        ).order_by('-date_time').first()
+
+        # Next up — future upcoming appointments
+        next_up = appts.filter(
+            date_time__gt=now,
+            status='upcoming'
+        ).order_by('date_time')[:5]
+
+        return Response({
+            'role':     'therapist',
+            'greeting': _get_greeting(),
+            'name':     request.user.username or request.user.email.split('@')[0],
+            'date':     str(today),
+            'stats': {
+                'todays_appointments': total_today,
+                'completed_sessions':  completed,
+                'pending_sessions':    pending,
+            },
+            'current_session': _fmt_appt(current) if current else None,
+            'next_up':         [_fmt_appt(a) for a in next_up],
+        })
+
+    # ── Reception Dashboard ───────────────────────────────────────────────────
+    def _reception_dashboard(self, request):
+        today          = timezone.localdate()
+        now            = timezone.now()
+        start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+        todays_appts = Appointment.objects.filter(
+            date_time__date=today
+        ).select_related('patient', 'staff', 'treatment', 'room_fk')
+
+        next_up = Appointment.objects.filter(
+            date_time__date=today,
+            date_time__gte=now,
+            status='upcoming'
+        ).select_related('patient', 'staff', 'treatment', 'room_fk').order_by('date_time')[:5]
+
+        return Response({
+            'role':     'reception',
+            'greeting': _get_greeting(),
+            'name':     request.user.username or request.user.email.split('@')[0],
+            'date':     str(today),
+            'stats': {
+                'todays_appointments': todays_appts.count(),
+                'checked_in':          todays_appts.filter(patient_arrived=True).count(),
+                'cancelled':           todays_appts.filter(status='cancelled').count(),
+                'new_patients':        Patient.objects.filter(created_at__gte=start_of_month).count(),
+            },
+            'next_up': [_fmt_appt(a) for a in next_up],
+        })
+
+    # ── Admin Dashboard ───────────────────────────────────────────────────────
+    def _admin_dashboard(self, request):
+        today          = timezone.localdate()
+        now            = timezone.now()
+        start_of_today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        start_last_month = (start_of_month - datetime.timedelta(days=1)).replace(day=1)
 
         appts_today      = Appointment.objects.filter(date_time__date=today)
         appts_month      = Appointment.objects.filter(date_time__gte=start_of_month)
         appts_last_month = Appointment.objects.filter(
-            date_time__gte=start_of_last_month,
+            date_time__gte=start_last_month,
             date_time__lt=start_of_month
         )
 
-        def get_revenue(qs):
-            return float(
-                qs.filter(status='completed')
-                  .aggregate(total=Sum('payment_amount'))['total'] or 0
-            )
+        def revenue(qs):
+            return float(qs.filter(status='completed').aggregate(t=Sum('payment_amount'))['t'] or 0)
 
-        revenue_today      = get_revenue(appts_today)
-        revenue_this_month = get_revenue(appts_month)
-        revenue_last_month = get_revenue(appts_last_month)
-        revenue_growth     = 0
-        if revenue_last_month > 0:
-            revenue_growth = round(
-                ((revenue_this_month - revenue_last_month) / revenue_last_month) * 100, 1
-            )
+        rev_today      = revenue(appts_today)
+        rev_week       = revenue(Appointment.objects.filter(
+            date_time__gte=now - datetime.timedelta(days=7)
+        ))
+        rev_month      = revenue(appts_month)
+        rev_last_month = revenue(appts_last_month)
+        growth = round(((rev_month - rev_last_month) / rev_last_month * 100), 1) if rev_last_month > 0 else 0
 
-        total_patients = Patient.objects.count()
-        new_this_month = Patient.objects.filter(created_at__gte=start_of_month).count()
+        total_appts   = appts_month.count()
+        cancelled     = appts_month.filter(status='cancelled').count()
+        cancel_rate   = round((cancelled / total_appts * 100), 1) if total_appts > 0 else 0
 
-        total_this_month  = appts_month.count()
-        completed_month   = appts_month.filter(status='completed').count()
-        cancelled_month   = appts_month.filter(status='cancelled').count()
-        cancellation_rate = round((cancelled_month / total_this_month * 100), 1) if total_this_month > 0 else 0
+        # Rebooking rate
+        returning = (
+            Appointment.objects.filter(date_time__gte=start_of_month)
+            .values('patient').annotate(c=Count('id')).filter(c__gt=1).count()
+        )
+        total_patients_month = (
+            Appointment.objects.filter(date_time__gte=start_of_month)
+            .values('patient').distinct().count()
+        )
+        rebooking_rate = round((returning / total_patients_month * 100), 1) if total_patients_month > 0 else 0
 
-        total_leads     = Lead.objects.count()
-        new_leads_month = Lead.objects.filter(created_at__gte=start_of_month).count()
-        converted_leads = Lead.objects.filter(stage='converted').count()
-        conversion_rate = round((converted_leads / total_leads * 100), 1) if total_leads > 0 else 0
-
-        # Today's summary
-        checked_in   = appts_today.filter(patient_arrived=True).count()
-        new_patients = Patient.objects.filter(created_at__gte=start_of_today).count()
-
-        return Response({
-            'greeting':   _get_greeting(),
-            'staff_name': request.user.username or request.user.email.split('@')[0],
-            'date':       str(today),
-            'today': {
-                'appointments': appts_today.count(),
-                'checked_in':   checked_in,
-                'cancelled':    appts_today.filter(status='cancelled').count(),
-                'new_patients': new_patients,
-            },
-            'revenue': {
-                'today':      revenue_today,
-                'this_month': revenue_this_month,
-                'last_month': revenue_last_month,
-                'growth':     f'{revenue_growth}%',
-            },
-            'appointments': {
-                'today':             appts_today.count(),
-                'this_month':        total_this_month,
-                'completed_month':   completed_month,
-                'cancelled_month':   cancelled_month,
-                'cancellation_rate': f'{cancellation_rate}%',
-            },
-            'patients': {
-                'total':          total_patients,
-                'new_this_month': new_this_month,
-            },
-            'leads': {
-                'total':           total_leads,
-                'new_this_month':  new_leads_month,
-                'converted':       converted_leads,
-                'conversion_rate': f'{conversion_rate}%',
-            },
-        })
-
-
-class BestServicesView(APIView):
-    """
-    GET /api/dashboard/best-services/
-    Top treatments by bookings this month.
-    """
-    permission_classes = [IsAdmin]
-
-    def get(self, request):
-        now            = timezone.now()
-        start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-
-        services = (
-            Appointment.objects
-            .filter(date_time__gte=start_of_month)
+        # Best services
+        best_services = list(
+            Appointment.objects.filter(date_time__gte=start_of_month)
             .values('treatment__id', 'treatment__name', 'treatment__duration')
             .annotate(
-                total_bookings=Count('id'),
-                completed=Count('id', filter=Q(status='completed')),
-                cancelled=Count('id', filter=Q(status='cancelled')),
-                revenue=Sum('payment_amount', filter=Q(status='completed')),
+                bookings=Count('id'),
+                revenue=Sum('payment_amount', filter=Q(status='completed'))
             )
-            .order_by('-total_bookings')
+            .order_by('-bookings')[:5]
         )
 
-        result = []
-        for s in services:
-            result.append({
-                'treatment_id':   s['treatment__id'],
-                'treatment':      s['treatment__name'],
-                'duration':       s['treatment__duration'],
-                'total_bookings': s['total_bookings'],
-                'completed':      s['completed'],
-                'cancelled':      s['cancelled'],
-                'revenue':        float(s['revenue'] or 0),
+        # Lead concentration by source
+        lead_sources = list(
+            Lead.objects.values('source').annotate(count=Count('id')).order_by('-count')
+        )
+
+        # Staff performance
+        staff_perf = []
+        for s in User.objects.filter(role='therapist'):
+            sa = Appointment.objects.filter(staff=s, date_time__gte=start_of_month)
+            staff_perf.append({
+                'staff_id':      s.id,
+                'name':          s.username or s.email.split('@')[0],
+                'profile_image': s.profile_image or None,
+                'specialist_area': s.specialist_area,
+                'total':         sa.count(),
+                'completed':     sa.filter(status='completed').count(),
+                'revenue':       float(sa.filter(status='completed').aggregate(t=Sum('payment_amount'))['t'] or 0),
             })
+        staff_perf.sort(key=lambda x: x['revenue'], reverse=True)
 
-        return Response({'best_services': result})
-
-
-class StaffPerformanceView(APIView):
-    """
-    GET /api/dashboard/staff-performance/
-    Sessions, cancellations and revenue per therapist this month.
-    """
-    permission_classes = [IsAdmin]
-
-    def get(self, request):
-        now            = timezone.now()
-        start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        staff_list     = User.objects.filter(role='therapist')
-        result         = []
-
-        for staff in staff_list:
-            appts     = Appointment.objects.filter(staff=staff, date_time__gte=start_of_month)
-            completed = appts.filter(status='completed')
-            cancelled = appts.filter(status='cancelled').count()
-            total     = appts.count()
-            revenue   = float(
-                completed.aggregate(total=Sum('payment_amount'))['total'] or 0
-            )
-            completion_rate = round((completed.count() / total * 100), 1) if total > 0 else 0
-
-            result.append({
-                'staff_id':        staff.id,
-                'name':            staff.username or staff.email.split('@')[0],
-                'profile_image':   staff.profile_image or None,
-                'specialist_area': staff.specialist_area,
-                'total_sessions':  total,
-                'completed':       completed.count(),
-                'cancelled':       cancelled,
-                'completion_rate': f'{completion_rate}%',
-                'revenue':         revenue,
-            })
-
-        result.sort(key=lambda x: x['revenue'], reverse=True)
-        return Response({'staff_performance': result})
-
-
-class RevenueChartView(APIView):
-    """
-    GET /api/dashboard/revenue-chart/
-    Daily revenue for last 30 days.
-    """
-    permission_classes = [IsAdmin]
-
-    def get(self, request):
-        today = timezone.localdate()
-        days  = []
-
+        # Revenue chart — last 30 days
+        revenue_chart = []
         for i in range(29, -1, -1):
-            day     = today - datetime.timedelta(days=i)
-            revenue = float(
-                Appointment.objects
-                .filter(date_time__date=day, status='completed')
-                .aggregate(total=Sum('payment_amount'))['total'] or 0
-            )
-            days.append({'date': str(day), 'revenue': revenue})
-
-        return Response({'last_30_days': days})
-
-
-class RebookingRateView(APIView):
-    """
-    GET /api/dashboard/rebooking-rate/
-    How many patients came back this month.
-    """
-    permission_classes = [IsAdmin]
-
-    def get(self, request):
-        now            = timezone.now()
-        start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-
-        returning = (
-            Appointment.objects
-            .filter(date_time__gte=start_of_month)
-            .values('patient')
-            .annotate(visit_count=Count('id'))
-            .filter(visit_count__gt=1)
-            .count()
-        )
-        total_patients_this_month = (
-            Appointment.objects
-            .filter(date_time__gte=start_of_month)
-            .values('patient')
-            .distinct()
-            .count()
-        )
-        rebooking_rate = round(
-            (returning / total_patients_this_month * 100), 1
-        ) if total_patients_this_month > 0 else 0
+            day = today - datetime.timedelta(days=i)
+            revenue_chart.append({
+                'date':    str(day),
+                'revenue': float(
+                    Appointment.objects.filter(date_time__date=day, status='completed')
+                    .aggregate(t=Sum('payment_amount'))['t'] or 0
+                ),
+            })
 
         return Response({
-            'total_patients_this_month': total_patients_this_month,
-            'returning_patients':        returning,
-            'rebooking_rate':            f'{rebooking_rate}%',
+            'role':     'admin',
+            'greeting': _get_greeting(),
+            'name':     request.user.username or request.user.email.split('@')[0],
+            'date':     str(today),
+            'revenue': {
+                'today':        rev_today,
+                'weekly':       rev_week,
+                'monthly':      rev_month,
+                'last_month':   rev_last_month,
+                'growth':       f'{growth}%',
+            },
+            'today': {
+                'appointments': appts_today.count(),
+                'checked_in':   appts_today.filter(patient_arrived=True).count(),
+                'cancelled':    appts_today.filter(status='cancelled').count(),
+                'new_patients': Patient.objects.filter(created_at__gte=start_of_today).count(),
+            },
+            'appointments': {
+                'this_month':        total_appts,
+                'completed':         appts_month.filter(status='completed').count(),
+                'cancelled':         cancelled,
+                'cancellation_rate': f'{cancel_rate}%',
+            },
+            'patients': {
+                'total':          Patient.objects.count(),
+                'new_this_month': Patient.objects.filter(created_at__gte=start_of_month).count(),
+                'returning':      Patient.objects.filter(category='Returning').count(),
+                'vip':            Patient.objects.filter(category='VIP').count(),
+            },
+            'leads': {
+                'total':           Lead.objects.count(),
+                'active':          Lead.objects.filter(stage__in=['new_inquiries','engaged','consultation','winning']).count(),
+                'converted':       Lead.objects.filter(stage='converted').count(),
+                'valuation':       float(Lead.objects.aggregate(t=Sum('value'))['t'] or 0),
+                'by_source':       lead_sources,
+            },
+            'rebooking_rate':    f'{rebooking_rate}%',
+            'cancellation_rate': f'{cancel_rate}%',
+            'best_services':     [
+                {
+                    'treatment_id': s['treatment__id'],
+                    'name':         s['treatment__name'],
+                    'duration':     s['treatment__duration'],
+                    'bookings':     s['bookings'],
+                    'revenue':      float(s['revenue'] or 0),
+                }
+                for s in best_services
+            ],
+            'staff_performance': staff_perf,
+            'revenue_chart':     revenue_chart,
         })
+
+
+# Keep individual endpoints for direct access
+class ReceptionDashboardView(APIView):
+    permission_classes = [IsAuthenticated]
+    def get(self, request):
+        return DashboardView()._reception_dashboard(request)
+
+
+class TherapistDashboardView(APIView):
+    permission_classes = [IsAuthenticated]
+    def get(self, request):
+        return DashboardView()._therapist_dashboard(request)
+
+
+class AdminDashboardView(APIView):
+    permission_classes = [IsAuthenticated]
+    def get(self, request):
+        return DashboardView()._admin_dashboard(request)
