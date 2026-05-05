@@ -281,6 +281,9 @@ class AppointmentWriteSerializer(serializers.Serializer):
         if time_str:
             import datetime as dt
             from django.utils import timezone as tz
+            from appointments.models import Appointment as Appt
+            from treatments.models import Treatment as Treat
+
             # Extract start time from range format "09:00 - 10:20" or plain "09:00"
             start_time_str = time_str.strip().split('-')[0].strip()
             parts  = start_time_str.split(':')
@@ -296,7 +299,63 @@ class AppointmentWriteSerializer(serializers.Serializer):
             else:
                 use_date = dt.date.today()
 
-            validated_data['date_time'] = tz.make_aware(dt.datetime.combine(use_date, parsed_time))
+            new_start = tz.make_aware(dt.datetime.combine(use_date, parsed_time))
+
+            # Get duration from treatment or existing appointment
+            duration = None
+            treatment_id = validated_data.get('treatment')
+            if treatment_id:
+                try:
+                    duration = Treat.objects.get(id=treatment_id).duration
+                except Exception:
+                    pass
+            if not duration and instance:
+                duration = instance.duration
+            if not duration:
+                duration = 60
+            new_end = new_start + dt.timedelta(minutes=duration)
+
+            # Check staff conflict
+            staff = validated_data.get('staff') or (instance.staff if instance else None)
+            if staff:
+                qs = Appt.objects.filter(
+                    staff=staff,
+                    date_time__date=use_date,
+                    status='upcoming'
+                )
+                if instance:
+                    qs = qs.exclude(pk=instance.pk)
+                for appt in qs:
+                    appt_start = appt.date_time.replace(tzinfo=None) if not tz.is_aware(appt.date_time) else appt.date_time
+                    appt_end   = appt_start + dt.timedelta(minutes=appt.duration or duration)
+                    ns = new_start.replace(tzinfo=None) if tz.is_naive(new_start) else new_start
+                    ne = new_end.replace(tzinfo=None) if tz.is_naive(new_end) else new_end
+                    if not (ne <= appt_start or ns >= appt_end):
+                        raise serializers.ValidationError({
+                            'time': f'This slot ({hour}:{minute}) is already booked for the selected therapist. Please choose another time.'
+                        })
+
+            # Check room conflict
+            room = validated_data.get('room_fk') or (instance.room_fk if instance else None)
+            if room:
+                qs = Appt.objects.filter(
+                    room_fk=room,
+                    date_time__date=use_date,
+                    status='upcoming'
+                )
+                if instance:
+                    qs = qs.exclude(pk=instance.pk)
+                for appt in qs:
+                    appt_start = appt.date_time.replace(tzinfo=None) if not tz.is_aware(appt.date_time) else appt.date_time
+                    appt_end   = appt_start + dt.timedelta(minutes=appt.duration or duration)
+                    ns = new_start.replace(tzinfo=None) if tz.is_naive(new_start) else new_start
+                    ne = new_end.replace(tzinfo=None) if tz.is_naive(new_end) else new_end
+                    if not (ne <= appt_start or ns >= appt_end):
+                        raise serializers.ValidationError({
+                            'time': f'This slot ({hour}:{minute}) is already booked for the selected room. Please choose another time.'
+                        })
+
+            validated_data['date_time'] = new_start
 
         elif date:
             # Only date changed, keep existing time
