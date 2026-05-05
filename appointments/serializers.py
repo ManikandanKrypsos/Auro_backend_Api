@@ -1,3 +1,4 @@
+from django.utils import timezone
 from rest_framework import serializers
 from .models import Appointment
 from users.models import User
@@ -31,6 +32,10 @@ CONSENT_STATUS_MAP = {
 class AppointmentSerializer(serializers.ModelSerializer):
     """Full read serializer with all nested objects."""
 
+    # Date and time split
+    date               = serializers.SerializerMethodField()
+    time               = serializers.SerializerMethodField()
+
     # Status IDs
     status_id          = serializers.SerializerMethodField()
     consent_status_id  = serializers.SerializerMethodField()
@@ -54,7 +59,7 @@ class AppointmentSerializer(serializers.ModelSerializer):
             'staff_detail',
             'treatment_detail',
             'room_detail',
-            'date_time', 'duration',
+            'date', 'time', 'duration',
             'session_number', 'total_sessions',
             'status', 'status_id',
             'patient_arrived',
@@ -112,6 +117,16 @@ class AppointmentSerializer(serializers.ModelSerializer):
             'price':    str(plan.price) if plan else str(obj.payment_amount or ''),
             'sessions': plan.sessions if plan else obj.total_sessions,
         }
+
+    def get_date(self, obj):
+        if obj.date_time:
+            return str(timezone.localtime(obj.date_time).date())
+        return None
+
+    def get_time(self, obj):
+        if obj.date_time:
+            return timezone.localtime(obj.date_time).strftime('%H:%M')
+        return None
 
     def get_status_id(self, obj):
         return {'upcoming':1,'completed':2,'cancelled':3,'no_show':4}.get(obj.status)
