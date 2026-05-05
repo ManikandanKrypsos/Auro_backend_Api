@@ -221,7 +221,8 @@ class AppointmentListView(APIView):
         ).all()
 
         user = request.user
-        if hasattr(user, 'role') and user.role == 'therapist':
+        user_role = getattr(user, 'role', '') or ''
+        if user_role == 'therapist':
             qs = qs.filter(staff=user)
 
         today     = request.query_params.get('today')

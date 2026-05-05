@@ -30,6 +30,17 @@ class PatientViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         qs = Patient.objects.all().order_by('-created_at')
+
+        # Therapist sees only their own patients
+        user = self.request.user
+        user_role = getattr(user, 'role', '') or ''
+        if user_role == 'therapist':
+            from appointments.models import Appointment
+            patient_ids = Appointment.objects.filter(
+                staff=user
+            ).values_list('patient_id', flat=True).distinct()
+            qs = qs.filter(id__in=patient_ids)
+
         search   = self.request.query_params.get('search', '')
         category = self.request.query_params.get('category', '')
 
