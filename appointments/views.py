@@ -191,6 +191,21 @@ def _build_month_availability(staff, treatment, month_str, room=None):
     return dates
 
 
+def _update_patient_category(patient):
+    """Auto-update patient category based on completed treatment count."""
+    if not patient:
+        return
+    if patient.category == 'VIP':
+        return
+    completed_count = Appointment.objects.filter(
+        patient=patient,
+        status='completed'
+    ).values('treatment').distinct().count()
+    if completed_count > 1:
+        patient.category = 'Returning'
+        patient.save()
+
+
 class AppointmentListView(APIView):
     """
     GET  /api/appointments/           — list all appointments
