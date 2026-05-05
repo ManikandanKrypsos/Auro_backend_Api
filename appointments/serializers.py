@@ -125,7 +125,12 @@ class AppointmentSerializer(serializers.ModelSerializer):
 
     def get_time(self, obj):
         if obj.date_time:
-            return timezone.localtime(obj.date_time).strftime('%H:%M')
+            import datetime
+            local_dt  = timezone.localtime(obj.date_time)
+            start     = local_dt.strftime('%H:%M')
+            end_dt    = local_dt + datetime.timedelta(minutes=obj.duration or 0)
+            end       = end_dt.strftime('%H:%M')
+            return f"{start} - {end}"
         return None
 
     def get_status_id(self, obj):
