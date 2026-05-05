@@ -295,9 +295,15 @@ class AppointmentWriteSerializer(serializers.Serializer):
             if date:
                 use_date = date
             elif instance and instance.date_time:
-                use_date = tz.localtime(instance.date_time).date()
+                use_date = tz.localtime(instance.date_time).date() if tz.is_aware(instance.date_time) else instance.date_time.date()
             else:
                 use_date = dt.date.today()
+
+            # Reject past dates
+            if use_date < dt.date.today():
+                raise serializers.ValidationError({
+                    'date': f'{use_date} is in the past. Please choose today or a future date.'
+                })
 
             new_start = tz.make_aware(dt.datetime.combine(use_date, parsed_time))
 
