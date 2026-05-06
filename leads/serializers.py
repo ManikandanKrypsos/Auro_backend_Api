@@ -11,6 +11,15 @@ SOURCE_MAP = {
 }
 SOURCE_ID_MAP = {v: k for k, v in SOURCE_MAP.items()}
 
+MARKETING_SOURCE_LABELS = {
+    'instagram': 'Instagram',
+    'web':       'Website',
+    'walk_in':   'Walk-in',
+    'referral':  'Referral',
+    'whatsapp':  'WhatsApp',
+    'other':     'Other',
+}
+
 STAGE_MAP = {
     1: 'new_inquiries',
     2: 'engaged',
@@ -36,29 +45,41 @@ class LeadActivitySerializer(serializers.ModelSerializer):
 
 
 class LeadSerializer(serializers.ModelSerializer):
-    source_id      = serializers.SerializerMethodField()
-    stage_id       = serializers.SerializerMethodField()
-    activities     = LeadActivitySerializer(many=True, read_only=True)
-    assigned_to_name = serializers.SerializerMethodField()
+    marketing_source_id = serializers.SerializerMethodField()
+    stage_id            = serializers.SerializerMethodField()
+    service_detail      = serializers.SerializerMethodField()
+    activities          = LeadActivitySerializer(many=True, read_only=True)
+    assigned_to_name    = serializers.SerializerMethodField()
 
     class Meta:
         model  = Lead
         fields = [
             'id', 'name', 'phone', 'email',
-            'source', 'source_id',
+            'source', 'marketing_source_id',
             'stage', 'stage_id',
-            'interest', 'notes', 'value',
+            'interest', 'service_id', 'service_detail',
+            'notes', 'value',
             'assigned_to', 'assigned_to_name',
             'last_contacted',
             'activities',
             'created_at', 'updated_at',
         ]
 
-    def get_source_id(self, obj):
+    def get_marketing_source_id(self, obj):
         return SOURCE_ID_MAP.get(obj.source)
 
     def get_stage_id(self, obj):
         return STAGE_ID_MAP.get(obj.stage)
+
+    def get_service_detail(self, obj):
+        if obj.service_id:
+            try:
+                from treatments.models import Treatment
+                t = Treatment.objects.get(id=obj.service_id)
+                return {'id': t.id, 'name': t.name, 'duration': t.duration}
+            except Exception:
+                return None
+        return None
 
     def get_assigned_to_name(self, obj):
         if obj.assigned_to:
@@ -84,18 +105,26 @@ class LeadWriteSerializer(serializers.Serializer):
     name         = serializers.CharField(max_length=100, required=False)
     phone        = serializers.CharField(max_length=20, required=False)
     email        = serializers.EmailField(required=False, allow_null=True, allow_blank=True)
-    source_id    = serializers.IntegerField(required=False)
+    marketing_source_id = serializers.IntegerField(required=False)
+    service_id          = serializers.IntegerField(required=False, allow_null=True)
     stage_id     = serializers.IntegerField(required=False)
     interest     = serializers.CharField(max_length=100, required=False, allow_blank=True)
     notes        = serializers.CharField(required=False, allow_blank=True)
     value        = serializers.DecimalField(max_digits=10, decimal_places=2, required=False)
     assigned_to  = serializers.IntegerField(required=False, allow_null=True)
 
-    def validate_source_id(self, value):
+    def validate_marketing_source_id(self, value):
         if value not in SOURCE_MAP:
             raise serializers.ValidationError(
-                "Invalid source_id. Use 1=Instagram, 2=Web, 3=Walk-In, 4=Referral, 5=WhatsApp, 6=Other"
+                "Invalid marketing_source_id. Use 1=Instagram, 2=Web, 3=Walk-In, 4=Referral, 5=WhatsApp, 6=Other"
             )
+        return value
+
+    def validate_service_id(self, value):
+        if value is not None:
+            from treatments.models import Treatment
+            if not Treatment.objects.filter(id=value).exists():
+                raise serializers.ValidationError(f"Service with id {value} not found.")
         return value
 
     def validate_stage_id(self, value):
@@ -107,7 +136,7 @@ class LeadWriteSerializer(serializers.Serializer):
 
     def _save(self, instance, validated_data):
         from users.models import User
-        source_id   = validated_data.pop('source_id', None)
+        source_id   = validated_data.pop('marketing_source_id', None)
         stage_id    = validated_data.pop('stage_id', None)
         assigned_to = validated_data.pop('assigned_to', None)
 

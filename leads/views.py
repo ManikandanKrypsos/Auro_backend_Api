@@ -18,10 +18,10 @@ class LeadMetaView(APIView):
     """
     def get(self, request):
         return Response({
-            'sources': [
+            'marketing_sources': [
                 {'id': 1, 'value': 'instagram', 'label': 'Instagram'},
-                {'id': 2, 'value': 'web',       'label': 'Web'},
-                {'id': 3, 'value': 'walk_in',   'label': 'Walk-In'},
+                {'id': 2, 'value': 'web',       'label': 'Website'},
+                {'id': 3, 'value': 'walk_in',   'label': 'Walk-in'},
                 {'id': 4, 'value': 'referral',  'label': 'Referral'},
                 {'id': 5, 'value': 'whatsapp',  'label': 'WhatsApp'},
                 {'id': 6, 'value': 'other',     'label': 'Other'},

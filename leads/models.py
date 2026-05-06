@@ -26,7 +26,8 @@ class Lead(models.Model):
     email          = models.EmailField(blank=True, null=True)
     source         = models.CharField(max_length=20, choices=SOURCE_CHOICES, default='web')
     stage          = models.CharField(max_length=20, choices=STAGE_CHOICES, default='new_inquiries')
-    interest       = models.CharField(max_length=100, blank=True)  # interested service
+    interest       = models.CharField(max_length=100, blank=True)  # legacy text field
+    service_id     = models.IntegerField(null=True, blank=True)    # treatment/service FK
     notes          = models.TextField(blank=True)
     assigned_to    = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='leads')
     value          = models.DecimalField(max_digits=10, decimal_places=2, default=0)  # estimated value
