@@ -68,7 +68,25 @@ class LoginView(APIView):
     def post(self, request):
         serializer = LoginSerializer(data=request.data)
         if serializer.is_valid():
-            user   = serializer.validated_data
+            user = serializer.validated_data
+
+            # Block reception/therapist if they are not in the active staff list
+            if user.role in ['reception', 'therapist']:
+                if not User.objects.filter(
+                    id=user.id,
+                    role__in=['reception', 'therapist']
+                ).exists():
+                    return Response(
+                        {'error': 'Your account is not active. Please contact your admin.'},
+                        status=403
+                    )
+                # Check if account is active (not deleted from staff)
+                if not user.is_active:
+                    return Response(
+                        {'error': 'Your account has been deactivated. Please contact your admin.'},
+                        status=403
+                    )
+
             tokens = get_tokens_for_user(user)
             return Response({
                 'token':         tokens['access'],
@@ -76,11 +94,12 @@ class LoginView(APIView):
                 'role_id':       ROLE_ID_MAP.get(user.role, 1),
                 'role':          user.role,
                 'user': {
-                    'id':       user.id,
-                    'username': user.username,
-                    'email':    user.email,
-                    'role':     user.role,
-                    'role_id':  ROLE_ID_MAP.get(user.role, 1),
+                    'id':            user.id,
+                    'username':      user.username,
+                    'email':         user.email,
+                    'role':          user.role,
+                    'role_id':       ROLE_ID_MAP.get(user.role, 1),
+                    'profile_image': user.profile_image or None,
                 }
             })
         return Response(serializer.errors, status=400)
@@ -413,8 +432,10 @@ class StaffDetailView(APIView):
         user = self._get_staff_or_404(pk)
         if user is None:
             return Response({'error': 'Staff member not found.'}, status=404)
-        user.delete()
-        return Response({'message': 'Staff member deleted successfully.'})
+        # Deactivate instead of hard delete — blocks login, preserves data
+        user.is_active = False
+        user.save()
+        return Response({'message': f'{user.username or user.email} has been deactivated and can no longer login.'})
 
 # ─── Staff Schedule Views ─────────────────────────────────────────────────────
 
