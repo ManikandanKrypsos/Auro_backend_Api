@@ -44,11 +44,10 @@ class LeadActivitySerializer(serializers.ModelSerializer):
         return None
 
 
-class LeadSerializer(serializers.ModelSerializer):
+class LeadListSerializer(serializers.ModelSerializer):
     marketing_source_id = serializers.SerializerMethodField()
     stage_id            = serializers.SerializerMethodField()
     service_detail      = serializers.SerializerMethodField()
-    activities          = LeadActivitySerializer(many=True, read_only=True)
     assigned_to_name    = serializers.SerializerMethodField()
 
     class Meta:
@@ -61,7 +60,47 @@ class LeadSerializer(serializers.ModelSerializer):
             'notes', 'value',
             'assigned_to', 'assigned_to_name',
             'last_contacted',
-            'activities',
+            'created_at', 'updated_at',
+        ]
+
+    def get_marketing_source_id(self, obj):
+        return SOURCE_ID_MAP.get(obj.source)
+
+    def get_stage_id(self, obj):
+        return STAGE_ID_MAP.get(obj.stage)
+
+    def get_service_detail(self, obj):
+        if obj.service_id:
+            try:
+                from treatments.models import Treatment
+                t = Treatment.objects.get(id=obj.service_id)
+                return {'id': t.id, 'name': t.name, 'duration': t.duration}
+            except Exception:
+                return None
+        return None
+
+    def get_assigned_to_name(self, obj):
+        if obj.assigned_to:
+            return obj.assigned_to.username or obj.assigned_to.email.split('@')[0]
+        return None
+
+
+class LeadSerializer(serializers.ModelSerializer):
+    marketing_source_id = serializers.SerializerMethodField()
+    stage_id            = serializers.SerializerMethodField()
+    service_detail      = serializers.SerializerMethodField()
+    assigned_to_name    = serializers.SerializerMethodField()
+
+    class Meta:
+        model  = Lead
+        fields = [
+            'id', 'name', 'phone', 'email',
+            'source', 'marketing_source_id',
+            'stage', 'stage_id',
+            'interest', 'service_id', 'service_detail',
+            'notes', 'value',
+            'assigned_to', 'assigned_to_name',
+            'last_contacted',
             'created_at', 'updated_at',
         ]
 
