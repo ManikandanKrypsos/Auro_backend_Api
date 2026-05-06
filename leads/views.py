@@ -6,7 +6,7 @@ from rest_framework.response import Response
 from users.permissions import IsAdmin, IsAdminOrReception
 from .models import Lead, LeadActivity
 from .serializers import (
-    LeadSerializer, LeadWriteSerializer,
+    LeadSerializer, LeadListSerializer, LeadWriteSerializer,
     LeadStageUpdateSerializer, LeadActivityWriteSerializer,
     STAGE_MAP, SOURCE_MAP,
 )
@@ -80,7 +80,7 @@ class LeadPipelineView(APIView):
                 'stage':       stage,
                 'stage_label': label,
                 'count':       leads.count(),
-                'leads':       LeadSerializer(leads, many=True).data,
+                'leads':       LeadListSerializer(leads, many=True).data,
             })
         return Response(result)
 
@@ -113,7 +113,7 @@ class LeadListView(APIView):
         if source:
             leads = leads.filter(source=source)
 
-        return Response(LeadSerializer(leads, many=True).data)
+        return Response(LeadListSerializer(leads, many=True).data)
 
     def post(self, request):
         serializer = LeadWriteSerializer(data=request.data)
