@@ -31,7 +31,8 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt.token_blacklist',
     'rooms',
     'clinic',
-    'inventory'
+    'inventory',
+    'therapist'
 ]
 
 MIDDLEWARE = [
