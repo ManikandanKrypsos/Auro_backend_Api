@@ -32,7 +32,7 @@ INSTALLED_APPS = [
     'rooms',
     'clinic',
     'inventory',
-    'therapist'
+    'therapist',
 ]
 
 MIDDLEWARE = [
