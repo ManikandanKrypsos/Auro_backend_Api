@@ -11,6 +11,17 @@ from leads.models import Lead
 from users.models import User
 
 
+def _calc_trend(current, previous):
+    """Calculate percentage change and trend direction."""
+    if previous == 0:
+        pct = 100.0 if current > 0 else 0.0
+        trend = 'up' if current > 0 else 'neutral'
+    else:
+        pct = round(((current - previous) / previous) * 100, 1)
+        trend = 'up' if pct > 0 else ('down' if pct < 0 else 'neutral')
+    return {'value': current, 'change_pct': abs(pct), 'trend': trend}
+
+
 def _get_greeting():
     hour = timezone.localtime().hour
     if hour < 12:
@@ -60,8 +71,15 @@ class DashboardView(APIView):
         today = timezone.localdate()
         now   = timezone.now()
 
+        # Fetch therapist fresh from DB
+        from users.models import User as UserModel
+        try:
+            therapist = UserModel.objects.get(pk=request.user.pk)
+        except Exception:
+            therapist = request.user
+
         appts = Appointment.objects.filter(
-            staff=request.user,
+            staff=therapist,
             date_time__date=today
         ).select_related('patient', 'treatment', 'room_fk').order_by('date_time')
 
@@ -127,46 +145,85 @@ class DashboardView(APIView):
 
     # ── Admin Dashboard ───────────────────────────────────────────────────────
     def _admin_dashboard(self, request):
-        today          = timezone.localdate()
-        now            = timezone.now()
-        start_of_today = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        today            = timezone.localdate()
+        now              = timezone.now()
+        yesterday        = today - datetime.timedelta(days=1)
+        start_of_today   = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        start_of_week    = now - datetime.timedelta(days=7)
+        start_of_month   = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
         start_last_month = (start_of_month - datetime.timedelta(days=1)).replace(day=1)
+        end_last_month   = start_of_month
 
         appts_today      = Appointment.objects.filter(date_time__date=today)
+        appts_yesterday  = Appointment.objects.filter(date_time__date=yesterday)
+        appts_week       = Appointment.objects.filter(date_time__gte=start_of_week)
+        appts_prev_week  = Appointment.objects.filter(
+            date_time__gte=start_of_week - datetime.timedelta(days=7),
+            date_time__lt=start_of_week
+        )
         appts_month      = Appointment.objects.filter(date_time__gte=start_of_month)
         appts_last_month = Appointment.objects.filter(
             date_time__gte=start_last_month,
-            date_time__lt=start_of_month
+            date_time__lt=end_last_month
         )
 
         def revenue(qs):
             return float(qs.filter(status='completed').aggregate(t=Sum('payment_amount'))['t'] or 0)
 
         rev_today      = revenue(appts_today)
-        rev_week       = revenue(Appointment.objects.filter(
-            date_time__gte=now - datetime.timedelta(days=7)
-        ))
+        rev_yesterday  = revenue(appts_yesterday)
+        rev_week       = revenue(appts_week)
+        rev_prev_week  = revenue(appts_prev_week)
         rev_month      = revenue(appts_month)
         rev_last_month = revenue(appts_last_month)
-        growth = round(((rev_month - rev_last_month) / rev_last_month * 100), 1) if rev_last_month > 0 else 0
 
-        total_appts   = appts_month.count()
-        cancelled     = appts_month.filter(status='cancelled').count()
-        cancel_rate   = round((cancelled / total_appts * 100), 1) if total_appts > 0 else 0
+        # Today appointments trend
+        total_today    = appts_today.count()
+        total_yesterday = appts_yesterday.count()
+
+        # Cancellation rate
+        total_month  = appts_month.count()
+        cancelled    = appts_month.filter(status='cancelled').count()
+        cancel_curr  = round((cancelled / total_month * 100), 1) if total_month > 0 else 0
+        total_lm     = appts_last_month.count()
+        cancelled_lm = appts_last_month.filter(status='cancelled').count()
+        cancel_prev  = round((cancelled_lm / total_lm * 100), 1) if total_lm > 0 else 0
 
         # Rebooking rate
-        returning = (
-            Appointment.objects.filter(date_time__gte=start_of_month)
-            .values('patient').annotate(c=Count('id')).filter(c__gt=1).count()
-        )
-        total_patients_month = (
-            Appointment.objects.filter(date_time__gte=start_of_month)
-            .values('patient').distinct().count()
-        )
-        rebooking_rate = round((returning / total_patients_month * 100), 1) if total_patients_month > 0 else 0
+        def rebooking(qs_filter):
+            ret = (
+                Appointment.objects.filter(**qs_filter)
+                .values('patient').annotate(c=Count('id')).filter(c__gt=1).count()
+            )
+            tot = (
+                Appointment.objects.filter(**qs_filter)
+                .values('patient').distinct().count()
+            )
+            return round((ret / tot * 100), 1) if tot > 0 else 0
 
-        # Best services
+        rebook_curr = rebooking({'date_time__gte': start_of_month})
+        rebook_prev = rebooking({'date_time__gte': start_last_month, 'date_time__lt': end_last_month})
+
+        # Lead sources with marketing_source_id
+        SOURCE_ID = {
+            'instagram': 1, 'web': 2, 'walk_in': 3,
+            'referral': 4, 'whatsapp': 5, 'other': 6,
+        }
+        SOURCE_LABEL = {
+            'instagram': 'Instagram', 'web': 'Website', 'walk_in': 'Walk-in',
+            'referral': 'Referral', 'whatsapp': 'WhatsApp', 'other': 'Other',
+        }
+        lead_sources = [
+            {
+                'marketing_source_id': SOURCE_ID.get(s['source'], 6),
+                'source':              s['source'],
+                'label':               SOURCE_LABEL.get(s['source'], s['source']),
+                'count':               s['count'],
+            }
+            for s in Lead.objects.values('source').annotate(count=Count('id')).order_by('-count')
+        ]
+
+        # Best services — max 3
         best_services = list(
             Appointment.objects.filter(date_time__gte=start_of_month)
             .values('treatment__id', 'treatment__name', 'treatment__duration')
@@ -174,12 +231,7 @@ class DashboardView(APIView):
                 bookings=Count('id'),
                 revenue=Sum('payment_amount', filter=Q(status='completed'))
             )
-            .order_by('-bookings')[:5]
-        )
-
-        # Lead concentration by source
-        lead_sources = list(
-            Lead.objects.values('source').annotate(count=Count('id')).order_by('-count')
+            .order_by('-bookings')[:3]
         )
 
         # Staff performance
@@ -187,13 +239,13 @@ class DashboardView(APIView):
         for s in User.objects.filter(role='therapist'):
             sa = Appointment.objects.filter(staff=s, date_time__gte=start_of_month)
             staff_perf.append({
-                'staff_id':      s.id,
-                'name':          s.username or s.email.split('@')[0],
-                'profile_image': s.profile_image or None,
+                'staff_id':        s.id,
+                'name':            s.username or s.email.split('@')[0],
+                'profile_image':   s.profile_image or None,
                 'specialist_area': s.specialist_area,
-                'total':         sa.count(),
-                'completed':     sa.filter(status='completed').count(),
-                'revenue':       float(sa.filter(status='completed').aggregate(t=Sum('payment_amount'))['t'] or 0),
+                'total':           sa.count(),
+                'completed':       sa.filter(status='completed').count(),
+                'revenue':         float(sa.filter(status='completed').aggregate(t=Sum('payment_amount'))['t'] or 0),
             })
         staff_perf.sort(key=lambda x: x['revenue'], reverse=True)
 
@@ -215,24 +267,23 @@ class DashboardView(APIView):
             'name':     request.user.username or request.user.email.split('@')[0],
             'date':     str(today),
             'revenue': {
-                'today':        rev_today,
-                'weekly':       rev_week,
-                'monthly':      rev_month,
-                'last_month':   rev_last_month,
-                'growth':       f'{growth}%',
+                'today':      _calc_trend(rev_today, rev_yesterday),
+                'weekly':     _calc_trend(rev_week, rev_prev_week),
+                'monthly':    _calc_trend(rev_month, rev_last_month),
             },
             'today': {
-                'appointments': appts_today.count(),
+                'appointments': _calc_trend(total_today, total_yesterday),
                 'checked_in':   appts_today.filter(patient_arrived=True).count(),
                 'cancelled':    appts_today.filter(status='cancelled').count(),
                 'new_patients': Patient.objects.filter(created_at__gte=start_of_today).count(),
             },
             'appointments': {
-                'this_month':        total_appts,
-                'completed':         appts_month.filter(status='completed').count(),
-                'cancelled':         cancelled,
-                'cancellation_rate': f'{cancel_rate}%',
+                'this_month': total_month,
+                'completed':  appts_month.filter(status='completed').count(),
+                'cancelled':  cancelled,
             },
+            'cancellation_rate': _calc_trend(cancel_curr, cancel_prev),
+            'rebooking_rate':    _calc_trend(rebook_curr, rebook_prev),
             'patients': {
                 'total':          Patient.objects.count(),
                 'new_this_month': Patient.objects.filter(created_at__gte=start_of_month).count(),
@@ -240,15 +291,13 @@ class DashboardView(APIView):
                 'vip':            Patient.objects.filter(category='VIP').count(),
             },
             'leads': {
-                'total':           Lead.objects.count(),
-                'active':          Lead.objects.filter(stage__in=['new_inquiries','engaged','consultation','winning']).count(),
-                'converted':       Lead.objects.filter(stage='converted').count(),
-                'valuation':       float(Lead.objects.aggregate(t=Sum('value'))['t'] or 0),
-                'by_source':       lead_sources,
+                'total':     Lead.objects.count(),
+                'active':    Lead.objects.filter(stage__in=['new_inquiries','engaged','consultation','winning']).count(),
+                'converted': Lead.objects.filter(stage='converted').count(),
+                'valuation': float(Lead.objects.aggregate(t=Sum('value'))['t'] or 0),
+                'by_marketing_source': lead_sources,
             },
-            'rebooking_rate':    f'{rebooking_rate}%',
-            'cancellation_rate': f'{cancel_rate}%',
-            'best_services':     [
+            'best_services': [
                 {
                     'treatment_id': s['treatment__id'],
                     'name':         s['treatment__name'],
