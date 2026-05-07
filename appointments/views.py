@@ -565,6 +565,16 @@ class CalendarView(APIView):
         if staff_id:
             qs = qs.filter(staff__id=staff_id)
 
+        # Optional room_id filter
+        room_id = request.query_params.get('room_id')
+        if room_id:
+            qs = qs.filter(room_fk__id=room_id)
+
+        # Optional service_id filter
+        service_id = request.query_params.get('service_id')
+        if service_id:
+            qs = qs.filter(treatment__id=service_id)
+
         date       = request.query_params.get('date')
         start_date = request.query_params.get('start_date')
         end_date   = request.query_params.get('end_date')
