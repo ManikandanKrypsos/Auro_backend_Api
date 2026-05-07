@@ -425,16 +425,20 @@ class AppointmentConsentView(APIView):
 class AvailableSlotsView(APIView):
     """
     GET /api/appointments/available-slots/
-    ?staff_id=3&service_id=7&month=2026-05&room_id=1(optional)
+    ?staff_id=20&service_id=58&month=2026-05&room_id=14(optional)
 
-    Returns full month availability with slots per day.
-    Checks: staff working hours, staff leaves, existing appointments, room availability.
+    Returns full month with effective_window and blocked_ranges per day.
+    No slots array — frontend calculates slots from effective_window minus blocked_ranges.
     """
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
         from treatments.models import Treatment
         from rooms.models import Room
+        from users.models import StaffWorkingHours, StaffLeave, StaffBreakTime
+        from clinic.models import ClinicHours, PlannedClosure
+        import calendar as cal_module
+        from django.utils import timezone as dj_tz
 
         staff_id   = request.query_params.get('staff_id')
         service_id = request.query_params.get('service_id')
@@ -444,7 +448,6 @@ class AvailableSlotsView(APIView):
         if not staff_id or not service_id or not month:
             return Response({'error': 'staff_id, service_id and month are required.'}, status=400)
 
-        # Validate month format
         try:
             year, mon = map(int, month.split('-'))
             if not (1 <= mon <= 12):
@@ -469,7 +472,172 @@ class AvailableSlotsView(APIView):
             except Room.DoesNotExist:
                 return Response({'error': 'Room not found.'}, status=404)
 
-        dates = _build_month_availability(staff, treatment, month, room)
+        today = datetime.date.today()
+        now_local = datetime.datetime.now()
+        _, days_in_month = cal_module.monthrange(year, mon)
+        DAY_MAP = {0:'Mon', 1:'Tue', 2:'Wed', 3:'Thu', 4:'Fri', 5:'Sat', 6:'Sun'}
+
+        # Clinic hours
+        clinic_hours = {}
+        for ch in ClinicHours.objects.all():
+            if ch.is_open and ch.open_time and ch.close_time:
+                clinic_hours[ch.day] = (ch.open_time, ch.close_time)
+            else:
+                clinic_hours[ch.day] = 'closed'
+
+        # Clinic holidays
+        clinic_closure_dates = set()
+        for pc in PlannedClosure.objects.all():
+            d = pc.from_date
+            while d <= pc.to_date:
+                clinic_closure_dates.add(d)
+                d += datetime.timedelta(days=1)
+
+        # Staff working hours
+        staff_working_hours = {
+            wh.day: (wh.start_time, wh.end_time)
+            for wh in StaffWorkingHours.objects.filter(staff=staff)
+        }
+
+        # Staff leaves
+        staff_leave_dates = set()
+        for leave in StaffLeave.objects.filter(staff=staff):
+            d = leave.from_date
+            while d <= leave.to_date:
+                staff_leave_dates.add(d)
+                d += datetime.timedelta(days=1)
+
+        # Staff breaks
+        staff_breaks = list(StaffBreakTime.objects.filter(staff=staff))
+
+        # Booked appointments for staff this month
+        staff_appts = Appointment.objects.filter(
+            staff=staff,
+            date_time__year=year,
+            date_time__month=mon,
+            status='upcoming'
+        ).select_related('patient', 'treatment')
+
+        # Booked appointments for room this month
+        room_appts = []
+        if room:
+            room_appts = list(Appointment.objects.filter(
+                room_fk=room,
+                date_time__year=year,
+                date_time__month=mon,
+                status='upcoming'
+            ).select_related('patient', 'treatment'))
+
+        def to_local_naive(dt):
+            if dt.tzinfo:
+                try:
+                    return dj_tz.localtime(dt).replace(tzinfo=None)
+                except Exception:
+                    return dt.replace(tzinfo=None)
+            return dt
+
+        def fmt_time(t):
+            return t.strftime('%H:%M') if hasattr(t, 'strftime') else str(t)[:5]
+
+        dates = []
+        for day_num in range(1, days_in_month + 1):
+            date     = datetime.date(year, mon, day_num)
+            day_abbr = DAY_MAP[date.weekday()]
+
+            def closed_day():
+                dates.append({
+                    'date':             str(date),
+                    'is_working_day':   False,
+                    'effective_window': None,
+                    'blocked_ranges':   [],
+                })
+
+            # Past dates
+            if date < today:
+                closed_day(); continue
+
+            # Clinic closed
+            clinic_val = clinic_hours.get(day_abbr)
+            if clinic_val == 'closed':
+                closed_day(); continue
+
+            # Holiday
+            if date in clinic_closure_dates:
+                closed_day(); continue
+
+            # Staff not working
+            if day_abbr not in staff_working_hours:
+                closed_day(); continue
+
+            # Staff on leave
+            if date in staff_leave_dates:
+                closed_day(); continue
+
+            # Effective window = tighter of clinic + staff hours
+            staff_open, staff_close = staff_working_hours[day_abbr]
+            if clinic_val and clinic_val != 'closed':
+                clinic_open, clinic_close = clinic_val
+                eff_open  = max(clinic_open,  staff_open)
+                eff_close = min(clinic_close, staff_close)
+            else:
+                eff_open  = staff_open
+                eff_close = staff_close
+
+            blocked = []
+
+            # Break times
+            for bt in staff_breaks:
+                blocked.append({
+                    'start': fmt_time(bt.start_time),
+                    'end':   fmt_time(bt.end_time),
+                    'type':  'break',
+                    'label': bt.label if bt.label else 'Staff Break',
+                })
+
+            # Booked staff appointments
+            for a in staff_appts:
+                appt_dt = to_local_naive(a.date_time)
+                if appt_dt.date() != date:
+                    continue
+                appt_end = appt_dt + datetime.timedelta(minutes=a.duration or treatment.duration)
+                patient_name = a.patient.name if a.patient else 'Patient'
+                treatment_name = a.treatment.name if a.treatment else 'Appointment'
+                blocked.append({
+                    'start':          appt_dt.strftime('%H:%M'),
+                    'end':            appt_end.strftime('%H:%M'),
+                    'type':           'booked',
+                    'label':          f"{patient_name} — {treatment_name}",
+                    'appointment_id': a.id,
+                })
+
+            # Room booked appointments
+            for a in room_appts:
+                appt_dt = to_local_naive(a.date_time)
+                if appt_dt.date() != date:
+                    continue
+                appt_end = appt_dt + datetime.timedelta(minutes=a.duration or treatment.duration)
+                # Skip if already in staff blocked (same appointment)
+                if any(b.get('appointment_id') == a.id for b in blocked):
+                    continue
+                blocked.append({
+                    'start': appt_dt.strftime('%H:%M'),
+                    'end':   appt_end.strftime('%H:%M'),
+                    'type':  'room_unavailable',
+                    'label': 'Room Occupied',
+                })
+
+            # Sort blocked by start time
+            blocked.sort(key=lambda x: x['start'])
+
+            dates.append({
+                'date':           str(date),
+                'is_working_day': True,
+                'effective_window': {
+                    'start': fmt_time(eff_open),
+                    'end':   fmt_time(eff_close),
+                },
+                'blocked_ranges': blocked,
+            })
 
         return Response({
             'month':                    month,
