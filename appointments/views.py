@@ -560,6 +560,11 @@ class CalendarView(APIView):
         if hasattr(request.user, 'role') and request.user.role == 'therapist':
             qs = qs.filter(staff=request.user)
 
+        # Optional staff_id filter
+        staff_id = request.query_params.get('staff_id')
+        if staff_id:
+            qs = qs.filter(staff__id=staff_id)
+
         date       = request.query_params.get('date')
         start_date = request.query_params.get('start_date')
         end_date   = request.query_params.get('end_date')
