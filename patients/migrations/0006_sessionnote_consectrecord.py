@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('patients', '0005_auto_previous'),  # replace with your actual 0005 filename
+        ('patients', '0005_patient_patient_id'),
         ('appointments', '0004_update_payment_type'),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
