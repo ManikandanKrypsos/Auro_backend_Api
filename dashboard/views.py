@@ -213,14 +213,40 @@ class DashboardView(APIView):
             'instagram': 'Instagram', 'web': 'Website', 'walk_in': 'Walk-in',
             'referral': 'Referral', 'whatsapp': 'WhatsApp', 'other': 'Other',
         }
+        # Lead counts by source (string values)
+        lead_counts = {
+            s['source']: s['count']
+            for s in Lead.objects.values('source').annotate(count=Count('id'))
+        }
+        # Map lead source string to ID
+        LEAD_SOURCE_TO_ID = {
+            'instagram': 1, 'web': 2, 'walk_in': 3,
+            'referral': 4, 'whatsapp': 5, 'other': 6,
+        }
+        lead_by_id = {}
+        for source, cnt in lead_counts.items():
+            sid = LEAD_SOURCE_TO_ID.get(source, 6)
+            lead_by_id[sid] = lead_by_id.get(sid, 0) + cnt
+
+        # Patient counts by marketing_source (integer ID)
+        patient_counts = {
+            p['marketing_source']: p['count']
+            for p in Patient.objects.filter(
+                marketing_source__isnull=False
+            ).values('marketing_source').annotate(count=Count('id'))
+        }
+
+        # Combine both
         lead_sources = [
             {
-                'marketing_source_id': SOURCE_ID.get(s['source'], 6),
-                'source':              s['source'],
-                'label':               SOURCE_LABEL.get(s['source'], s['source']),
-                'count':               s['count'],
+                'marketing_source_id': mid,
+                'source':              src,
+                'label':               SOURCE_LABEL[src],
+                'lead_count':          lead_by_id.get(mid, 0),
+                'patient_count':       patient_counts.get(mid, 0),
+                'total':               lead_by_id.get(mid, 0) + patient_counts.get(mid, 0),
             }
-            for s in Lead.objects.values('source').annotate(count=Count('id')).order_by('-count')
+            for src, mid in SOURCE_ID.items()
         ]
 
         # Best services — max 3
