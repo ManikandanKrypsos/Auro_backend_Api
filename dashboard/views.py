@@ -93,11 +93,10 @@ class DashboardView(APIView):
             status='upcoming'
         ).order_by('-date_time').first()
 
-        # Next up — future upcoming appointments
+        # Next up — all today's upcoming appointments for this therapist
         next_up = appts.filter(
-            date_time__gt=now,
             status='upcoming'
-        ).order_by('date_time')[:5]
+        ).order_by('date_time')
 
         return Response({
             'role':     'therapist',
@@ -127,7 +126,7 @@ class DashboardView(APIView):
             date_time__date=today,
             date_time__gte=now,
             status='upcoming'
-        ).select_related('patient', 'staff', 'treatment', 'room_fk').order_by('date_time')[:5]
+        ).select_related('patient', 'staff', 'treatment', 'room_fk').order_by('date_time')
 
         return Response({
             'role':     'reception',
