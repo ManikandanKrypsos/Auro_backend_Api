@@ -12,40 +12,40 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.CreateModel(
-            name='SessionNote',
-            fields=[
-                ('id',                     models.BigAutoField(auto_created=True, primary_key=True, serialize=False)),
-                ('treatment_name',         models.CharField(blank=True, max_length=150)),
-                ('skin_observation',       models.TextField(blank=True)),
-                ('advice_given',           models.TextField(blank=True)),
-                ('products_used',          models.JSONField(blank=True, default=list)),
-                ('recommended_to_patient', models.JSONField(blank=True, default=list)),
-                ('next_treatment',         models.CharField(blank=True, max_length=255)),
-                ('before_photo',           models.TextField(blank=True)),
-                ('after_photo',            models.TextField(blank=True)),
-                ('created_at',             models.DateTimeField(auto_now_add=True)),
-                ('updated_at',             models.DateTimeField(auto_now=True)),
-                ('patient',     models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='session_notes', to='patients.patient')),
-                ('therapist',   models.ForeignKey(null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='session_notes', to=settings.AUTH_USER_MODEL)),
-                ('appointment', models.OneToOneField(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='session_note', to='appointments.appointment')),
-            ],
-            options={'ordering': ['-created_at']},
-        ),
-        migrations.CreateModel(
-            name='ConsentRecord',
-            fields=[
-                ('id',               models.BigAutoField(auto_created=True, primary_key=True, serialize=False)),
-                ('title',            models.CharField(max_length=150)),
-                ('file_name',        models.CharField(blank=True, max_length=255)),
-                ('file_url',         models.TextField(blank=True)),
-                ('status',           models.CharField(choices=[('signed', 'Signed'), ('pending', 'Pending')], default='pending', max_length=10)),
-                ('patient_signed',   models.BooleanField(default=False)),
-                ('therapist_signed', models.BooleanField(default=False)),
-                ('signed_date',      models.DateField(blank=True, null=True)),
-                ('created_at',       models.DateTimeField(auto_now_add=True)),
-                ('patient', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='consent_records', to='patients.patient')),
-            ],
-            options={'ordering': ['-created_at']},
+        migrations.RunSQL(
+            sql="""
+                CREATE TABLE IF NOT EXISTS patients_sessionnote (
+                    id BIGSERIAL PRIMARY KEY,
+                    treatment_name VARCHAR(150) NOT NULL DEFAULT '',
+                    skin_observation TEXT NOT NULL DEFAULT '',
+                    advice_given TEXT NOT NULL DEFAULT '',
+                    products_used JSONB NOT NULL DEFAULT '[]',
+                    recommended_to_patient JSONB NOT NULL DEFAULT '[]',
+                    next_treatment VARCHAR(255) NOT NULL DEFAULT '',
+                    before_photo TEXT NOT NULL DEFAULT '',
+                    after_photo TEXT NOT NULL DEFAULT '',
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    patient_id BIGINT NOT NULL REFERENCES patients_patient(id) ON DELETE CASCADE,
+                    therapist_id BIGINT REFERENCES users_user(id) ON DELETE SET NULL,
+                    appointment_id BIGINT UNIQUE REFERENCES appointments_appointment(id) ON DELETE SET NULL
+                );
+                CREATE TABLE IF NOT EXISTS patients_consentrecord (
+                    id BIGSERIAL PRIMARY KEY,
+                    title VARCHAR(150) NOT NULL,
+                    file_name VARCHAR(255) NOT NULL DEFAULT '',
+                    file_url TEXT NOT NULL DEFAULT '',
+                    status VARCHAR(10) NOT NULL DEFAULT 'pending',
+                    patient_signed BOOLEAN NOT NULL DEFAULT FALSE,
+                    therapist_signed BOOLEAN NOT NULL DEFAULT FALSE,
+                    signed_date DATE,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    patient_id BIGINT NOT NULL REFERENCES patients_patient(id) ON DELETE CASCADE
+                );
+            """,
+            reverse_sql="""
+                DROP TABLE IF EXISTS patients_consentrecord;
+                DROP TABLE IF EXISTS patients_sessionnote;
+            """,
         ),
     ]
