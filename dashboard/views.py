@@ -124,7 +124,6 @@ class DashboardView(APIView):
 
         next_up = Appointment.objects.filter(
             date_time__date=today,
-            date_time__gte=now,
             status='upcoming'
         ).select_related('patient', 'staff', 'treatment', 'room_fk').order_by('date_time')
 
