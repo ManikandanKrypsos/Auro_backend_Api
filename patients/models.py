@@ -1,4 +1,5 @@
 from django.db import models
+from django.conf import settings
 
 MARKETING_SOURCE_CHOICES = (
     (1, 'Instagram'),
@@ -35,7 +36,7 @@ class Patient(models.Model):
         ('O+', 'O+'), ('O-', 'O-'),
     )
 
-    # 👈 Custom patient ID
+    # Custom patient ID
     patient_id        = models.CharField(max_length=20, unique=True, blank=True)
 
     # Basic info
@@ -69,9 +70,8 @@ class Patient(models.Model):
     created_at        = models.DateTimeField(auto_now_add=True)
 
     def save(self, *args, **kwargs):
-        # Auto-generate patient_id like Aura1, Aura2...
         if not self.patient_id:
-            super().save(*args, **kwargs)  # save first to get auto id
+            super().save(*args, **kwargs)
             self.patient_id = f'Aura{self.id}'
             Patient.objects.filter(id=self.id).update(patient_id=self.patient_id)
         else:
@@ -79,4 +79,62 @@ class Patient(models.Model):
 
     def __str__(self):
         return f'{self.patient_id} — {self.name}'
-        
+
+
+# ── Session Notes ─────────────────────────────────────────────────────────────
+
+class SessionNote(models.Model):
+    patient                = models.ForeignKey(Patient, on_delete=models.CASCADE, related_name='session_notes')
+    appointment            = models.OneToOneField(
+                                'appointments.Appointment',
+                                on_delete=models.SET_NULL,
+                                null=True, blank=True,
+                                related_name='session_note'
+                             )
+    therapist              = models.ForeignKey(
+                                settings.AUTH_USER_MODEL,
+                                on_delete=models.SET_NULL,
+                                null=True,
+                                related_name='session_notes'
+                             )
+    treatment_name         = models.CharField(max_length=150, blank=True)
+    skin_observation       = models.TextField(blank=True)
+    advice_given           = models.TextField(blank=True)
+    products_used          = models.JSONField(default=list, blank=True)
+    recommended_to_patient = models.JSONField(default=list, blank=True)
+    next_treatment         = models.CharField(max_length=255, blank=True)
+    before_photo           = models.TextField(blank=True)
+    after_photo            = models.TextField(blank=True)
+    created_at             = models.DateTimeField(auto_now_add=True)
+    updated_at             = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.patient.name} — {self.treatment_name}"
+
+
+# ── Consent Records ───────────────────────────────────────────────────────────
+
+class ConsentRecord(models.Model):
+    STATUS_CHOICES = (
+        ('signed',  'Signed'),
+        ('pending', 'Pending'),
+    )
+
+    patient           = models.ForeignKey(Patient, on_delete=models.CASCADE, related_name='consent_records')
+    title             = models.CharField(max_length=150)
+    file_name         = models.CharField(max_length=255, blank=True)
+    file_url          = models.TextField(blank=True)
+    status            = models.CharField(max_length=10, choices=STATUS_CHOICES, default='pending')
+    patient_signed    = models.BooleanField(default=False)
+    therapist_signed  = models.BooleanField(default=False)
+    signed_date       = models.DateField(null=True, blank=True)
+    created_at        = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.patient.name} — {self.title} ({self.status})"
