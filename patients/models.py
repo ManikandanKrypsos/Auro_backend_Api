@@ -43,7 +43,7 @@ class Patient(models.Model):
     name              = models.CharField(max_length=100)
     phone             = models.CharField(max_length=15)
     email             = models.EmailField(blank=True, null=True)
-    image             = models.URLField(blank=True)
+    image             = models.TextField(blank=True)  # stores URL or uploaded file path
 
     # Address
     city              = models.CharField(max_length=100, blank=True)
