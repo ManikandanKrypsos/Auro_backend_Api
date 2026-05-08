@@ -85,6 +85,47 @@ class PatientViewSet(viewsets.ModelViewSet):
             return [IsAdminOrReception()]
         return [IsAuthenticated()]
 
+    def _handle_image_upload(self, request, patient):
+        """Save uploaded image file and update patient.image field."""
+        image_file = request.FILES.get('image')
+        if image_file:
+            import os
+            from django.conf import settings
+            upload_dir = os.path.join(settings.MEDIA_ROOT, 'patients')
+            os.makedirs(upload_dir, exist_ok=True)
+            ext      = os.path.splitext(image_file.name)[1].lower()
+            filename = f"patient_{patient.id}{ext}"
+            filepath = os.path.join(upload_dir, filename)
+            with open(filepath, 'wb+') as f:
+                for chunk in image_file.chunks():
+                    f.write(chunk)
+            base_url = request.build_absolute_uri('/')
+            patient.image = f"{base_url.rstrip('/')}{settings.MEDIA_URL}patients/{filename}"
+            patient.save()
+
+    def create(self, request, *args, **kwargs):
+        response = super().create(request, *args, **kwargs)
+        # After create, handle image upload if provided
+        if request.FILES.get('image'):
+            try:
+                patient = Patient.objects.get(patient_id=response.data.get('id'))
+                self._handle_image_upload(request, patient)
+                response.data['image'] = patient.image
+            except Exception:
+                pass
+        return response
+
+    def partial_update(self, request, *args, **kwargs):
+        response = super().partial_update(request, *args, **kwargs)
+        if request.FILES.get('image'):
+            try:
+                patient = self.get_object()
+                self._handle_image_upload(request, patient)
+                response.data['image'] = patient.image
+            except Exception:
+                pass
+        return response
+
     def destroy(self, request, *args, **kwargs):
         patient = self.get_object()
         patient_id   = patient.patient_id
