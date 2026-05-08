@@ -166,12 +166,71 @@ class MeView(APIView):
         user = request.user
         if not user.is_authenticated:
             return Response({'error': 'Not authenticated'}, status=401)
+        from users.models import User as UserModel
+        try:
+            u = UserModel.objects.get(pk=user.pk)
+        except Exception:
+            u = user
         return Response({
-            'id':       user.id,
-            'username': user.username,
-            'email':    user.email,
-            'role':     user.role,
-            'role_id':  ROLE_ID_MAP.get(user.role, 1),
+            'id':                  u.id,
+            'username':            u.username,
+            'email':               u.email,
+            'role':                u.role,
+            'role_id':             ROLE_ID_MAP.get(u.role, 1),
+            'profile_image':       u.profile_image or None,
+            'phone':               u.phone if hasattr(u, 'phone') else None,
+            'specialist_area':     u.specialist_area if hasattr(u, 'specialist_area') else None,
+            'years_of_experience': u.years_of_experience if hasattr(u, 'years_of_experience') else None,
+            'joining_date':        str(u.joining_date) if hasattr(u, 'joining_date') and u.joining_date else None,
+        })
+
+    def patch(self, request):
+        """
+        PATCH /api/users/me/
+        Update own profile. Send as multipart/form-data for image upload.
+        Fields: profile_image (file), username, phone, specialist_area,
+                years_of_experience, joining_date
+        """
+        from users.models import User as UserModel
+        try:
+            user = UserModel.objects.get(pk=request.user.pk)
+        except UserModel.DoesNotExist:
+            return Response({'error': 'User not found.'}, status=404)
+
+        # Handle image file upload
+        image_file = request.FILES.get('profile_image')
+        if image_file:
+            import os
+            from django.conf import settings
+            upload_dir = os.path.join(settings.MEDIA_ROOT, 'staff')
+            os.makedirs(upload_dir, exist_ok=True)
+            ext      = os.path.splitext(image_file.name)[1].lower()
+            filename = f"staff_{user.id}{ext}"
+            filepath = os.path.join(upload_dir, filename)
+            with open(filepath, 'wb+') as f:
+                for chunk in image_file.chunks():
+                    f.write(chunk)
+            base_url = request.build_absolute_uri('/')
+            user.profile_image = f"{base_url.rstrip('/')}{settings.MEDIA_URL}staff/{filename}"
+
+        # Update other fields
+        for field in ['username', 'phone', 'specialist_area', 'years_of_experience', 'joining_date']:
+            if field in request.data:
+                setattr(user, field, request.data[field])
+
+        user.save()
+
+        return Response({
+            'id':                  user.id,
+            'username':            user.username,
+            'email':               user.email,
+            'role':                user.role,
+            'role_id':             ROLE_ID_MAP.get(user.role, 1),
+            'profile_image':       user.profile_image or None,
+            'phone':               user.phone if hasattr(user, 'phone') else None,
+            'specialist_area':     user.specialist_area if hasattr(user, 'specialist_area') else None,
+            'years_of_experience': user.years_of_experience if hasattr(user, 'years_of_experience') else None,
+            'joining_date':        str(user.joining_date) if hasattr(user, 'joining_date') and user.joining_date else None,
         })
 
 
