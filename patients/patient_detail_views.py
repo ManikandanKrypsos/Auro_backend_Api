@@ -281,6 +281,7 @@ class PatientNotesView(APIView):
             except Appointment.DoesNotExist:
                 return Response({'error': 'Appointment not found for this patient.'}, status=404)
 
+        from utils.image_upload import get_image_value
         note = SessionNote.objects.create(
             patient=patient,
             appointment=appt,
@@ -291,8 +292,8 @@ class PatientNotesView(APIView):
             products_used=request.data.get('products_used', []),
             recommended_to_patient=request.data.get('recommended_to_patient', []),
             next_treatment=request.data.get('next_treatment', ''),
-            before_photo=request.data.get('before_photo', ''),
-            after_photo=request.data.get('after_photo', ''),
+            before_photo=get_image_value(request, 'before_photo', folder='session_photos', prefix='before'),
+            after_photo=get_image_value(request, 'after_photo', folder='session_photos', prefix='after'),
         )
 
         return Response({
@@ -334,10 +335,17 @@ class PatientNoteDetailView(APIView):
         if not note:
             return Response({'error': 'Note not found.'}, status=404)
 
+        from utils.image_upload import get_image_value
         for field in ['skin_observation', 'advice_given', 'products_used',
-                      'recommended_to_patient', 'next_treatment', 'before_photo', 'after_photo']:
+                      'recommended_to_patient', 'next_treatment']:
             if field in request.data:
                 setattr(note, field, request.data[field])
+
+        if 'before_photo' in request.data or 'before_photo' in request.FILES:
+            note.before_photo = get_image_value(request, 'before_photo', folder='session_photos', prefix='before')
+        if 'after_photo' in request.data or 'after_photo' in request.FILES:
+            note.after_photo = get_image_value(request, 'after_photo', folder='session_photos', prefix='after')
+
         note.save()
         return Response({'message': 'Note updated.', 'id': note.id})
 

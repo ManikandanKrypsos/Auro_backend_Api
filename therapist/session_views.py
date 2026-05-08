@@ -193,6 +193,11 @@ class SessionCompleteView(APIView):
         if appt.status == 'completed':
             return Response({'error': 'Session already completed.'}, status=400)
 
+        # Handle image uploads (supports both file upload and URL)
+        from utils.image_upload import get_image_value
+        before_photo = get_image_value(request, 'before_photo', folder='session_photos', prefix='before')
+        after_photo  = get_image_value(request, 'after_photo',  folder='session_photos', prefix='after')
+
         # Save or update session note
         note_data = {
             'patient':                appt.patient,
@@ -204,8 +209,8 @@ class SessionCompleteView(APIView):
             'products_used':          request.data.get('products_used', []),
             'recommended_to_patient': request.data.get('recommended_to_patient', []),
             'next_treatment':         request.data.get('next_treatment', ''),
-            'before_photo':           request.data.get('before_photo', ''),
-            'after_photo':            request.data.get('after_photo', ''),
+            'before_photo':           before_photo,
+            'after_photo':            after_photo,
         }
 
         try:
@@ -270,11 +275,19 @@ class SessionNoteUpdateView(APIView):
                 treatment_name=appt.treatment.name if appt.treatment else '',
             )
 
+        from utils.image_upload import get_image_value
         fields = ['skin_observation', 'advice_given', 'products_used',
-                  'recommended_to_patient', 'next_treatment', 'before_photo', 'after_photo']
+                  'recommended_to_patient', 'next_treatment']
         for field in fields:
             if field in request.data:
                 setattr(note, field, request.data[field])
+
+        # Handle photo uploads
+        if 'before_photo' in request.data or 'before_photo' in request.FILES:
+            note.before_photo = get_image_value(request, 'before_photo', folder='session_photos', prefix='before')
+        if 'after_photo' in request.data or 'after_photo' in request.FILES:
+            note.after_photo = get_image_value(request, 'after_photo', folder='session_photos', prefix='after')
+
         note.save()
 
         return Response({
