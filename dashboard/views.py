@@ -87,11 +87,11 @@ class DashboardView(APIView):
         completed    = appts.filter(status='completed').count()
         pending      = appts.filter(status='upcoming').count()
 
-        # Current session — upcoming appointment happening now
+        # Current session — therapist clicked "Start Session" → patient_arrived=True, still upcoming
         current = appts.filter(
-            date_time__lte=now,
+            patient_arrived=True,
             status='upcoming'
-        ).order_by('-date_time').first()
+        ).order_by('date_time').first()
 
         # Next up — all today's upcoming appointments for this therapist
         next_up = appts.filter(
