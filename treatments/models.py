@@ -15,32 +15,29 @@ class Treatment(models.Model):
         ('months', 'Months'),
     ]
 
-    # ── Basic Info ────────────────────────────────────────────────
+    # Basic Info
     name        = models.CharField(max_length=100)
     category    = models.CharField(max_length=10, choices=CATEGORY_CHOICES, default='face')
     description = models.TextField(blank=True)
     duration    = models.PositiveIntegerField(help_text="Duration in minutes")
-    price       = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)  # legacy — use price_plans instead
-    image_url   = models.URLField(max_length=500, blank=True)
+    price       = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    image_url   = models.TextField(blank=True)  # stores URL or uploaded file path
 
-    # ── Price Plans ───────────────────────────────────────────────
-    # Stored as related PricePlan objects below
-
-    # ── Treatment Protocol ────────────────────────────────────────
+    # Treatment Protocol
     pre_care_instructions  = models.TextField(blank=True)
     post_care_instructions = models.TextField(blank=True)
     contraindications      = models.JSONField(default=list, blank=True)
 
-    # ── Resources ─────────────────────────────────────────────────
-    rooms       = models.ManyToManyField(Room, blank=True, related_name='treatments')
+    # Resources
+    rooms = models.ManyToManyField(Room, blank=True, related_name='treatments')
 
-    # ── Staff Assignment ──────────────────────────────────────────
-    staff       = models.ManyToManyField(
+    # Staff Assignment
+    staff = models.ManyToManyField(
         User, blank=True, related_name='treatments',
         limit_choices_to={'role__in': ['therapist', 'reception']}
     )
 
-    # ── Advanced Settings ─────────────────────────────────────────
+    # Advanced Settings
     recommended_frequency_value = models.PositiveIntegerField(null=True, blank=True)
     recommended_frequency_unit  = models.CharField(
         max_length=10, choices=FREQUENCY_UNIT_CHOICES, blank=True

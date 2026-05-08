@@ -24,10 +24,10 @@ class PricePlanSerializer(serializers.ModelSerializer):
 
 
 class TreatmentSerializer(serializers.ModelSerializer):
-    price_plans     = PricePlanSerializer(many=True, read_only=True)
-    staffs                = serializers.SerializerMethodField()
-    category_id           = serializers.SerializerMethodField()
-    rooms_detail          = serializers.SerializerMethodField()
+    price_plans                   = PricePlanSerializer(many=True, read_only=True)
+    staffs                        = serializers.SerializerMethodField()
+    category_id                   = serializers.SerializerMethodField()
+    rooms_detail                  = serializers.SerializerMethodField()
     recommended_frequency_unit_id = serializers.SerializerMethodField()
 
     class Meta:
@@ -46,9 +46,6 @@ class TreatmentSerializer(serializers.ModelSerializer):
             'created_at', 'updated_at',
         ]
 
-    def get_staff_ids(self, obj):
-        return list(obj.staff.values_list('id', flat=True))
-
     def get_category_id(self, obj):
         return CATEGORY_ID_MAP.get(obj.category)
 
@@ -58,10 +55,10 @@ class TreatmentSerializer(serializers.ModelSerializer):
     def get_staffs(self, obj):
         return [
             {
-                'staff_id':   s.id,
-                'staff_name': s.username or s.email.split('@')[0],
-                'staff_role': s.role,
-                'staff_email': s.email,
+                'staff_id':      s.id,
+                'staff_name':    s.username or s.email.split('@')[0],
+                'staff_role':    s.role,
+                'staff_email':   s.email,
                 'profile_image': s.profile_image or None,
             }
             for s in obj.staff.all()
@@ -70,9 +67,9 @@ class TreatmentSerializer(serializers.ModelSerializer):
     def get_rooms_detail(self, obj):
         return [
             {
-                'room_id':    r.id,
-                'room_name':  r.name,
-                'room_type':  r.room_type,
+                'room_id':         r.id,
+                'room_name':       r.name,
+                'room_type':       r.room_type,
                 'room_type_label': dict(Room.ROOM_TYPE_CHOICES).get(r.room_type, r.room_type),
             }
             for r in obj.rooms.all()
@@ -80,17 +77,36 @@ class TreatmentSerializer(serializers.ModelSerializer):
 
 
 class TreatmentWriteSerializer(serializers.Serializer):
+    """
+    POST / PATCH body (JSON or multipart/form-data for image upload):
+    {
+        "name":                          "Detox / Glow",
+        "category_id":                   1,
+        "description":                   "...",
+        "duration":                      60,
+        "image_url":                     "https://...",   // optional, ignored if image file sent
+        "price_plans":                   [{"sessions": 1, "price": 100}],
+        "pre_care_instructions":         "...",
+        "post_care_instructions":        "...",
+        "contraindications":             ["Pregnancy"],
+        "room_ids":                      [1],
+        "staff_ids":                     [8],
+        "recommended_frequency_value":   1,
+        "recommended_frequency_unit_id": 2
+    }
+    For image upload from gallery, send as multipart/form-data with key: image (File)
+    """
     name                          = serializers.CharField(max_length=100, required=False)
     category_id                   = serializers.IntegerField(required=False)
     description                   = serializers.CharField(required=False, allow_blank=True)
     duration                      = serializers.IntegerField(min_value=1, required=False)
-    image_url                     = serializers.URLField(required=False, allow_blank=True)
+    image_url                     = serializers.CharField(required=False, allow_blank=True)
     price_plans                   = PricePlanSerializer(many=True, required=False)
     pre_care_instructions         = serializers.CharField(required=False, allow_blank=True)
     post_care_instructions        = serializers.CharField(required=False, allow_blank=True)
     contraindications             = serializers.ListField(child=serializers.CharField(), required=False)
     room_ids                      = serializers.ListField(child=serializers.IntegerField(), required=False)
-    room_id                       = serializers.IntegerField(required=False, allow_null=True)  # singular alias
+    room_id                       = serializers.IntegerField(required=False, allow_null=True)
     staff_ids                     = serializers.ListField(child=serializers.IntegerField(), required=False)
     recommended_frequency_value   = serializers.IntegerField(required=False, allow_null=True)
     recommended_frequency_unit_id = serializers.IntegerField(required=False, allow_null=True)
@@ -113,7 +129,9 @@ class TreatmentWriteSerializer(serializers.Serializer):
 
     def validate_recommended_frequency_unit_id(self, value):
         if value is not None and value not in FREQUENCY_UNIT_MAP:
-            raise serializers.ValidationError("Invalid recommended_frequency_unit_id. Use 1=Days, 2=Weeks, 3=Months.")
+            raise serializers.ValidationError(
+                "Invalid recommended_frequency_unit_id. Use 1=Days, 2=Weeks, 3=Months."
+            )
         return value
 
     def validate_staff_ids(self, value):
@@ -132,7 +150,6 @@ class TreatmentWriteSerializer(serializers.Serializer):
 
         if category_id is not None:
             validated_data['category'] = CATEGORY_MAP[category_id]
-        # Support singular room_id as alias for room_ids
         if room_id is not None and room_ids is None:
             room_ids = [room_id]
         if freq_unit_id is not None:

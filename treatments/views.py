@@ -3,12 +3,30 @@ from rest_framework.response import Response
 from users.permissions import IsAdmin, IsAdminOrReadOnly
 from .models import Treatment, PricePlan
 from .serializers import TreatmentSerializer, TreatmentWriteSerializer, PricePlanSerializer
+import os
+from django.conf import settings
+import time
+
+
+def _save_treatment_image(image_file, request):
+    """Save uploaded image file and return URL."""
+    upload_dir = os.path.join(settings.MEDIA_ROOT, 'treatments')
+    os.makedirs(upload_dir, exist_ok=True)
+    ext      = os.path.splitext(image_file.name)[1].lower() or '.jpg'
+    filename = f"treatment_{int(time.time())}{ext}"
+    filepath = os.path.join(upload_dir, filename)
+    with open(filepath, 'wb+') as f:
+        for chunk in image_file.chunks():
+            f.write(chunk)
+    base_url = request.build_absolute_uri('/')
+    return f"{base_url.rstrip('/')}{settings.MEDIA_URL}treatments/{filename}"
 
 
 class TreatmentListView(APIView):
     """
     GET  /api/treatments/         — list all treatments (?search= ?category=face|body)
     POST /api/treatments/         — create treatment
+                                    Send as multipart/form-data to upload image from gallery
     """
     def get_permissions(self):
         return [IsAdmin()] if self.request.method == 'POST' else [IsAdminOrReadOnly()]
@@ -27,6 +45,11 @@ class TreatmentListView(APIView):
         serializer = TreatmentWriteSerializer(data=request.data)
         if serializer.is_valid():
             treatment = serializer.save()
+            # Handle image upload from gallery
+            image_file = request.FILES.get('image')
+            if image_file:
+                treatment.image_url = _save_treatment_image(image_file, request)
+                treatment.save()
             return Response(TreatmentSerializer(treatment).data, status=201)
         return Response(serializer.errors, status=400)
 
@@ -58,7 +81,13 @@ class TreatmentDetailView(APIView):
             return Response({'error': 'Treatment not found.'}, status=404)
         serializer = TreatmentWriteSerializer(t, data=request.data, partial=True)
         if serializer.is_valid():
-            return Response(TreatmentSerializer(serializer.save()).data)
+            treatment = serializer.save()
+            # Handle image upload from gallery
+            image_file = request.FILES.get('image')
+            if image_file:
+                treatment.image_url = _save_treatment_image(image_file, request)
+                treatment.save()
+            return Response(TreatmentSerializer(treatment).data)
         return Response(serializer.errors, status=400)
 
     def patch(self, request, pk):
@@ -79,8 +108,8 @@ class TreatmentDetailView(APIView):
 
 class PricePlanListView(APIView):
     """
-    GET  /api/treatments/<id>/price-plans/    — list price plans
-    POST /api/treatments/<id>/price-plans/    — add a price plan
+    GET  /api/treatments/<id>/price-plans/
+    POST /api/treatments/<id>/price-plans/
     Body: { "sessions": 5, "price": 450 }
     """
     permission_classes = [IsAdmin]
@@ -110,8 +139,8 @@ class PricePlanListView(APIView):
 
 class PricePlanDetailView(APIView):
     """
-    PATCH  /api/treatments/<id>/price-plans/<plan_id>/  — edit plan
-    DELETE /api/treatments/<id>/price-plans/<plan_id>/  — delete plan
+    PATCH  /api/treatments/<id>/price-plans/<plan_id>/
+    DELETE /api/treatments/<id>/price-plans/<plan_id>/
     """
     permission_classes = [IsAdmin]
 
@@ -146,20 +175,10 @@ class PricePlanDetailView(APIView):
 
 class ContraindicationView(APIView):
     """
-    GET  /api/treatments/<id>/contraindications/
-         Returns the list of contraindications for a treatment.
-
-    POST /api/treatments/<id>/contraindications/
-         Add one or more contraindications.
-         Body: { "items": ["Pregnancy", "Active acne"] }
-
-    DELETE /api/treatments/<id>/contraindications/
-         Remove a specific contraindication.
-         Body: { "item": "Pregnancy" }
-
-    PUT /api/treatments/<id>/contraindications/
-        Replace entire contraindications list.
-        Body: { "items": ["Pregnancy", "Rosacea"] }
+    GET    /api/treatments/<id>/contraindications/
+    POST   /api/treatments/<id>/contraindications/   Body: { "items": ["Pregnancy"] }
+    PUT    /api/treatments/<id>/contraindications/   Body: { "items": ["Pregnancy"] }
+    DELETE /api/treatments/<id>/contraindications/   Body: { "item": "Pregnancy" }
     """
     permission_classes = [IsAdmin]
 
@@ -183,7 +202,6 @@ class ContraindicationView(APIView):
         if not isinstance(items, list) or not items:
             return Response({'error': 'Provide items as a non-empty list.'}, status=400)
         existing = t.contraindications or []
-        # Add only new ones
         for item in items:
             if item not in existing:
                 existing.append(item)
