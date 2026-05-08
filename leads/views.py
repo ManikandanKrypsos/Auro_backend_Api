@@ -130,8 +130,6 @@ class LeadDetailView(APIView):
     DELETE /api/leads/<id>/
     """
     def get_permissions(self):
-        if self.request.method == 'DELETE':
-            return [IsAdmin()]
         return [IsAdminOrReception()]
 
     def _get(self, pk):
