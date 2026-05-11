@@ -351,10 +351,11 @@ class AppointmentDetailView(APIView):
 class AppointmentStatusView(APIView):
     """
     PATCH /api/appointments/<id>/status/
-    Body: { "status": "completed" }
-    Status options: upcoming | completed | cancelled | no_show
+    Body: { "status": "in_session" }
+    Status options: upcoming | in_session | completed | cancelled
+    Any authenticated user can update status.
     """
-    permission_classes = [IsAdminOrReception]
+    permission_classes = [IsAuthenticated]
 
     def patch(self, request, pk):
         try:
