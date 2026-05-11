@@ -8,9 +8,9 @@ from rooms.models import Room
 class Appointment(models.Model):
     STATUS_CHOICES = (
         ('upcoming',   'Upcoming'),
+        ('in_session', 'In Session'),
         ('completed',  'Completed'),
         ('cancelled',  'Cancelled'),
-        ('no_show',    'No Show'),
     )
 
     PAYMENT_STATUS_CHOICES = (

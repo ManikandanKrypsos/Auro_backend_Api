@@ -363,7 +363,7 @@ class AppointmentStatusView(APIView):
             return Response({'error': 'Appointment not found.'}, status=404)
 
         status = request.data.get('status')
-        valid  = ['upcoming', 'completed', 'cancelled', 'no_show']
+        valid  = ['upcoming', 'in_session', 'completed', 'cancelled']
         if status not in valid:
             return Response({'error': f'Status must be one of: {valid}'}, status=400)
 
@@ -684,9 +684,11 @@ class AppointmentMetaView(APIView):
     def get(self, request):
         return Response({
             'statuses': [
-                {'id': 1, 'value': 'upcoming',  'label': 'Upcoming'},
-                {'id': 2, 'value': 'completed', 'label': 'Completed'},
-                {'id': 3, 'value': 'cancelled', 'label': 'Cancelled'},
+                {'id': 1, 'value': 'upcoming',   'label': 'Upcoming'},
+                {'id': 2, 'value': 'in_session', 'label': 'In Session'},
+                {'id': 3, 'value': 'completed',  'label': 'Completed'},
+                {'id': 4, 'value': 'cancelled',  'label': 'Cancelled'},
+            ],
                 {'id': 4, 'value': 'no_show',   'label': 'No Show'},
             ],
             'payment_statuses': [

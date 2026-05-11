@@ -9,9 +9,10 @@ import datetime
 
 STATUS_MAP = {
     1: 'upcoming',
-    2: 'completed',
-    3: 'cancelled',
-    4: 'no_show',
+    2: 'in_session',
+    3: 'completed',
+    4: 'cancelled',
+    5: 'no_show',
 }
 PAYMENT_STATUS_MAP = {
     1: 'pending',
@@ -161,7 +162,7 @@ class AppointmentSerializer(serializers.ModelSerializer):
         return None
 
     def get_status_id(self, obj):
-        return {'upcoming':1,'completed':2,'cancelled':3,'no_show':4}.get(obj.status)
+        return {'upcoming':1,'in_session':2,'completed':3,'cancelled':4}.get(obj.status)
 
     def get_consent_status_id(self, obj):
         return {'pending':1,'signed':2}.get(obj.consent_status)
