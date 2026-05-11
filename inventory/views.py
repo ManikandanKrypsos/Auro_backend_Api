@@ -48,9 +48,13 @@ class InventoryListView(APIView):
          ?category=consumable      filter by category
          ?low_stock=true           show only low stock items
 
-    POST /api/inventory/           — add new item
+    POST /api/inventory/           — add new item (admin only)
     """
-    permission_classes = [IsAdmin]
+    def get_permissions(self):
+        from rest_framework.permissions import IsAuthenticated
+        if self.request.method == 'POST':
+            return [IsAdmin()]
+        return [IsAuthenticated()]
 
     def get(self, request):
         items     = InventoryItem.objects.all()
