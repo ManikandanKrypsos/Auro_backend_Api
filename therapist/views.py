@@ -255,3 +255,144 @@ class TherapistScheduleView(APIView):
                 })
 
         return Response({'error': 'Provide date or start_date and end_date.'}, status=400)
+
+
+# ── Therapist Product Usage ───────────────────────────────────────────────────
+
+class TherapistProductUsageView(APIView):
+    """
+    POST /api/therapist/products/use/
+    Therapist logs products used in a session.
+    Automatically deducts from inventory.
+
+    Body:
+    {
+        "products": [
+            { "inventory_id": 3, "quantity": 2 },
+            { "inventory_id": 7, "quantity": 1 }
+        ],
+        "notes": "Used during facial session"
+    }
+
+    GET /api/therapist/products/use/
+    ?filter=today | week | all (default: all)
+    Returns product usage history for this therapist.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from inventory.models import StockMovement
+        from django.utils import timezone
+        import datetime
+
+        try:
+            therapist = User.objects.get(pk=request.user.pk)
+        except User.DoesNotExist:
+            return Response({'error': 'User not found.'}, status=404)
+
+        filter_by = request.query_params.get('filter', 'all')
+        now  = timezone.now()
+        today = timezone.localdate()
+
+        qs = StockMovement.objects.filter(
+            performed_by=therapist,
+            movement_type='out'
+        ).select_related('item').order_by('-created_at')
+
+        if filter_by == 'today':
+            qs = qs.filter(created_at__date=today)
+        elif filter_by == 'week':
+            week_start = now - datetime.timedelta(days=7)
+            qs = qs.filter(created_at__gte=week_start)
+
+        result = []
+        # Group by appointment if available
+        grouped = {}
+        for movement in qs:
+            appt_id = movement.appointment_id if hasattr(movement, 'appointment_id') else None
+            key = appt_id or f"no_appt_{movement.id}"
+            if key not in grouped:
+                grouped[key] = {
+                    'appointment_id': appt_id,
+                    'date':           str(movement.created_at.date()),
+                    'products':       [],
+                }
+            grouped[key]['products'].append({
+                'id':           movement.id,
+                'inventory_id': movement.item.id,
+                'product_name': movement.item.name,
+                'unit':         movement.item.unit,
+                'quantity':     movement.quantity,
+                'notes':        movement.notes,
+                'created_at':   movement.created_at,
+            })
+
+        return Response(list(grouped.values()))
+
+    def post(self, request):
+        from inventory.models import InventoryItem, StockMovement
+
+        try:
+            therapist = User.objects.get(pk=request.user.pk)
+        except User.DoesNotExist:
+            return Response({'error': 'User not found.'}, status=404)
+
+        products = request.data.get('products', [])
+        notes    = request.data.get('notes', '')
+
+        if not products:
+            return Response({'error': 'products list is required.'}, status=400)
+
+        errors   = []
+        movements = []
+
+        for item in products:
+            inventory_id = item.get('inventory_id')
+            quantity     = item.get('quantity', 0)
+
+            if not inventory_id or quantity <= 0:
+                errors.append(f"Invalid product entry: {item}")
+                continue
+
+            try:
+                inv_item = InventoryItem.objects.get(id=inventory_id)
+            except InventoryItem.DoesNotExist:
+                errors.append(f"Inventory item {inventory_id} not found.")
+                continue
+
+            if inv_item.current_stock < quantity:
+                errors.append(
+                    f"Insufficient stock for '{inv_item.name}'. "
+                    f"Available: {inv_item.current_stock}, Requested: {quantity}"
+                )
+                continue
+
+            # Deduct from inventory
+            inv_item.current_stock -= quantity
+            inv_item.save()
+
+            # Log stock movement
+            movement = StockMovement.objects.create(
+                item=inv_item,
+                movement_type='out',
+                quantity=quantity,
+                notes=notes or f"Used in session by {therapist.username or therapist.email}",
+                performed_by=therapist,
+            )
+            movements.append({
+                'inventory_id':  inv_item.id,
+                'product_name':  inv_item.name,
+                'unit':          inv_item.unit,
+                'quantity_used': quantity,
+                'stock_remaining': inv_item.current_stock,
+                'movement_id':   movement.id,
+            })
+
+        if errors and not movements:
+            return Response({'errors': errors}, status=400)
+
+        return Response({
+            'message':       'Products logged and inventory updated.',
+            'products_used': movements,
+            'errors':        errors if errors else None,
+        }, status=201)
