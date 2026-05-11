@@ -58,6 +58,12 @@ class Appointment(models.Model):
     payment_type    = models.CharField(max_length=20, choices=PAYMENT_TYPE_CHOICES, default='cash')
 
     # Notes
+    package         = models.ForeignKey(
+                        'packages.PatientPackage',
+                        on_delete=models.SET_NULL,
+                        null=True, blank=True,
+                        related_name='appointments'
+                    )
     notes           = models.TextField(blank=True)
 
     updated_at      = models.DateTimeField(auto_now=True)

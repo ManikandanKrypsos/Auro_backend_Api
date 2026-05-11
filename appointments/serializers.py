@@ -32,6 +32,10 @@ CONSENT_STATUS_MAP = {
 class AppointmentSerializer(serializers.ModelSerializer):
     """Full read serializer with all nested objects."""
 
+    # Package
+    package_id         = serializers.SerializerMethodField()
+    package_detail     = serializers.SerializerMethodField()
+
     # Date and time split
     date               = serializers.SerializerMethodField()
     time               = serializers.SerializerMethodField()
@@ -61,6 +65,7 @@ class AppointmentSerializer(serializers.ModelSerializer):
             'room_detail',
             'date', 'time', 'duration',
             'session_number', 'total_sessions',
+            'package_id', 'package_detail',
             'status', 'status_id',
             'patient_arrived',
             'consent_status', 'consent_status_id', 'consent_form_url',
@@ -117,6 +122,24 @@ class AppointmentSerializer(serializers.ModelSerializer):
             'price':        str(plan.price) if plan else str(obj.payment_amount or ''),
             'price_plan_id': plan.id if plan else None,
             'sessions':     plan.sessions if plan else obj.total_sessions,
+        }
+
+    def get_package_id(self, obj):
+        return obj.package_id if obj.package_id else None
+
+    def get_package_detail(self, obj):
+        if not obj.package_id:
+            return None
+        pkg = obj.package
+        if not pkg:
+            return None
+        return {
+            'id':                  pkg.id,
+            'total_sessions':      pkg.total_sessions,
+            'sessions_completed':  pkg.sessions_completed,
+            'sessions_remaining':  pkg.sessions_remaining,
+            'status':              pkg.status,
+            'status_id':           pkg.status_id,
         }
 
     def get_date(self, obj):
@@ -375,6 +398,19 @@ class AppointmentWriteSerializer(serializers.Serializer):
             else:
                 existing_time = dt.time(9, 0)
             validated_data['date_time'] = tz.make_aware(dt.datetime.combine(date, existing_time))
+
+        package_id = validated_data.pop('package_id', None)
+        if package_id:
+            try:
+                from packages.models import PatientPackage
+                pkg = PatientPackage.objects.get(id=package_id)
+                validated_data['package'] = pkg
+                # Auto-calculate session number
+                existing = Appointment.objects.filter(package=pkg).count()
+                validated_data['session_number'] = existing + 1
+                validated_data['total_sessions'] = pkg.total_sessions
+            except Exception:
+                pass
 
         if patient_id:
             try:

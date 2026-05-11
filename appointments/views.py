@@ -272,6 +272,9 @@ class AppointmentListView(APIView):
             qs = qs.filter(consent_status=consent)
         if payment_st:
             qs = qs.filter(payment_status=payment_st)
+        package_id = request.query_params.get('package_id')
+        if package_id:
+            qs = qs.filter(package_id=package_id)
         if search:
             qs = qs.filter(
                 Q(patient__name__icontains=search) |
@@ -366,7 +369,30 @@ class AppointmentStatusView(APIView):
 
         appt.status = status
         appt.save()
-        return Response(AppointmentSerializer(appt).data)
+
+        # Auto-update patient category
+        if status == 'completed':
+            _update_patient_category(appt.patient)
+
+        # Auto-update package if linked
+        package_detail = None
+        if appt.package_id and status == 'completed':
+            pkg = appt.package
+            pkg.sessions_completed = pkg.appointments.filter(status='completed').count()
+            if pkg.sessions_completed >= pkg.total_sessions:
+                pkg.status = 'completed'
+            pkg.save()
+            package_detail = {
+                'id':                  pkg.id,
+                'sessions_completed':  pkg.sessions_completed,
+                'sessions_remaining':  pkg.sessions_remaining,
+                'status':              pkg.status,
+                'status_id':           pkg.status_id,
+            }
+
+        data = AppointmentSerializer(appt).data
+        data['package_detail'] = package_detail
+        return Response(data)
 
 
 class AppointmentArrivalView(APIView):

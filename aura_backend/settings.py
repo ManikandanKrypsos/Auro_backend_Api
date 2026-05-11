@@ -33,6 +33,7 @@ INSTALLED_APPS = [
     'clinic',
     'inventory',
     'therapist',
+    'packages',
 ]
 
 MIDDLEWARE = [
