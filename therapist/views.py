@@ -103,10 +103,9 @@ class TherapistTodayView(APIView):
         completed = appts.filter(status='completed').count()
         pending   = appts.filter(status='upcoming').count()
 
-        # Current session — patient_arrived=True and still upcoming
+        # Current session — status is in_session
         current = appts.filter(
-            patient_arrived=True,
-            status='upcoming'
+            status='in_session'
         ).order_by('date_time').first()
 
         # Next up
