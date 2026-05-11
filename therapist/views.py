@@ -295,8 +295,7 @@ class TherapistProductUsageView(APIView):
         today = timezone.localdate()
 
         qs = StockMovement.objects.filter(
-            performed_by=therapist,
-            movement_type='out'
+            type='out'
         ).select_related('item').order_by('-created_at')
 
         if filter_by == 'today':
@@ -323,7 +322,7 @@ class TherapistProductUsageView(APIView):
                 'product_name': movement.item.name,
                 'unit':         movement.item.unit,
                 'quantity':     movement.quantity,
-                'notes':        movement.notes,
+                'notes':        movement.note,
                 'created_at':   movement.created_at,
             })
 
@@ -374,10 +373,9 @@ class TherapistProductUsageView(APIView):
             # Log stock movement
             movement = StockMovement.objects.create(
                 item=inv_item,
-                movement_type='out',
+                type='out',
                 quantity=quantity,
-                notes=notes or f"Used in session by {therapist.username or therapist.email}",
-                performed_by=therapist,
+                note=notes or f"Used in session by {therapist.username or therapist.email}",
             )
             movements.append({
                 'inventory_id':  inv_item.id,
