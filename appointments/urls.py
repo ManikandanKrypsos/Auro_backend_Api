@@ -1,26 +1,24 @@
-from django.urls import path, include
-from rest_framework.routers import DefaultRouter
-from .views import PatientViewSet, MarketingSourceListView, PatientVIPView
-from .patient_detail_views import (
-    PatientOverviewView, PatientHistoryView,
-    PatientNotesView, PatientNoteDetailView,
-    PatientPhotosView, PatientConsentView, PatientConsentDetailView,
+from django.urls import path
+from .views import (
+    AppointmentListView,
+    AppointmentDetailView,
+    AppointmentStatusView,
+    AppointmentArrivalView,
+    AppointmentConsentView,
+    AppointmentMetaView,
+    AvailableSlotsView,
+    CalendarView,
+    TodayAppointmentsView,
 )
-from packages.views import PatientPackagesView
-
-router = DefaultRouter()
-router.register(r'', PatientViewSet, basename='patient')
 
 urlpatterns = [
-    path('marketing-sources/',                  MarketingSourceListView.as_view()),
-    path('<str:pk>/vip/',                       PatientVIPView.as_view()),
-    path('<str:pk>/overview/',                  PatientOverviewView.as_view()),
-    path('<str:pk>/history/',                   PatientHistoryView.as_view()),
-    path('<str:pk>/notes/',                     PatientNotesView.as_view()),
-    path('<str:pk>/notes/<int:note_id>/',       PatientNoteDetailView.as_view()),
-    path('<str:pk>/photos/',                    PatientPhotosView.as_view()),
-    path('<str:pk>/consent/',                   PatientConsentView.as_view()),
-    path('<str:pk>/consent/<int:record_id>/',   PatientConsentDetailView.as_view()),
-    path('<str:pk>/packages/',                  PatientPackagesView.as_view()),
-    path('', include(router.urls)),
+    path('',                        AppointmentListView.as_view()),    # GET, POST
+    path('meta/',                   AppointmentMetaView.as_view()),    # GET dropdown options
+    path('today/',                  TodayAppointmentsView.as_view()),  # GET today
+    path('available-slots/',        AvailableSlotsView.as_view()),     # GET available slots
+    path('calendar/',               CalendarView.as_view()),           # GET calendar
+    path('<int:pk>/',               AppointmentDetailView.as_view()),  # GET, PATCH, DELETE
+    path('<int:pk>/status/',        AppointmentStatusView.as_view()),  # PATCH status
+    path('<int:pk>/arrived/',       AppointmentArrivalView.as_view()), # PATCH arrived
+    path('<int:pk>/consent/',       AppointmentConsentView.as_view()), # PATCH consent
 ]
