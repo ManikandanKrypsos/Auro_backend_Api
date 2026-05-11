@@ -120,7 +120,7 @@ class SessionDetailView(APIView):
             'previous_session_recap': {
                 'session_number':     appt.session_number - 1 if appt.session_number > 1 else None,
                 'skin_observation':   prev_note.skin_observation if prev_note else None,
-                'advice_given':       prev_note.advice_given if prev_note else None,
+                'session_notes':      prev_note.session_notes if prev_note else [],
                 'products_used':      prev_note.products_used if prev_note else [],
                 'note_id':            prev_note.id if prev_note else None,
             } if appt.session_number > 1 else None,
@@ -129,7 +129,7 @@ class SessionDetailView(APIView):
             'session_note': {
                 'note_id':               current_note.id if current_note else None,
                 'skin_observation':      current_note.skin_observation if current_note else None,
-                'advice_given':          current_note.advice_given if current_note else None,
+                'session_notes':          current_note.session_notes if current_note else [],
                 'products_used':         current_note.products_used if current_note else [],
                 'recommended_to_patient': current_note.recommended_to_patient if current_note else [],
                 'next_treatment':        current_note.next_treatment if current_note else None,
@@ -171,7 +171,7 @@ class SessionCompleteView(APIView):
     Body:
     {
         "skin_observation":       "Skin slightly dehydrated...",
-        "advice_given":           "Avoid sun exposure 48hrs...",
+        "session_notes":          [{"title": "Sun Exposure", "description": "Avoid sun exposure 48hrs..."}],
         "products_used":          ["Gentle Cleanser", "Hyaluronic Acid Serum"],
         "recommended_to_patient": ["Hydrating Serum", "SPF 50+"],
         "next_treatment":         "HydraBalance — in 2-3 weeks",
@@ -247,7 +247,7 @@ class SessionNoteUpdateView(APIView):
     Body (all optional):
     {
         "skin_observation":       "Updated observation",
-        "advice_given":           "Updated advice",
+        "session_notes":          [{"title": "Updated", "description": "Updated advice"}],
         "products_used":          ["Product A"],
         "recommended_to_patient": ["Product B"],
         "next_treatment":         "Next treatment info",
