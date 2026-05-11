@@ -194,11 +194,17 @@ class AIChatView(APIView):
 
         # Call Claude API
         try:
+            import os
+            api_key = os.environ.get('ANTHROPIC_API_KEY', '')
+            if not api_key:
+                return Response({'error': 'AI service not configured. Please contact admin.'}, status=503)
+
             response = requests.post(
                 CLAUDE_API_URL,
                 headers={
                     'Content-Type':      'application/json',
                     'anthropic-version': '2023-06-01',
+                    'x-api-key':         api_key,
                 },
                 json={
                     'model':      CLAUDE_MODEL,
