@@ -689,8 +689,6 @@ class AppointmentMetaView(APIView):
                 {'id': 3, 'value': 'completed',  'label': 'Completed'},
                 {'id': 4, 'value': 'cancelled',  'label': 'Cancelled'},
             ],
-                {'id': 4, 'value': 'no_show',   'label': 'No Show'},
-            ],
             'payment_statuses': [
                 {'id': 1, 'value': 'pending',  'label': 'Pending'},
                 {'id': 2, 'value': 'paid',     'label': 'Paid'},
