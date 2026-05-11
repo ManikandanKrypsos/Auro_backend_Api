@@ -421,7 +421,12 @@ class AppointmentArrivalView(APIView):
 class AppointmentConsentView(APIView):
     """
     PATCH /api/appointments/<id>/consent/
-    Body: { "consent_status": "signed", "consent_form_url": "https://..." }
+    Send as multipart/form-data to upload PDF from phone.
+
+    Fields:
+    - consent_status: signed | pending
+    - consent_file:   PDF file upload from phone (multipart)
+    - consent_form_url: URL string (if not uploading file)
     """
     permission_classes = [IsAdminOrReception]
 
@@ -439,12 +444,29 @@ class AppointmentConsentView(APIView):
 
         if status:
             appt.consent_status = status
-        if url:
+
+        # Handle PDF file upload from phone
+        consent_file = request.FILES.get('consent_file')
+        if consent_file:
+            import os, time
+            from django.conf import settings
+            upload_dir = os.path.join(settings.MEDIA_ROOT, 'consent_forms')
+            os.makedirs(upload_dir, exist_ok=True)
+            ext      = os.path.splitext(consent_file.name)[1].lower() or '.pdf'
+            filename = f"consent_{appt.id}_{int(time.time())}{ext}"
+            filepath = os.path.join(upload_dir, filename)
+            with open(filepath, 'wb+') as f:
+                for chunk in consent_file.chunks():
+                    f.write(chunk)
+            base_url = request.build_absolute_uri('/')
+            appt.consent_form_url = f"{base_url.rstrip('/')}{settings.MEDIA_URL}consent_forms/{filename}"
+        elif url:
             appt.consent_form_url = url
+
         appt.save()
         return Response({
-            'message':         'Consent updated.',
-            'consent_status':  appt.consent_status,
+            'message':          'Consent updated.',
+            'consent_status':   appt.consent_status,
             'consent_form_url': appt.consent_form_url,
         })
 
