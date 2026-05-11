@@ -288,7 +288,7 @@ class PatientNotesView(APIView):
             therapist=request.user,
             treatment_name=request.data.get('treatment_name', appt.treatment.name if appt and appt.treatment else ''),
             skin_observation=request.data.get('skin_observation', ''),
-            advice_given=request.data.get('advice_given', ''),
+            advice_given=request.data.get('advice_given', []),
             products_used=request.data.get('products_used', []),
             recommended_to_patient=request.data.get('recommended_to_patient', []),
             next_treatment=request.data.get('next_treatment', ''),

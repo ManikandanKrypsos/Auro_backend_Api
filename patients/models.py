@@ -99,7 +99,7 @@ class SessionNote(models.Model):
                              )
     treatment_name         = models.CharField(max_length=150, blank=True)
     skin_observation       = models.TextField(blank=True)
-    advice_given           = models.TextField(blank=True)
+    advice_given           = models.JSONField(default=list, blank=True)
     products_used          = models.JSONField(default=list, blank=True)
     recommended_to_patient = models.JSONField(default=list, blank=True)
     next_treatment         = models.CharField(max_length=255, blank=True)
