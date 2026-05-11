@@ -328,6 +328,71 @@ class TherapistProductUsageView(APIView):
 
         return Response(list(grouped.values()))
 
+    def patch(self, request, movement_id):
+        """
+        PATCH /api/therapist/products/use/<movement_id>/
+        Edit quantity or inventory item of a logged product usage.
+        Body: { "quantity": 3 } or { "inventory_id": 5 } or both
+        """
+        from inventory.models import InventoryItem, StockMovement
+
+        try:
+            therapist = User.objects.get(pk=request.user.pk)
+        except User.DoesNotExist:
+            return Response({'error': 'User not found.'}, status=404)
+
+        try:
+            movement = StockMovement.objects.select_related('item').get(id=movement_id, type='out')
+        except StockMovement.DoesNotExist:
+            return Response({'error': 'Product usage record not found.'}, status=404)
+
+        new_quantity     = request.data.get('quantity')
+        new_inventory_id = request.data.get('inventory_id')
+
+        old_item     = movement.item
+        old_quantity = movement.quantity
+
+        # Handle inventory item change
+        if new_inventory_id and int(new_inventory_id) != old_item.id:
+            try:
+                new_item = InventoryItem.objects.get(id=new_inventory_id)
+            except InventoryItem.DoesNotExist:
+                return Response({'error': 'Inventory item not found.'}, status=404)
+            # Restore old item stock
+            old_item.current_stock += old_quantity
+            old_item.save()
+            # Deduct from new item
+            qty = int(new_quantity) if new_quantity else old_quantity
+            if new_item.current_stock < qty:
+                return Response({'error': f'Insufficient stock for {new_item.name}. Available: {new_item.current_stock}'}, status=400)
+            new_item.current_stock -= qty
+            new_item.save()
+            movement.item     = new_item
+            movement.quantity = qty
+        elif new_quantity and int(new_quantity) != old_quantity:
+            # Only quantity changed
+            diff = int(new_quantity) - old_quantity
+            if diff > 0 and old_item.current_stock < diff:
+                return Response({'error': f'Insufficient stock. Available: {old_item.current_stock}'}, status=400)
+            old_item.current_stock -= diff
+            old_item.save()
+            movement.quantity = int(new_quantity)
+
+        if 'notes' in request.data:
+            movement.note = request.data['notes']
+
+        movement.save()
+
+        return Response({
+            'message':         'Product usage updated.',
+            'movement_id':     movement.id,
+            'inventory_id':    movement.item.id,
+            'product_name':    movement.item.name,
+            'unit':            movement.item.unit,
+            'quantity':        movement.quantity,
+            'stock_remaining': movement.item.current_stock,
+        })
+
     def post(self, request):
         from inventory.models import InventoryItem, StockMovement
 
