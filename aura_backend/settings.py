@@ -34,6 +34,7 @@ INSTALLED_APPS = [
     'inventory',
     'therapist',
     'packages',
+    'ai_agent',
 ]
 
 MIDDLEWARE = [
