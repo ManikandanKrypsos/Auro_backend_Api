@@ -248,7 +248,7 @@ class PatientNotesView(APIView):
                 'therapist':             n.therapist.username if n.therapist else None,
                 'date':                  str(n.created_at.date()),
                 'skin_observation':      n.skin_observation,
-                'advice_given':          n.advice_given,
+                'session_notes':         n.session_notes,
                 'products_used':         n.products_used,
                 'recommended_to_patient': n.recommended_to_patient,
                 'next_treatment':        n.next_treatment,
@@ -288,7 +288,7 @@ class PatientNotesView(APIView):
             therapist=request.user,
             treatment_name=request.data.get('treatment_name', appt.treatment.name if appt and appt.treatment else ''),
             skin_observation=request.data.get('skin_observation', ''),
-            advice_given=request.data.get('advice_given', []),
+            session_notes=request.data.get('session_notes', []),
             products_used=request.data.get('products_used', []),
             recommended_to_patient=request.data.get('recommended_to_patient', []),
             next_treatment=request.data.get('next_treatment', ''),
@@ -302,7 +302,7 @@ class PatientNotesView(APIView):
             'therapist':             note.therapist.username if note.therapist else None,
             'date':                  str(note.created_at.date()),
             'skin_observation':      note.skin_observation,
-            'advice_given':          note.advice_given,
+            'session_notes':          note.advice_given,
             'products_used':         note.products_used,
             'recommended_to_patient': note.recommended_to_patient,
             'next_treatment':        note.next_treatment,
@@ -336,7 +336,7 @@ class PatientNoteDetailView(APIView):
             return Response({'error': 'Note not found.'}, status=404)
 
         from utils.image_upload import get_image_value
-        for field in ['skin_observation', 'advice_given', 'products_used',
+        for field in ['skin_observation', 'session_notes', 'products_used',
                       'recommended_to_patient', 'next_treatment']:
             if field in request.data:
                 setattr(note, field, request.data[field])

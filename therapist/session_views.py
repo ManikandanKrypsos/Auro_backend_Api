@@ -205,7 +205,7 @@ class SessionCompleteView(APIView):
             'therapist':              therapist,
             'treatment_name':         appt.treatment.name if appt.treatment else '',
             'skin_observation':       request.data.get('skin_observation', ''),
-            'advice_given':           request.data.get('advice_given', []),
+            'session_notes':          request.data.get('session_notes', []),
             'products_used':          request.data.get('products_used', []),
             'recommended_to_patient': request.data.get('recommended_to_patient', []),
             'next_treatment':         request.data.get('next_treatment', ''),
@@ -276,7 +276,7 @@ class SessionNoteUpdateView(APIView):
             )
 
         from utils.image_upload import get_image_value
-        fields = ['skin_observation', 'advice_given', 'products_used',
+        fields = ['skin_observation', 'session_notes', 'products_used',
                   'recommended_to_patient', 'next_treatment']
         for field in fields:
             if field in request.data:
@@ -294,7 +294,7 @@ class SessionNoteUpdateView(APIView):
             'message':               'Note updated.',
             'note_id':               note.id,
             'skin_observation':      note.skin_observation,
-            'advice_given':          note.advice_given,
+            'session_notes':         note.session_notes,
             'products_used':         note.products_used,
             'recommended_to_patient': note.recommended_to_patient,
             'next_treatment':        note.next_treatment,
