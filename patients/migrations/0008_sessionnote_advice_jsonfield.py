@@ -8,9 +8,8 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AlterField(
-            model_name='sessionnote',
-            name='advice_given',
-            field=models.JSONField(blank=True, default=list),
+        migrations.RunSQL(
+            sql="ALTER TABLE patients_sessionnote ALTER COLUMN advice_given TYPE jsonb USING advice_given::jsonb;",
+            reverse_sql="ALTER TABLE patients_sessionnote ALTER COLUMN advice_given TYPE text USING advice_given::text;",
         ),
     ]
