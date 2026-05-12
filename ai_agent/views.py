@@ -6,8 +6,7 @@ import json
 import requests
 
 
-CLAUDE_API_URL = "https://api.anthropic.com/v1/messages"
-CLAUDE_MODEL   = "claude-sonnet-4-20250514"
+GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
 
 
 def _get_clinic_context(user):
@@ -192,26 +191,31 @@ class AIChatView(APIView):
 
         messages.append({'role': 'user', 'content': message})
 
-        # Call Claude API
+        # Call Gemini API
         try:
             import os
-            api_key = os.environ.get('ANTHROPIC_API_KEY', '')
+            api_key = os.environ.get('GEMINI_API_KEY', '')
             if not api_key:
                 return Response({'error': 'AI service not configured. Please contact admin.'}, status=503)
 
+            # Build conversation history for Gemini
+            gemini_contents = []
+
+            # Add history
+            for h in history:
+                if h.get('role') == 'user':
+                    gemini_contents.append({'role': 'user', 'parts': [{'text': h['content']}]})
+                elif h.get('role') == 'assistant':
+                    gemini_contents.append({'role': 'model', 'parts': [{'text': h['content']}]})
+
+            # Add current message with system context prepended
+            full_message = f"{system_prompt}\n\nUser message: {message}"
+            gemini_contents.append({'role': 'user', 'parts': [{'text': full_message}]})
+
             response = requests.post(
-                CLAUDE_API_URL,
-                headers={
-                    'Content-Type':      'application/json',
-                    'anthropic-version': '2023-06-01',
-                    'x-api-key':         api_key,
-                },
-                json={
-                    'model':      CLAUDE_MODEL,
-                    'max_tokens': 1024,
-                    'system':     system_prompt,
-                    'messages':   messages,
-                },
+                f"{GEMINI_API_URL}?key={api_key}",
+                headers={'Content-Type': 'application/json'},
+                json={'contents': gemini_contents},
                 timeout=30,
             )
 
@@ -221,8 +225,8 @@ class AIChatView(APIView):
                     'detail': response.text,
                 }, status=503)
 
-            data = response.json()
-            reply = data['content'][0]['text']
+            data  = response.json()
+            reply = data['candidates'][0]['content']['parts'][0]['text']
 
             return Response({
                 'reply':   reply,
