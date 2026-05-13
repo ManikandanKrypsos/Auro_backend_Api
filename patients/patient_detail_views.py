@@ -414,21 +414,10 @@ class PatientPhotosView(APIView):
 
 class PatientConsentView(APIView):
     """
-    GET  /api/patients/<id>/consent/     — list consent records
-    POST /api/patients/<id>/consent/     — add consent record
-
-    POST body:
-    {
-        "title":            "General Treatment Consent",
-        "file_name":        "general_consent_jan25.pdf",
-        "file_url":         "https://...",
-        "status":           "signed",         // signed | pending
-        "patient_signed":   true,
-        "therapist_signed": true,
-        "signed_date":      "2025-01-12"
-    }
+    GET  /api/patients/<id>/consent/
+    POST /api/patients/<id>/consent/
     """
-    permission_classes = [IsAdminOrReception]
+    permission_classes = [IsAuthenticated]
 
     def get(self, request, pk):
         from patients.models import ConsentRecord
@@ -487,10 +476,10 @@ class PatientConsentView(APIView):
 
 class PatientConsentDetailView(APIView):
     """
-    PATCH  /api/patients/<id>/consent/<record_id>/  — update consent
-    DELETE /api/patients/<id>/consent/<record_id>/  — delete consent
+    PATCH  /api/patients/<id>/consent/<record_id>/
+    DELETE /api/patients/<id>/consent/<record_id>/
     """
-    permission_classes = [IsAdminOrReception]
+    permission_classes = [IsAuthenticated]
 
     def _get(self, pk, record_id):
         from patients.models import ConsentRecord
