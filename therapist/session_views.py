@@ -11,6 +11,8 @@ def _make_full_url(url, request):
         return None
     if url.startswith('http'):
         return url
+    if not url.startswith('/'):
+        url = '/' + url
     return request.build_absolute_uri(url)
 
 

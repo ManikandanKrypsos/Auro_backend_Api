@@ -246,6 +246,9 @@ class PatientNotesView(APIView):
                 return None
             if url.startswith('http'):
                 return url
+            # Ensure it starts with / for build_absolute_uri
+            if not url.startswith('/'):
+                url = '/' + url
             return request.build_absolute_uri(url)
 
         def fmt_note(n):
@@ -313,8 +316,8 @@ class PatientNotesView(APIView):
             'products_used':         note.products_used,
             'recommended_to_patient': note.recommended_to_patient,
             'next_treatment':        note.next_treatment,
-            'before_photo':          note.before_photo if note.before_photo and note.before_photo.startswith('http') else request.build_absolute_uri(note.before_photo) if note.before_photo else None,
-            'after_photo':           note.after_photo if note.after_photo and note.after_photo.startswith('http') else request.build_absolute_uri(note.after_photo) if note.after_photo else None,
+            'before_photo':          note.before_photo if note.before_photo and note.before_photo.startswith('http') else request.build_absolute_uri('/' + note.before_photo.lstrip('/')) if note.before_photo else None,
+            'after_photo':           note.after_photo if note.after_photo and note.after_photo.startswith('http') else request.build_absolute_uri('/' + note.after_photo.lstrip('/')) if note.after_photo else None,
         }, status=201)
 
 
@@ -390,6 +393,8 @@ class PatientPhotosView(APIView):
                 return None
             if url.startswith('http'):
                 return url
+            if not url.startswith('/'):
+                url = '/' + url
             return request.build_absolute_uri(url)
 
         photos = [
