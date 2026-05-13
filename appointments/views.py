@@ -220,7 +220,7 @@ class AppointmentListView(APIView):
     POST /api/appointments/           — create appointment
     """
     def get_permissions(self):
-        return [IsAuthenticated()]
+        return [IsAdminOrReception()] if self.request.method == 'POST' else [IsAuthenticated()]
 
     def get(self, request):
         from django.db.models import Q
