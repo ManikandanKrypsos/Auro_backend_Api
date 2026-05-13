@@ -32,24 +32,42 @@ def _get_clinic_context(user):
         # Therapist context
         todays_appts = Appointment.objects.filter(
             staff=user, date_time__date=today
-        ).select_related('patient', 'treatment')
+        ).select_related('patient', 'treatment', 'room_fk')
 
         context['my_schedule_today'] = [
             {
                 'time':        a.date_time.strftime('%H:%M') if a.date_time else None,
                 'patient':     a.patient.name if a.patient else None,
+                'patient_id':  a.patient.patient_id if a.patient else None,
+                'patient_phone': a.patient.phone if a.patient else None,
                 'treatment':   a.treatment.name if a.treatment else None,
                 'status':      a.status,
                 'duration':    a.duration,
+                'room':        a.room_fk.name if a.room_fk else None,
+                'session':     f"Session {a.session_number} of {a.total_sessions}",
             }
             for a in todays_appts.order_by('date_time')
         ]
-        context['total_today']     = todays_appts.count()
-        context['completed_today'] = todays_appts.filter(status='completed').count()
-        context['in_session']      = todays_appts.filter(status='in_session').exists()
+        context['total_today']       = todays_appts.count()
+        context['completed_today']   = todays_appts.filter(status='completed').count()
+        context['pending_today']     = todays_appts.filter(status='upcoming').count()
+        context['in_session']        = todays_appts.filter(status='in_session').first()
         context['my_patients_count'] = Appointment.objects.filter(
             staff=user
         ).values('patient').distinct().count()
+
+        # Recent patients
+        from patients.models import Patient as PatientModel
+        patient_ids = Appointment.objects.filter(staff=user).values_list('patient_id', flat=True).distinct()
+        context['my_recent_patients'] = [
+            {
+                'name':     p.name,
+                'id':       p.patient_id,
+                'category': p.category,
+                'phone':    p.phone,
+            }
+            for p in PatientModel.objects.filter(id__in=patient_ids).order_by('-created_at')[:5]
+        ]
 
     elif role == 'reception':
         # Reception context
@@ -57,6 +75,7 @@ def _get_clinic_context(user):
         context['todays_appointments'] = todays_appts.count()
         context['checked_in']          = todays_appts.filter(patient_arrived=True).count()
         context['cancelled_today']     = todays_appts.filter(status='cancelled').count()
+        context['in_session_today']    = todays_appts.filter(status='in_session').count()
         context['total_patients']      = Patient.objects.count()
         context['new_patients_month']  = Patient.objects.filter(
             created_at__gte=now.replace(day=1)
@@ -65,9 +84,32 @@ def _get_clinic_context(user):
             stage__in=['new_inquiries', 'engaged', 'consultation', 'winning']
         ).count()
 
+        # Today's full schedule
+        context['todays_schedule'] = [
+            {
+                'time':      a.date_time.strftime('%H:%M') if a.date_time else None,
+                'patient':   a.patient.name if a.patient else None,
+                'treatment': a.treatment.name if a.treatment else None,
+                'therapist': a.staff.username if a.staff else None,
+                'status':    a.status,
+            }
+            for a in todays_appts.select_related('patient', 'treatment', 'staff').order_by('date_time')
+        ]
+
+        # Recent leads
+        context['recent_leads'] = [
+            {
+                'name':  l.name,
+                'phone': l.phone,
+                'stage': l.stage,
+            }
+            for l in Lead.objects.order_by('-created_at')[:5]
+        ]
+
     else:
         # Admin context
-        from django.db.models import Sum
+        from django.db.models import Sum, Count
+        from treatments.models import Treatment
         start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
         todays_appts   = Appointment.objects.filter(date_time__date=today)
         month_appts    = Appointment.objects.filter(date_time__gte=start_of_month)
@@ -86,9 +128,88 @@ def _get_clinic_context(user):
         context['low_stock_items']      = InventoryItem.objects.filter(
             current_stock__lte=10
         ).count()
-        context['total_staff']          = UserModel.objects.filter(
+
+        # Staff list with details
+        staff_list = UserModel.objects.filter(
             role__in=['therapist', 'reception'], is_active=True
-        ).count()
+        ).values('id', 'username', 'email', 'role', 'specialist_area')
+        context['total_staff'] = len(list(staff_list))
+        context['staff_list']  = [
+            {
+                'id':              s['id'],
+                'name':            s['username'] or s['email'].split('@')[0],
+                'role':            s['role'],
+                'specialist_area': s['specialist_area'],
+            }
+            for s in staff_list
+        ]
+
+        # Today's appointments with details
+        context['todays_schedule'] = [
+            {
+                'time':      a.date_time.strftime('%H:%M') if a.date_time else None,
+                'patient':   a.patient.name if a.patient else None,
+                'treatment': a.treatment.name if a.treatment else None,
+                'therapist': a.staff.username if a.staff else None,
+                'status':    a.status,
+            }
+            for a in todays_appts.select_related('patient', 'treatment', 'staff').order_by('date_time')
+        ]
+
+        # Top performing therapists this month
+        therapist_stats = []
+        for s in UserModel.objects.filter(role='therapist', is_active=True):
+            sa = Appointment.objects.filter(staff=s, date_time__gte=start_of_month)
+            therapist_stats.append({
+                'name':      s.username or s.email.split('@')[0],
+                'sessions':  sa.count(),
+                'completed': sa.filter(status='completed').count(),
+                'revenue':   float(sa.filter(status='completed').aggregate(t=Sum('payment_amount'))['t'] or 0),
+            })
+        therapist_stats.sort(key=lambda x: x['revenue'], reverse=True)
+        context['therapist_performance'] = therapist_stats
+
+        # Recent leads
+        context['recent_leads'] = [
+            {
+                'name':   l.name,
+                'phone':  l.phone,
+                'source': l.source,
+                'stage':  l.stage,
+                'value':  str(l.value),
+            }
+            for l in Lead.objects.order_by('-created_at')[:5]
+        ]
+
+        # Patient categories
+        context['patient_categories'] = {
+            'new':       Patient.objects.filter(category='New').count(),
+            'returning': Patient.objects.filter(category='Returning').count(),
+            'vip':       Patient.objects.filter(category='VIP').count(),
+        }
+
+        # Low stock items
+        context['low_stock_details'] = [
+            {
+                'name':          i.name,
+                'current_stock': i.current_stock,
+                'minimum_stock': i.minimum_stock_alert,
+                'unit':          i.unit,
+            }
+            for i in InventoryItem.objects.filter(current_stock__lte=10)[:10]
+        ]
+
+        # Top services this month
+        context['top_services'] = [
+            {
+                'treatment': s['treatment__name'],
+                'bookings':  s['count'],
+            }
+            for s in Appointment.objects.filter(date_time__gte=start_of_month)
+            .values('treatment__name')
+            .annotate(count=Count('id'))
+            .order_by('-count')[:5]
+        ]
 
     return context
 
