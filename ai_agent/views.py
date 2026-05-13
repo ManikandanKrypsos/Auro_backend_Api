@@ -59,14 +59,18 @@ def _get_clinic_context(user):
         # Recent patients
         from patients.models import Patient as PatientModel
         patient_ids = Appointment.objects.filter(staff=user).values_list('patient_id', flat=True).distinct()
-        context['my_recent_patients'] = [
+        context['my_patients'] = [
             {
-                'name':     p.name,
                 'id':       p.patient_id,
-                'category': p.category,
+                'name':     p.name,
                 'phone':    p.phone,
+                'email':    p.email,
+                'gender':   p.gender,
+                'category': p.category,
+                'allergies': p.allergies,
+                'skin_type': p.skin_type,
             }
-            for p in PatientModel.objects.filter(id__in=patient_ids).order_by('-created_at')[:5]
+            for p in PatientModel.objects.filter(id__in=patient_ids).order_by('-created_at')[:20]
         ]
 
     elif role == 'reception':
@@ -106,6 +110,20 @@ def _get_clinic_context(user):
             for l in Lead.objects.order_by('-created_at')[:5]
         ]
 
+        # Patient list (latest 20)
+        context['patients'] = [
+            {
+                'id':       p.patient_id,
+                'name':     p.name,
+                'phone':    p.phone,
+                'email':    p.email,
+                'gender':   p.gender,
+                'category': p.category,
+                'allergies': p.allergies,
+            }
+            for p in Patient.objects.all().order_by('-created_at')[:20]
+        ]
+
     else:
         # Admin context
         from django.db.models import Sum, Count
@@ -132,13 +150,15 @@ def _get_clinic_context(user):
         # Staff list with details
         staff_list = UserModel.objects.filter(
             role__in=['therapist', 'reception'], is_active=True
-        ).values('id', 'username', 'email', 'role', 'specialist_area')
+        ).values('id', 'username', 'email', 'phone', 'role', 'specialist_area')
         context['total_staff'] = len(list(staff_list))
         context['staff_list']  = [
             {
                 'id':              s['id'],
                 'name':            s['username'] or s['email'].split('@')[0],
                 'role':            s['role'],
+                'email':           s['email'],
+                'phone':           s['phone'],
                 'specialist_area': s['specialist_area'],
             }
             for s in staff_list
@@ -187,6 +207,20 @@ def _get_clinic_context(user):
             'returning': Patient.objects.filter(category='Returning').count(),
             'vip':       Patient.objects.filter(category='VIP').count(),
         }
+
+        # Patient list (latest 20)
+        context['patients'] = [
+            {
+                'id':       p.patient_id,
+                'name':     p.name,
+                'phone':    p.phone,
+                'email':    p.email,
+                'gender':   p.gender,
+                'category': p.category,
+                'allergies': p.allergies,
+            }
+            for p in Patient.objects.all().order_by('-created_at')[:20]
+        ]
 
         # Low stock items
         context['low_stock_details'] = [
