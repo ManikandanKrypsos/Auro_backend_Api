@@ -1,11 +1,10 @@
 import os
 
 
-def save_uploaded_image(image_file, folder='uploads', filename_prefix='img'):
+def save_uploaded_image(image_file, folder='uploads', filename_prefix='img', request=None):
     """
     Save uploaded image to MEDIA_ROOT/<folder>/
-    Returns relative URL string.
-    Accepts InMemoryUploadedFile from request.FILES
+    Returns FULL URL string including domain.
     """
     from django.conf import settings
     import time
@@ -21,19 +20,27 @@ def save_uploaded_image(image_file, folder='uploads', filename_prefix='img'):
         for chunk in image_file.chunks():
             f.write(chunk)
 
-    return f"{settings.MEDIA_URL}{folder}/{filename}"
+    # Build full URL
+    relative_url = f"{settings.MEDIA_URL}{folder}/{filename}"
+
+    if request:
+        return request.build_absolute_uri(relative_url)
+
+    # Fallback — use BASE_URL from settings or default
+    base_url = getattr(settings, 'BASE_URL', 'https://auro-backend-api.onrender.com')
+    return f"{base_url.rstrip('/')}{relative_url}"
 
 
 def get_image_value(request, field_name, folder='uploads', prefix='img'):
     """
     Supports both file upload (multipart) and URL string.
     Priority: FILES > data string
-    Returns URL string to store in DB.
+    Returns full URL string to store in DB.
     """
     file = request.FILES.get(field_name)
     if file:
         try:
-            return save_uploaded_image(file, folder=folder, filename_prefix=prefix)
+            return save_uploaded_image(file, folder=folder, filename_prefix=prefix, request=request)
         except Exception:
             return ''
     return request.data.get(field_name, '')

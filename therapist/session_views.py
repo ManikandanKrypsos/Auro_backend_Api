@@ -5,6 +5,15 @@ from django.utils import timezone
 import datetime
 
 
+def _make_full_url(url, request):
+    """Convert relative media URL to full URL."""
+    if not url:
+        return None
+    if url.startswith('http'):
+        return url
+    return request.build_absolute_uri(url)
+
+
 def _get_appointment(pk, therapist=None):
     from appointments.models import Appointment
     try:
@@ -133,8 +142,8 @@ class SessionDetailView(APIView):
                 'products_used':         current_note.products_used if current_note else [],
                 'recommended_to_patient': current_note.recommended_to_patient if current_note else [],
                 'next_treatment':        current_note.next_treatment if current_note else None,
-                'before_photo':          current_note.before_photo if current_note else None,
-                'after_photo':           current_note.after_photo if current_note else None,
+                'before_photo':          _make_full_url(current_note.before_photo, request) if current_note else None,
+                'after_photo':           _make_full_url(current_note.after_photo, request) if current_note else None,
             },
 
             # Next session
@@ -298,8 +307,8 @@ class SessionNoteUpdateView(APIView):
             'products_used':         note.products_used,
             'recommended_to_patient': note.recommended_to_patient,
             'next_treatment':        note.next_treatment,
-            'before_photo':          note.before_photo or None,
-            'after_photo':           note.after_photo or None,
+            'before_photo':          _make_full_url(note.before_photo, request) or None,
+            'after_photo':           _make_full_url(note.after_photo, request) or None,
         })
 
 

@@ -241,6 +241,13 @@ class PatientNotesView(APIView):
         with_photos = notes.exclude(before_photo='').exclude(after_photo='').count()
         completed   = notes.filter(appointment__status='completed').count()
 
+        def _full_url(url):
+            if not url:
+                return None
+            if url.startswith('http'):
+                return url
+            return request.build_absolute_uri(url)
+
         def fmt_note(n):
             return {
                 'id':                    n.id,
@@ -252,8 +259,8 @@ class PatientNotesView(APIView):
                 'products_used':         n.products_used,
                 'recommended_to_patient': n.recommended_to_patient,
                 'next_treatment':        n.next_treatment,
-                'before_photo':          n.before_photo or None,
-                'after_photo':           n.after_photo or None,
+                'before_photo':          _full_url(n.before_photo),
+                'after_photo':           _full_url(n.after_photo),
                 'appointment_status':    n.appointment.status if n.appointment else None,
             }
 
