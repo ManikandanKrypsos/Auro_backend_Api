@@ -313,8 +313,8 @@ class PatientNotesView(APIView):
             'products_used':         note.products_used,
             'recommended_to_patient': note.recommended_to_patient,
             'next_treatment':        note.next_treatment,
-            'before_photo':          note.before_photo or None,
-            'after_photo':           note.after_photo or None,
+            'before_photo':          note.before_photo if note.before_photo and note.before_photo.startswith('http') else request.build_absolute_uri(note.before_photo) if note.before_photo else None,
+            'after_photo':           note.after_photo if note.after_photo and note.after_photo.startswith('http') else request.build_absolute_uri(note.after_photo) if note.after_photo else None,
         }, status=201)
 
 
@@ -385,14 +385,21 @@ class PatientPhotosView(APIView):
             before_photo='', after_photo=''
         ).select_related('therapist').order_by('-created_at')
 
+        def _full_url_photos(url):
+            if not url:
+                return None
+            if url.startswith('http'):
+                return url
+            return request.build_absolute_uri(url)
+
         photos = [
             {
                 'session_id':     n.id,
                 'treatment_name': n.treatment_name,
                 'therapist':      n.therapist.username if n.therapist else None,
                 'date':           str(n.created_at.date()),
-                'before_photo':   n.before_photo or None,
-                'after_photo':    n.after_photo or None,
+                'before_photo':   _full_url_photos(n.before_photo),
+                'after_photo':    _full_url_photos(n.after_photo),
             }
             for n in notes
         ]
