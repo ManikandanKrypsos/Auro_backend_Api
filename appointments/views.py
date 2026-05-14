@@ -464,6 +464,23 @@ class AppointmentConsentView(APIView):
             appt.consent_form_url = url
 
         appt.save()
+
+        # Auto-create a ConsentRecord on the patient so it shows in patient consent tab
+        if appt.consent_status == 'signed' and appt.consent_form_url:
+            from patients.models import ConsentRecord
+            ConsentRecord.objects.get_or_create(
+                patient=appt.patient,
+                file_url=appt.consent_form_url,
+                defaults={
+                    'title':            f"Consent — {appt.treatment.name if appt.treatment else 'Treatment'}",
+                    'file_name':        f"consent_{appt.id}.pdf",
+                    'status':           'signed',
+                    'patient_signed':   True,
+                    'therapist_signed': False,
+                    'signed_date':      appt.date_time.date() if appt.date_time else None,
+                }
+            )
+
         return Response({
             'message':          'Consent updated.',
             'consent_status':   appt.consent_status,
