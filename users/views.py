@@ -244,15 +244,16 @@ class UserListView(APIView):
     permission_classes = [IsAdmin]
 
     def get(self, request):
-        role   = request.query_params.get('role', '')
-        search = request.query_params.get('search', '')
+        # NEW (fix):
+        role   = request.query_params.get('role', '').strip().lower()
+        search = request.query_params.get('search', '').strip()
 
-        # 👈 Only show reception and therapist — exclude admin and client
         users = User.objects.filter(
-            role__in=['reception', 'therapist']
+            role__in=['reception', 'therapist'],
+            is_active=True
         )
 
-        if role and role in ['reception', 'therapist']:
+        if role in ['reception', 'therapist']:
             users = users.filter(role=role)
 
         if search:
