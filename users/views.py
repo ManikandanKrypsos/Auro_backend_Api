@@ -259,7 +259,7 @@ class UserListView(APIView):
     GET /api/users/staff/?search=john
     Excludes admin — only active reception and therapist
     """
-    permission_classes = [IsAdmin]
+    permission_classes = [IsAuthenticated]
 
     def get(self, request):
         role   = request.query_params.get('role', '').strip().lower()
