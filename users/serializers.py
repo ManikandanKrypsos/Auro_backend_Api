@@ -84,9 +84,7 @@ class StaffUpdateSerializer(serializers.ModelSerializer):
         ]
 
     def validate_username(self, value):
-        user = self.instance
-        if User.objects.filter(username=value).exclude(pk=user.pk).exists():
-            raise serializers.ValidationError("This name is already taken by another staff member.")
+        # Allow same name for different staff — only email must be unique
         return value
 
     def validate_role_id(self, value):
