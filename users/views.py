@@ -413,6 +413,13 @@ class ResetPasswordView(APIView):
 
 def _format_staff(user, request=None):
     """Shared helper — returns a consistent staff dict."""
+    from appointments.models import Appointment
+
+    # Count unique patients who booked appointments with this staff
+    clients_count = Appointment.objects.filter(
+        staff=user
+    ).values('patient').distinct().count()
+
     return {
         'id':                   user.id,
         'username':             user.username or user.email.split('@')[0],
@@ -424,6 +431,8 @@ def _format_staff(user, request=None):
         'specialist_area':      user.specialist_area,
         'joining_date':         user.joining_date,
         'years_of_experience':  user.years_of_experience,
+        'rating':               0,           # default 0 — no rating system yet
+        'clients':              clients_count,
     }
 
 
