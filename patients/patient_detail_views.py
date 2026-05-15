@@ -119,6 +119,16 @@ class PatientOverviewView(APIView):
                 'subtitle': n.skin_observation[:80] if n.skin_observation else '',
             })
 
+        # Consent records
+        from patients.models import ConsentRecord
+        for c in ConsentRecord.objects.filter(patient=patient).order_by('-created_at')[:10]:
+            activity.append({
+                'type':     'consent',
+                'date':     str(c.created_at.date()),
+                'title':    'Consent Form Added',
+                'subtitle': f"{c.title or 'Consent'} · {c.status.capitalize() if c.status else ''}",
+            })
+
         # Payments
         for a in Appointment.objects.filter(
             patient=patient,
