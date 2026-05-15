@@ -126,6 +126,12 @@ class DashboardView(APIView):
             status='upcoming'
         ).select_related('patient', 'staff', 'treatment', 'room_fk').order_by('date_time')
 
+        # All in_session appointments right now
+        current_sessions = Appointment.objects.filter(
+            date_time__date=today,
+            status='in_session'
+        ).select_related('patient', 'staff', 'treatment', 'room_fk').order_by('date_time')
+
         return Response({
             'role':     'reception',
             'greeting': _get_greeting(),
@@ -135,8 +141,10 @@ class DashboardView(APIView):
                 'todays_appointments': todays_appts.count(),
                 'checked_in':          todays_appts.filter(patient_arrived=True).count(),
                 'cancelled':           todays_appts.filter(status='cancelled').count(),
+                'in_session':          current_sessions.count(),
                 'new_patients':        Patient.objects.filter(created_at__gte=start_of_month).count(),
             },
+            'current_sessions': [_fmt_appt(a) for a in current_sessions],
             'next_up': [_fmt_appt(a) for a in next_up],
         })
 
