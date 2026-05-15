@@ -205,7 +205,7 @@ class TherapistScheduleView(APIView):
 
         qs = Appointment.objects.select_related(
             'patient', 'treatment', 'room_fk', 'price_plan'
-        ).filter(staff=therapist).order_by('date_time')
+        ).filter(staff=therapist).exclude(status='cancelled').order_by('date_time')
 
         date       = request.query_params.get('date')
         start_date = request.query_params.get('start_date')

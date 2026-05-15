@@ -789,7 +789,7 @@ class CalendarView(APIView):
         from django.db.models import Q
         qs = Appointment.objects.select_related(
             'patient', 'staff', 'treatment', 'room_fk'
-        ).all()
+        ).exclude(status='cancelled')
 
         if hasattr(request.user, 'role') and request.user.role == 'therapist':
             qs = qs.filter(staff=request.user)
