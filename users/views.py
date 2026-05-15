@@ -10,6 +10,7 @@ from django.core.mail import send_mail
 from django.conf import settings
 import random
 import string
+import os
 
 
 ROLE_ID_MAP = {
@@ -17,6 +18,24 @@ ROLE_ID_MAP = {
     'reception': 2,
     'therapist': 3,
 }
+
+
+def _safe_image(url):
+    """Return None if image file doesn't exist on disk (deleted by Render redeploy)."""
+    if not url:
+        return None
+    if not url.startswith('http'):
+        return None
+    if 'auro-backend-api.onrender.com' in url and '/media/' in url:
+        try:
+            relative = url.split('/media/', 1)[1]
+            abs_path = os.path.join(settings.MEDIA_ROOT, relative)
+            if not os.path.exists(abs_path):
+                return None
+        except Exception:
+            return None
+    return url
+
 
 def get_tokens_for_user(user):
     refresh = RefreshToken.for_user(user)
@@ -99,7 +118,7 @@ class LoginView(APIView):
                     'email':         user.email,
                     'role':          user.role,
                     'role_id':       ROLE_ID_MAP.get(user.role, 1),
-                    'profile_image': user.profile_image or None,
+                    'profile_image': _safe_image(user.profile_image),
                 }
             })
         return Response(serializer.errors, status=400)
@@ -177,7 +196,7 @@ class MeView(APIView):
             'email':               u.email,
             'role':                u.role,
             'role_id':             ROLE_ID_MAP.get(u.role, 1),
-            'profile_image':       u.profile_image or None,
+            'profile_image':       _safe_image(u.profile_image),
             'phone':               u.phone if hasattr(u, 'phone') else None,
             'specialist_area':     u.specialist_area if hasattr(u, 'specialist_area') else None,
             'years_of_experience': u.years_of_experience if hasattr(u, 'years_of_experience') else None,
@@ -200,8 +219,6 @@ class MeView(APIView):
         # Handle image file upload
         image_file = request.FILES.get('profile_image')
         if image_file:
-            import os
-            from django.conf import settings
             upload_dir = os.path.join(settings.MEDIA_ROOT, 'staff')
             os.makedirs(upload_dir, exist_ok=True)
             ext      = os.path.splitext(image_file.name)[1].lower()
@@ -226,7 +243,7 @@ class MeView(APIView):
             'email':               user.email,
             'role':                user.role,
             'role_id':             ROLE_ID_MAP.get(user.role, 1),
-            'profile_image':       user.profile_image or None,
+            'profile_image':       _safe_image(user.profile_image),
             'phone':               user.phone if hasattr(user, 'phone') else None,
             'specialist_area':     user.specialist_area if hasattr(user, 'specialist_area') else None,
             'years_of_experience': user.years_of_experience if hasattr(user, 'years_of_experience') else None,
@@ -238,13 +255,13 @@ class UserListView(APIView):
     """
     GET /api/users/staff/
     GET /api/users/staff/?role=therapist
+    GET /api/users/staff/?role=reception
     GET /api/users/staff/?search=john
-    Excludes admin and client — only reception and therapist
+    Excludes admin — only active reception and therapist
     """
     permission_classes = [IsAdmin]
 
     def get(self, request):
-        # NEW (fix):
         role   = request.query_params.get('role', '').strip().lower()
         search = request.query_params.get('search', '').strip()
 
@@ -396,15 +413,13 @@ class ResetPasswordView(APIView):
 
 def _format_staff(user, request=None):
     """Shared helper — returns a consistent staff dict."""
-    image_url = user.profile_image if user.profile_image else None
-
     return {
         'id':                   user.id,
         'username':             user.username or user.email.split('@')[0],
         'email':                user.email,
         'role':                 user.role,
         'role_id':              ROLE_ID_MAP.get(user.role, 1),
-        'profile_image':        image_url,
+        'profile_image':        _safe_image(user.profile_image),
         'phone':                user.phone,
         'specialist_area':      user.specialist_area,
         'joining_date':         user.joining_date,
@@ -457,9 +472,6 @@ class StaffDetailView(APIView):
             # Handle image file upload — save file and return URL
             image_file = request.FILES.get('profile_image')
             if image_file:
-                import os
-                from django.conf import settings
-
                 # Save to MEDIA_ROOT/staff/
                 upload_dir = os.path.join(settings.MEDIA_ROOT, 'staff')
                 os.makedirs(upload_dir, exist_ok=True)
@@ -474,7 +486,7 @@ class StaffDetailView(APIView):
 
                 # Build absolute URL
                 base_url  = request.build_absolute_uri('/')
-                image_url = f"{base_url.rstrip('/')}{ settings.MEDIA_URL}staff/{filename}"
+                image_url = f"{base_url.rstrip('/')}{settings.MEDIA_URL}staff/{filename}"
                 updated_user.profile_image = image_url
                 updated_user.save()
             data = _format_staff(updated_user)

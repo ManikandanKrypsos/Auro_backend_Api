@@ -1,6 +1,7 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
+from utils.image_utils import safe_image_url
 from django.utils import timezone
 import datetime
 
@@ -105,7 +106,7 @@ class SessionDetailView(APIView):
                 'gender':           patient.gender if patient else None,
                 'phone':            patient.phone if patient else None,
                 'email':            patient.email if patient else None,
-                'image':            patient.image if patient else None,
+                'image':            safe_image_url(patient.image) if patient else None,
                 'skin_profile': {
                     'skin_type':        patient.skin_type if patient else None,
                     'fitzpatrick':      patient.tags if patient else None,  # reuse tags for fitzpatrick
