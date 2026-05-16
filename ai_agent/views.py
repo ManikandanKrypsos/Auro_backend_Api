@@ -7,7 +7,8 @@ import requests
 import os
 
 
-GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
+GROQ_MODEL   = "llama-3.1-8b-instant"  # free, fast
 
 
 def _get_clinic_context(user):
@@ -354,40 +355,42 @@ class AIChatView(APIView):
 
         system_prompt = _build_system_prompt(user, context)
 
-        # Build Gemini conversation
-        gemini_contents = []
+        # Build Groq messages (OpenAI format)
+        groq_messages = [{'role': 'system', 'content': system_prompt}]
         for h in history:
             if h.get('role') == 'user':
-                gemini_contents.append({'role': 'user', 'parts': [{'text': h['content']}]})
+                groq_messages.append({'role': 'user', 'content': h['content']})
             elif h.get('role') == 'assistant':
-                gemini_contents.append({'role': 'model', 'parts': [{'text': h['content']}]})
+                groq_messages.append({'role': 'assistant', 'content': h['content']})
+        groq_messages.append({'role': 'user', 'content': message})
 
-        full_message = f"{system_prompt}\n\nUser: {message}"
-        gemini_contents.append({'role': 'user', 'parts': [{'text': full_message}]})
+        def _call_groq(messages, api_key):
+            resp = requests.post(
+                GROQ_API_URL,
+                headers={'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'},
+                json={'model': GROQ_MODEL, 'messages': messages, 'max_tokens': 1024, 'temperature': 0.3},
+                timeout=30,
+            )
+            return resp.status_code, resp
 
         try:
-            api_key = os.environ.get('GEMINI_API_KEY', '')
+            api_key = os.environ.get('GROQ_API_KEY', '')
             if not api_key:
                 return Response({'error': 'AI service not configured.'}, status=503)
 
-            response = requests.post(
-                f"{GEMINI_API_URL}?key={api_key}",
-                headers={'Content-Type': 'application/json'},
-                json={'contents': gemini_contents},
-                timeout=30,
-            )
+            status_code, response = _call_groq(groq_messages, api_key)
 
-            if response.status_code != 200:
+            if status_code != 200:
                 return Response({'error': 'AI service error.', 'detail': response.text}, status=503)
 
             data  = response.json()
-            reply = data['candidates'][0]['content']['parts'][0]['text']
+            reply = data['choices'][0]['message']['content']
 
             # Detect action or options in reply
-            action_result = None
+            action_result  = None
             options_result = None
-            action_line   = None
-            clean_reply   = reply
+            action_line    = None
+            clean_reply    = reply
 
             for line in reply.split('\n'):
                 line_stripped = line.strip()
@@ -423,18 +426,22 @@ Show the available DATES as clickable options:
 SHOW_OPTIONS:{{"type":"date","question":"Which date would you like?","options":[{{"id":"YYYY-MM-DD","label":"Day, DD Mon YYYY","subtitle":"X slots available"}},...all available dates...]}}
 Format the label nicely e.g. "Mon, 20 May 2026". Count the slots for subtitle."""
 
-                    gemini_contents.append({'role': 'model', 'parts': [{'text': clean_reply}]})
-                    gemini_contents.append({'role': 'user', 'parts': [{'text': follow_up}]})
+                    groq_messages.append({'role': 'assistant', 'content': clean_reply})
+                    groq_messages.append({'role': 'user', 'content': follow_up})
 
-                    response2 = requests.post(
-                        f"{GEMINI_API_URL}?key={api_key}",
-                        headers={'Content-Type': 'application/json'},
-                        json={'contents': gemini_contents},
-                        timeout=30,
-                    )
-                    if response2.status_code == 200:
+                    status_code2, response2 = _call_groq(groq_messages, api_key)
+                    if status_code2 == 200:
                         data2       = response2.json()
-                        clean_reply = data2['candidates'][0]['content']['parts'][0]['text']
+                        clean_reply = data2['choices'][0]['message']['content']
+                        # Parse options from second response
+                        for line in clean_reply.split('\n'):
+                            if line.strip().startswith('SHOW_OPTIONS:'):
+                                try:
+                                    options_result = json.loads(line.strip().split('SHOW_OPTIONS:')[1])
+                                    clean_reply    = clean_reply.replace(line, '').strip()
+                                except Exception:
+                                    pass
+                                break
 
                 elif action_result and action_result.get('action') in ['BOOK_APPOINTMENT', 'CANCEL_APPOINTMENT']:
                     clean_reply = f"{clean_reply}\n\n{action_result.get('message', '')}".strip()
