@@ -4,18 +4,20 @@ from rest_framework.permissions import IsAuthenticated
 from django.utils import timezone
 import json
 import requests
+import os
 
 
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
 
 
 def _get_clinic_context(user):
-    """Build real clinic data context based on user role."""
     from appointments.models import Appointment
     from patients.models import Patient
     from users.models import User as UserModel
     from leads.models import Lead
     from inventory.models import InventoryItem
+    from treatments.models import Treatment
+    from rooms.models import Room
 
     today = timezone.localdate()
     now   = timezone.now()
@@ -28,36 +30,40 @@ def _get_clinic_context(user):
         'today': str(today),
     }
 
+    # Always include booking data
+    context['patients'] = [
+        {'db_id': p.id, 'patient_id': p.patient_id, 'name': p.name, 'phone': p.phone, 'category': p.category}
+        for p in Patient.objects.all().order_by('name')[:50]
+    ]
+    context['therapists'] = [
+        {'id': s.id, 'name': s.username or s.email.split('@')[0], 'specialist_area': s.specialist_area}
+        for s in UserModel.objects.filter(role='therapist', is_active=True).order_by('username')
+    ]
+    context['treatments'] = [
+        {
+            'id':          t.id,
+            'name':        t.name,
+            'duration':    t.duration,
+            'category':    t.category,
+            'price_plans': [{'id': p.id, 'sessions': p.sessions, 'price': str(p.price)} for p in t.price_plans.all()],
+        }
+        for t in Treatment.objects.prefetch_related('price_plans').all()
+    ]
+    context['rooms'] = [
+        {'id': r.id, 'name': r.name, 'room_type': r.room_type}
+        for r in Room.objects.all()
+    ]
+
+    # Role specific context
     if role == 'therapist':
-        todays_appts = Appointment.objects.filter(
-            staff=user, date_time__date=today
-        ).select_related('patient', 'treatment', 'room_fk')
+        todays_appts = Appointment.objects.filter(staff=user, date_time__date=today).select_related('patient', 'treatment', 'room_fk')
         context['my_schedule_today'] = [
-            {
-                'time':            a.date_time.strftime('%H:%M') if a.date_time else None,
-                'patient':         a.patient.name if a.patient else None,
-                'patient_id':      a.patient.patient_id if a.patient else None,
-                'patient_phone':   a.patient.phone if a.patient else None,
-                'treatment':       a.treatment.name if a.treatment else None,
-                'status':          a.status,
-                'duration':        a.duration,
-                'room':            a.room_fk.name if a.room_fk else None,
-                'session':         f"Session {a.session_number} of {a.total_sessions}",
-            }
+            {'time': a.date_time.strftime('%H:%M') if a.date_time else None, 'patient': a.patient.name if a.patient else None,
+             'treatment': a.treatment.name if a.treatment else None, 'status': a.status, 'appointment_id': a.id}
             for a in todays_appts.order_by('date_time')
         ]
-        context['total_today']       = todays_appts.count()
-        context['completed_today']   = todays_appts.filter(status='completed').count()
-        context['pending_today']      = todays_appts.filter(status='upcoming').count()
-        context['in_session']         = todays_appts.filter(status='in_session').count()
-        context['my_patients_count']  = Appointment.objects.filter(staff=user).values('patient').distinct().count()
-        from patients.models import Patient as PatientModel
-        patient_ids = Appointment.objects.filter(staff=user).values_list('patient_id', flat=True).distinct()
-        context['my_patients'] = [
-            {'id': p.patient_id, 'name': p.name, 'phone': p.phone, 'email': p.email,
-             'gender': p.gender, 'category': p.category, 'allergies': p.allergies, 'skin_type': p.skin_type}
-            for p in PatientModel.objects.filter(id__in=patient_ids).order_by('-created_at')[:20]
-        ]
+        context['total_today']     = todays_appts.count()
+        context['completed_today'] = todays_appts.filter(status='completed').count()
 
     elif role == 'reception':
         todays_appts = Appointment.objects.filter(date_time__date=today)
@@ -65,184 +71,134 @@ def _get_clinic_context(user):
         context['checked_in']          = todays_appts.filter(patient_arrived=True).count()
         context['cancelled_today']      = todays_appts.filter(status='cancelled').count()
         context['in_session_today']     = todays_appts.filter(status='in_session').count()
-        context['total_patients']       = Patient.objects.count()
-        context['new_patients_month']   = Patient.objects.filter(created_at__gte=now.replace(day=1)).count()
-        context['active_leads']         = Lead.objects.filter(stage__in=['new_inquiries','engaged','consultation','winning']).count()
         context['todays_schedule'] = [
-            {'time': a.date_time.strftime('%H:%M') if a.date_time else None,
-             'patient': a.patient.name if a.patient else None,
-             'treatment': a.treatment.name if a.treatment else None,
-             'therapist': a.staff.username if a.staff else None,
-             'status': a.status}
-            for a in todays_appts.select_related('patient','treatment','staff').order_by('date_time')
-        ]
-        context['recent_leads'] = [
-            {'name': l.name, 'phone': l.phone, 'stage': l.stage}
-            for l in Lead.objects.order_by('-created_at')[:5]
-        ]
-        context['patients'] = [
-            {'id': p.patient_id, 'name': p.name, 'phone': p.phone, 'email': p.email,
-             'gender': p.gender, 'category': p.category, 'allergies': p.allergies}
-            for p in Patient.objects.all().order_by('-created_at')[:20]
+            {'appointment_id': a.id, 'time': a.date_time.strftime('%H:%M') if a.date_time else None,
+             'patient': a.patient.name if a.patient else None, 'treatment': a.treatment.name if a.treatment else None,
+             'therapist': a.staff.username if a.staff else None, 'status': a.status}
+            for a in todays_appts.select_related('patient', 'treatment', 'staff').order_by('date_time')
         ]
 
     else:
         from django.db.models import Sum, Count
-        from treatments.models import Treatment
         start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
         todays_appts   = Appointment.objects.filter(date_time__date=today)
         month_appts    = Appointment.objects.filter(date_time__gte=start_of_month)
         context['todays_appointments']  = todays_appts.count()
         context['monthly_appointments'] = month_appts.count()
-        context['total_patients']       = Patient.objects.count()
-        context['active_leads']         = Lead.objects.filter(stage__in=['new_inquiries','engaged','consultation','winning']).count()
-        context['total_leads']          = Lead.objects.count()
         context['revenue_this_month']   = float(month_appts.filter(status='completed').aggregate(t=Sum('payment_amount'))['t'] or 0)
-        context['low_stock_items']      = InventoryItem.objects.filter(current_stock__lte=10).count()
-        staff_list = UserModel.objects.filter(role__in=['therapist','reception'], is_active=True).values('id','username','email','phone','role','specialist_area')
-        context['total_staff']  = len(list(staff_list))
-        context['staff_list']   = [{'id': s['id'], 'name': s['username'] or s['email'].split('@')[0], 'role': s['role'], 'email': s['email'], 'phone': s['phone'], 'specialist_area': s['specialist_area']} for s in staff_list]
-        context['todays_schedule'] = [{'time': a.date_time.strftime('%H:%M') if a.date_time else None, 'patient': a.patient.name if a.patient else None, 'treatment': a.treatment.name if a.treatment else None, 'therapist': a.staff.username if a.staff else None, 'status': a.status} for a in todays_appts.select_related('patient','treatment','staff').order_by('date_time')]
-        therapist_stats = []
-        for s in UserModel.objects.filter(role='therapist', is_active=True):
-            sa = Appointment.objects.filter(staff=s, date_time__gte=start_of_month)
-            therapist_stats.append({'name': s.username or s.email.split('@')[0], 'sessions': sa.count(), 'completed': sa.filter(status='completed').count(), 'revenue': float(sa.filter(status='completed').aggregate(t=Sum('payment_amount'))['t'] or 0)})
-        therapist_stats.sort(key=lambda x: x['revenue'], reverse=True)
-        context['therapist_performance'] = therapist_stats
-        context['recent_leads'] = [{'name': l.name, 'phone': l.phone, 'source': l.source, 'stage': l.stage, 'value': str(l.value)} for l in Lead.objects.order_by('-created_at')[:5]]
-        context['patient_categories'] = {'new': Patient.objects.filter(category='New').count(), 'returning': Patient.objects.filter(category='Returning').count(), 'vip': Patient.objects.filter(category='VIP').count()}
-        context['patients'] = [{'id': p.patient_id, 'name': p.name, 'phone': p.phone, 'email': p.email, 'gender': p.gender, 'category': p.category, 'allergies': p.allergies} for p in Patient.objects.all().order_by('-created_at')[:20]]
-        context['low_stock_details'] = [{'name': i.name, 'current_stock': i.current_stock, 'minimum_stock': i.minimum_stock_alert, 'unit': i.unit} for i in InventoryItem.objects.filter(current_stock__lte=10)[:10]]
-        context['top_services'] = [{'treatment': s['treatment__name'], 'bookings': s['count']} for s in Appointment.objects.filter(date_time__gte=start_of_month).values('treatment__name').annotate(count=Count('id')).order_by('-count')[:5]]
+        context['todays_schedule'] = [
+            {'appointment_id': a.id, 'time': a.date_time.strftime('%H:%M') if a.date_time else None,
+             'patient': a.patient.name if a.patient else None, 'treatment': a.treatment.name if a.treatment else None,
+             'therapist': a.staff.username if a.staff else None, 'status': a.status}
+            for a in todays_appts.select_related('patient', 'treatment', 'staff').order_by('date_time')
+        ]
 
     return context
 
 
 def _build_system_prompt(user, context):
-    """Build role-specific system prompt with clinic data and booking capability."""
     role = context.get('role', '')
     name = context.get('name', '')
 
-    base = f"""You are AURA AI, an intelligent assistant for Aura Clinic management system.
-You are currently talking to {name}, who is a {role}.
-Today's date is {context.get('today')}.
+    # Build readable lists for AI to use
+    patients_list  = '\n'.join([f"  {i+1}. {p['name']} (ID: {p['patient_id']}, db_id: {p['db_id']})" for i, p in enumerate(context.get('patients', []))])
+    therapists_list = '\n'.join([f"  {i+1}. {t['name']} (id: {t['id']}) - {t['specialist_area']}" for i, t in enumerate(context.get('therapists', []))])
+    treatments_list = '\n'.join([f"  {i+1}. {t['name']} (id: {t['id']}, {t['duration']} min, category: {t['category']})" for i, t in enumerate(context.get('treatments', []))])
+    rooms_list      = '\n'.join([f"  {i+1}. {r['name']} (id: {r['id']}, type: {r['room_type']})" for i, r in enumerate(context.get('rooms', []))])
 
-You have access to real-time clinic data provided below.
-Be concise, helpful and professional. Use the data to give accurate answers.
-Never make up patient names, appointment times or financial figures.
+    return f"""You are AURA AI, an intelligent assistant for Aura Clinic.
+You are talking to {name}, who is a {role}. Today is {context.get('today')}.
 
-CURRENT CLINIC DATA:
-{json.dumps(context, indent=2)}
+CLINIC DATA:
+{json.dumps({k: v for k, v in context.items() if k not in ['patients', 'therapists', 'treatments', 'rooms']}, indent=2)}
 
----
-BOOKING APPOINTMENTS CAPABILITY:
-You can help book appointments by collecting required information step by step.
-When user wants to book an appointment, follow this exact flow:
+AVAILABLE PATIENTS:
+{patients_list}
 
-STEP 1 - Ask for patient (search by name or ID from patients list above)
-STEP 2 - Ask for treatment/service
-STEP 3 - Ask for therapist (show available therapists)
-STEP 4 - Ask for preferred date
-STEP 5 - Call available slots and show options (you will receive slot data)
-STEP 6 - Ask which time slot they want
-STEP 7 - Ask for room (if not auto-selected)
-STEP 8 - Confirm all details before booking
-STEP 9 - Return action: BOOK_APPOINTMENT with all collected data
+AVAILABLE THERAPISTS:
+{therapists_list}
 
-When you have collected ALL required information and user confirms, respond with this EXACT format at the END of your message:
-ACTION:BOOK_APPOINTMENT:{{"patient_id":"<id>","staff_id":<id>,"treatment_id":<id>,"room_id":<id>,"price_plan_id":<id>,"date":"YYYY-MM-DD","time":"HH:MM"}}
+AVAILABLE TREATMENTS:
+{treatments_list}
 
-When you need to check available slots, respond with:
-ACTION:GET_SLOTS:{{"staff_id":<id>,"service_id":<id>,"month":"YYYY-MM","room_id":<id>}}
+AVAILABLE ROOMS:
+{rooms_list}
 
-When you need to get treatments list, respond with:
-ACTION:GET_TREATMENTS:{{}}
+===== APPOINTMENT BOOKING FLOW =====
+When user wants to BOOK an appointment, follow these steps IN ORDER:
 
-When you need to get rooms list, respond with:
-ACTION:GET_ROOMS:{{}}
+STEP 1: Show the PATIENTS LIST above and ask "Which patient?"
+STEP 2: After patient selected → Show TREATMENTS LIST and ask "Which treatment?"
+STEP 3: After treatment selected → Show THERAPISTS LIST and ask "Which therapist?"
+STEP 4: After therapist selected → Show ROOMS LIST and ask "Which room?"
+STEP 5: After room selected → Ask "What date? (e.g. 2026-05-20)"
+STEP 6: After date given → respond ONLY with this action (nothing else on that line):
+         ACTION:GET_SLOTS:{{"staff_id":<therapist_id>,"service_id":<treatment_id>,"month":"YYYY-MM","room_id":<room_id>}}
+STEP 7: After slots shown → ask "Which time slot?"
+STEP 8: After time selected → Show FULL SUMMARY and ask "Confirm booking? (yes/no)"
+STEP 9: If user says YES → respond with:
+         ACTION:BOOK_APPOINTMENT:{{"patient_id":<db_id>,"staff_id":<id>,"treatment_id":<id>,"room_id":<id>,"price_plan_id":<id>,"date":"YYYY-MM-DD","time":"HH:MM"}}
 
-Important rules for booking:
-- Always confirm with user before final booking
-- Show a clear summary before booking
-- patient_id should be the numeric DB id (not Aura49 format)
-- If patient not found in list, ask them to check the name
+===== CANCEL APPOINTMENT FLOW =====
+When user wants to CANCEL an appointment:
+STEP 1: Show today's schedule with appointment IDs and ask which one to cancel
+STEP 2: After user selects → Show appointment details and ask "Confirm cancel? (yes/no)"
+STEP 3: If YES → respond with:
+         ACTION:CANCEL_APPOINTMENT:{{"appointment_id":<id>}}
+
+===== RULES =====
+- ALWAYS show the list BEFORE asking the question — never ask without showing options
+- Use db_id (not patient_id like Aura49) for BOOK_APPOINTMENT patient_id field
+- price_plan_id: use the first price plan id from the selected treatment
+- Only ONE action per response, on its own line
+- After booking/cancelling confirm to the user with a friendly message
+- For questions NOT about booking/cancelling, just answer from the clinic data
 """
 
-    if role == 'therapist':
-        base += "\nYou can help therapists book follow-up appointments for their patients."
-    elif role == 'reception':
-        base += "\nYou assist reception with booking appointments for patients."
-    else:
-        base += "\nAs admin you have full access to book and manage appointments."
 
-    return base
-
-
-def _execute_action(action_str, token):
-    """Execute an action returned by AI — calls backend APIs."""
-    import re
+def _call_api(method, endpoint, token, body=None, params=None):
     base_url = "https://auro-backend-api.onrender.com/api"
     headers  = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-
+    url      = f"{base_url}{endpoint}"
     try:
-        if action_str.startswith("ACTION:GET_TREATMENTS:"):
-            resp = requests.get(f"{base_url}/treatments/", headers=headers, timeout=10)
-            treatments = resp.json()
-            return {
-                'action':     'GET_TREATMENTS',
-                'data':       [{'id': t['id'], 'name': t['name'], 'duration': t['duration'],
-                                'price_plans': t.get('price_plans', [])} for t in treatments],
-                'message':    'Here are the available treatments:'
-            }
+        if method == 'GET':
+            resp = requests.get(url, headers=headers, params=params, timeout=15)
+        elif method == 'POST':
+            resp = requests.post(url, headers=headers, json=body, timeout=15)
+        elif method == 'PATCH':
+            resp = requests.patch(url, headers=headers, json=body, timeout=15)
+        return resp.status_code, resp.json()
+    except Exception as e:
+        return 500, {'error': str(e)}
 
-        elif action_str.startswith("ACTION:GET_ROOMS:"):
-            resp = requests.get(f"{base_url}/rooms/", headers=headers, timeout=10)
-            rooms = resp.json()
-            return {
-                'action':  'GET_ROOMS',
-                'data':    rooms,
-                'message': 'Here are the available rooms:'
-            }
 
-        elif action_str.startswith("ACTION:GET_SLOTS:"):
-            params_str = action_str.split("ACTION:GET_SLOTS:")[1]
-            params     = json.loads(params_str)
-            resp = requests.get(
-                f"{base_url}/appointments/available-slots/",
-                params=params,
-                headers=headers,
-                timeout=10
-            )
-            return {
-                'action':  'GET_SLOTS',
-                'data':    resp.json(),
-                'message': 'Here are the available slots:'
-            }
+def _execute_action(action_line, token):
+    try:
+        if action_line.startswith("ACTION:GET_SLOTS:"):
+            params = json.loads(action_line.split("ACTION:GET_SLOTS:")[1])
+            status, data = _call_api('GET', '/appointments/available-slots/', token, params=params)
+            return {'action': 'GET_SLOTS', 'status': status, 'data': data}
 
-        elif action_str.startswith("ACTION:BOOK_APPOINTMENT:"):
-            params_str = action_str.split("ACTION:BOOK_APPOINTMENT:")[1]
-            body       = json.loads(params_str)
-            resp = requests.post(
-                f"{base_url}/appointments/",
-                json=body,
-                headers=headers,
-                timeout=10
-            )
-            if resp.status_code == 201:
-                appt = resp.json()
-                return {
-                    'action':  'BOOK_APPOINTMENT',
-                    'success': True,
-                    'data':    appt,
-                    'message': f"✅ Appointment booked successfully! ID: {appt.get('id')}"
-                }
+        elif action_line.startswith("ACTION:BOOK_APPOINTMENT:"):
+            body   = json.loads(action_line.split("ACTION:BOOK_APPOINTMENT:")[1])
+            status, data = _call_api('POST', '/appointments/', token, body=body)
+            if status == 201:
+                return {'action': 'BOOK_APPOINTMENT', 'success': True, 'data': data,
+                        'message': f"✅ Appointment booked! ID: {data.get('id')}"}
             else:
-                return {
-                    'action':  'BOOK_APPOINTMENT',
-                    'success': False,
-                    'data':    resp.json(),
-                    'message': f"❌ Booking failed: {resp.json()}"
-                }
+                return {'action': 'BOOK_APPOINTMENT', 'success': False, 'data': data,
+                        'message': f"❌ Booking failed: {data}"}
+
+        elif action_line.startswith("ACTION:CANCEL_APPOINTMENT:"):
+            body   = json.loads(action_line.split("ACTION:CANCEL_APPOINTMENT:")[1])
+            appt_id = body.get('appointment_id')
+            status, data = _call_api('PATCH', f'/appointments/{appt_id}/status/', token, body={'status': 'cancelled'})
+            if status == 200:
+                return {'action': 'CANCEL_APPOINTMENT', 'success': True,
+                        'message': f"✅ Appointment #{appt_id} has been cancelled."}
+            else:
+                return {'action': 'CANCEL_APPOINTMENT', 'success': False, 'data': data,
+                        'message': f"❌ Cancel failed: {data}"}
 
     except Exception as e:
         return {'action': 'ERROR', 'message': str(e)}
@@ -253,16 +209,12 @@ def _execute_action(action_str, token):
 class AIChatView(APIView):
     """
     POST /api/ai/chat/
-    Chat with the Aura AI agent. Supports booking appointments conversationally.
+    Conversational AI that can book and cancel appointments.
 
     Body:
     {
-        "message": "I want to book an appointment",
-        "conversation_history": [
-            {"role": "user", "content": "Hello"},
-            {"role": "assistant", "content": "Hi! How can I help?"}
-        ],
-        "auth_token": "Bearer eyJ..."   // pass JWT token for booking actions
+        "message": "Book an appointment",
+        "conversation_history": []
     }
     """
     permission_classes = [IsAuthenticated]
@@ -270,11 +222,9 @@ class AIChatView(APIView):
     def post(self, request):
         from users.models import User as UserModel
 
-        message  = request.data.get('message', '').strip()
-        history  = request.data.get('conversation_history', [])
-        # Get auth token for action execution
-        auth_header = request.META.get('HTTP_AUTHORIZATION', '')
-        token = auth_header.replace('Bearer ', '').strip()
+        message = request.data.get('message', '').strip()
+        history = request.data.get('conversation_history', [])
+        token   = request.META.get('HTTP_AUTHORIZATION', '').replace('Bearer ', '').strip()
 
         if not message:
             return Response({'error': 'message is required.'}, status=400)
@@ -287,11 +237,13 @@ class AIChatView(APIView):
         try:
             context = _get_clinic_context(user)
         except Exception as e:
-            context = {'role': getattr(user, 'role', ''), 'name': user.username, 'today': str(timezone.localdate())}
+            context = {'role': getattr(user, 'role', ''), 'name': user.username,
+                       'today': str(timezone.localdate()), 'patients': [], 'therapists': [],
+                       'treatments': [], 'rooms': []}
 
         system_prompt = _build_system_prompt(user, context)
 
-        # Build Gemini messages
+        # Build Gemini conversation
         gemini_contents = []
         for h in history:
             if h.get('role') == 'user':
@@ -299,14 +251,13 @@ class AIChatView(APIView):
             elif h.get('role') == 'assistant':
                 gemini_contents.append({'role': 'model', 'parts': [{'text': h['content']}]})
 
-        full_message = f"{system_prompt}\n\nUser message: {message}"
+        full_message = f"{system_prompt}\n\nUser: {message}"
         gemini_contents.append({'role': 'user', 'parts': [{'text': full_message}]})
 
         try:
-            import os
             api_key = os.environ.get('GEMINI_API_KEY', '')
             if not api_key:
-                return Response({'error': 'AI service not configured. Please contact admin.'}, status=503)
+                return Response({'error': 'AI service not configured.'}, status=503)
 
             response = requests.post(
                 f"{GEMINI_API_URL}?key={api_key}",
@@ -316,29 +267,38 @@ class AIChatView(APIView):
             )
 
             if response.status_code != 200:
-                return Response({'error': 'AI service error. Please try again.', 'detail': response.text}, status=503)
+                return Response({'error': 'AI service error.', 'detail': response.text}, status=503)
 
             data  = response.json()
             reply = data['candidates'][0]['content']['parts'][0]['text']
 
-            # Check if AI returned an action
+            # Detect action in reply
             action_result = None
             action_line   = None
+            clean_reply   = reply
 
             for line in reply.split('\n'):
                 if line.strip().startswith('ACTION:'):
                     action_line = line.strip()
+                    clean_reply = reply.replace(action_line, '').strip()
                     break
 
             if action_line and token:
                 action_result = _execute_action(action_line, token)
-                # Remove action line from reply shown to user
-                reply = reply.replace(action_line, '').strip()
 
-                # If action was GET_SLOTS or GET_TREATMENTS, feed result back to AI
-                if action_result and action_result.get('action') in ['GET_SLOTS', 'GET_TREATMENTS', 'GET_ROOMS']:
-                    follow_up = f"Here is the data you requested:\n{json.dumps(action_result['data'], indent=2)}\n\nNow present this to the user in a friendly way and ask them to choose."
-                    gemini_contents.append({'role': 'model', 'parts': [{'text': reply}]})
+                # If GET_SLOTS — feed slot data back to AI to present nicely
+                if action_result and action_result.get('action') == 'GET_SLOTS':
+                    slot_data = action_result.get('data', {})
+                    follow_up = f"""The available slots data is:
+{json.dumps(slot_data, indent=2)}
+
+Present these slots to the user in a simple numbered list format like:
+1. 09:00 AM
+2. 10:30 AM
+etc.
+Only show available (unblocked) time slots. Ask which slot they prefer."""
+
+                    gemini_contents.append({'role': 'model', 'parts': [{'text': clean_reply}]})
                     gemini_contents.append({'role': 'user', 'parts': [{'text': follow_up}]})
 
                     response2 = requests.post(
@@ -348,11 +308,14 @@ class AIChatView(APIView):
                         timeout=30,
                     )
                     if response2.status_code == 200:
-                        data2  = response2.json()
-                        reply  = data2['candidates'][0]['content']['parts'][0]['text']
+                        data2       = response2.json()
+                        clean_reply = data2['candidates'][0]['content']['parts'][0]['text']
+
+                elif action_result and action_result.get('action') in ['BOOK_APPOINTMENT', 'CANCEL_APPOINTMENT']:
+                    clean_reply = f"{clean_reply}\n\n{action_result.get('message', '')}".strip()
 
             return Response({
-                'reply':         reply,
+                'reply':         clean_reply,
                 'role':          context.get('role'),
                 'action_result': action_result,
                 'context': {
@@ -362,6 +325,6 @@ class AIChatView(APIView):
             })
 
         except requests.Timeout:
-            return Response({'error': 'AI response timed out. Please try again.'}, status=504)
+            return Response({'error': 'AI response timed out.'}, status=504)
         except Exception as e:
             return Response({'error': f'AI service error: {str(e)}'}, status=503)
