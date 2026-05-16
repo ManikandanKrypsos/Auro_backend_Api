@@ -130,38 +130,40 @@ If patient/treatment/therapist/room already mentioned — extract and skip those
 
 STEPS (skip any step where info already provided):
 STEP 1: If patient not given → respond with JSON block at end:
-SHOW_OPTIONS:{"type":"patient","question":"Which patient would you like to book for?","options":[{"id":<db_id>,"label":"<name>","subtitle":"<patient_id>"},...]}
+SHOW_OPTIONS:{{"type":"patient","question":"Which patient would you like to book for?","options":[{{"id":<db_id>,"label":"<name>","subtitle":"<patient_id>"}},...]}}
 
 STEP 2: If treatment not given → respond with:
-SHOW_OPTIONS:{"type":"treatment","question":"Which treatment?","options":[{"id":<id>,"label":"<name>","subtitle":"<duration> min"},...]}
+SHOW_OPTIONS:{{"type":"treatment","question":"Which treatment?","options":[{{"id":<id>,"label":"<name>","subtitle":"<duration> min"}},...]}}
 
 STEP 3: If therapist not given → respond with:
-SHOW_OPTIONS:{"type":"therapist","question":"Which therapist?","options":[{"id":<id>,"label":"<name>","subtitle":"<specialist_area>"},...]}
+SHOW_OPTIONS:{{"type":"therapist","question":"Which therapist?","options":[{{"id":<id>,"label":"<name>","subtitle":"<specialist_area>"}},...]}}
 
 STEP 4: If room not given → respond with:
-SHOW_OPTIONS:{"type":"room","question":"Which room?","options":[{"id":<id>,"label":"<name>","subtitle":"<room_type>"},...]}
+SHOW_OPTIONS:{{"type":"room","question":"Which room?","options":[{{"id":<id>,"label":"<name>","subtitle":"<room_type>"}},...]}}
 
 STEP 5: If date not given → respond with:
-SHOW_OPTIONS:{"type":"date","question":"What date would you like?","options":[]}
+SHOW_OPTIONS:{{"type":"date","question":"What date would you like?","options":[]}}
 
 STEP 6: Once patient+treatment+therapist+room+date all collected → fetch slots:
-ACTION:GET_SLOTS:{"staff_id":<id>,"service_id":<id>,"month":"YYYY-MM","room_id":<id>}
+ACTION:GET_SLOTS:{{"staff_id":<id>,"service_id":<id>,"month":"YYYY-MM","room_id":<id>}}
 
 STEP 7: After slots → show slot options:
-SHOW_OPTIONS:{"type":"slot","question":"Which time slot?","options":[{"id":"HH:MM","label":"HH:MM AM/PM","subtitle":"available"},...]}
+SHOW_OPTIONS:{{"type":"slot","question":"Which time slot?","options":[{{"id":"HH:MM","label":"HH:MM AM/PM","subtitle":"available"}},...]}}
 
 STEP 8: After slot selected → Show summary and:
-SHOW_OPTIONS:{"type":"confirm","question":"Confirm this booking?","options":[{"id":"yes","label":"✅ Confirm"},{"id":"no","label":"❌ Cancel"}],"summary":{"patient":"<name>","treatment":"<name>","therapist":"<name>","room":"<name>","date":"<date>","time":"<time>"}}
+SHOW_OPTIONS:{{"type":"confirm","question":"Confirm this booking?","options":[{{"id":"yes","label":"✅ Confirm"}},{{"id":"no","label":"❌ Cancel"}}],"summary":{{"patient":"<name>","treatment":"<name>","therapist":"<name>","room":"<name>","date":"<date>","time":"<time>"}}}}
 
 STEP 9: If confirmed →
-ACTION:BOOK_APPOINTMENT:{"patient_id":<db_id>,"staff_id":<id>,"treatment_id":<id>,"room_id":<id>,"price_plan_id":<id>,"date":"YYYY-MM-DD","time":"HH:MM"}
+ACTION:BOOK_APPOINTMENT:{{"patient_id":<db_id>,"staff_id":<id>,"treatment_id":<id>,"room_id":<id>,"price_plan_id":<id>,"date":"YYYY-MM-DD","time":"HH:MM"}}
 
 ===== CANCEL APPOINTMENT FLOW =====
 When user wants to CANCEL an appointment:
-STEP 1: Show today's schedule with appointment IDs and ask which one to cancel
-STEP 2: After user selects → Show appointment details and ask "Confirm cancel? (yes/no)"
-STEP 3: If YES → respond with:
-         ACTION:CANCEL_APPOINTMENT:{{"appointment_id":<id>}}
+STEP 1: Show today's schedule with appointment IDs:
+SHOW_OPTIONS:{{"type":"cancel_select","question":"Which appointment to cancel?","options":[{{"id":<appointment_id>,"label":"<time> - <patient>","subtitle":"<treatment>"}},...]}}
+STEP 2: After user selects → ask confirm:
+SHOW_OPTIONS:{{"type":"confirm_cancel","question":"Cancel this appointment?","options":[{{"id":"yes","label":"✅ Yes, Cancel"}},{{"id":"no","label":"❌ No, Keep it"}}]}}
+STEP 3: If YES →
+ACTION:CANCEL_APPOINTMENT:{{"appointment_id":<id>}}
 
 ===== RULES =====
 - ALWAYS show the list BEFORE asking the question — never ask without showing options
