@@ -141,16 +141,17 @@ SHOW_OPTIONS:{{"type":"therapist","question":"Which therapist?","options":[{{"id
 STEP 4: If room not given → respond with:
 SHOW_OPTIONS:{{"type":"room","question":"Which room?","options":[{{"id":<id>,"label":"<name>","subtitle":"<room_type>"}},...]}}
 
-STEP 5: If date not given → respond with:
-SHOW_OPTIONS:{{"type":"date","question":"What date would you like?","options":[]}}
-
-STEP 6: Once patient+treatment+therapist+room+date all collected → fetch slots:
+STEP 5: If date not given → First fetch available slots for the month:
 ACTION:GET_SLOTS:{{"staff_id":<id>,"service_id":<id>,"month":"YYYY-MM","room_id":<id>}}
 
-STEP 7: After slots → show slot options:
-SHOW_OPTIONS:{{"type":"slot","question":"Which time slot?","options":[{{"id":"HH:MM","label":"HH:MM AM/PM","subtitle":"available"}},...]}}
+STEP 6: After getting slots data → Extract dates that have available time slots (is_working_day=true and has unblocked times).
+Show those dates as options:
+SHOW_OPTIONS:{{"type":"date","question":"Which date would you like?","options":[{{"id":"YYYY-MM-DD","label":"Mon, 20 May 2026","subtitle":"X slots available"}},...]}}
+If no dates available say "No available dates this month for this therapist."
 
-STEP 8: After slot selected → Show summary and:
+STEP 7: After date selected → Show available time slots for that specific date only:
+SHOW_OPTIONS:{{"type":"slot","question":"Which time slot?","options":[{{"id":"HH:MM","label":"10:30 AM","subtitle":"available"}},...]}}
+If no slots available for that date say "No available slots on this date. Please choose another date."
 SHOW_OPTIONS:{{"type":"confirm","question":"Confirm this booking?","options":[{{"id":"yes","label":"✅ Confirm"}},{{"id":"no","label":"❌ Cancel"}}],"summary":{{"patient":"<name>","treatment":"<name>","therapist":"<name>","room":"<name>","date":"<date>","time":"<time>"}}}}
 
 STEP 9: If confirmed →
@@ -315,17 +316,25 @@ class AIChatView(APIView):
             if action_line and token:
                 action_result = _execute_action(action_line, token)
 
-                # If GET_SLOTS — feed slot data back to AI to present nicely
+                # If GET_SLOTS — process slots and show available dates
                 if action_result and action_result.get('action') == 'GET_SLOTS':
                     slot_data = action_result.get('data', {})
-                    follow_up = f"""The available slots data is:
+                    follow_up = f"""The available slots API returned this data:
 {json.dumps(slot_data, indent=2)}
 
-Present these slots to the user in a simple numbered list format like:
-1. 09:00 AM
-2. 10:30 AM
-etc.
-Only show available (unblocked) time slots. Ask which slot they prefer."""
+From this data:
+1. Find all dates where is_working_day=true
+2. For each working day, calculate available time slots by:
+   - Start from effective_window.start
+   - End at effective_window.end
+   - Skip any blocked_ranges (breaks, booked slots, room unavailable)
+   - Each slot = treatment duration minutes apart
+3. Only include dates that have at least 1 available slot
+4. Show those dates as SHOW_OPTIONS with type="date"
+5. Format: label="Mon, 20 May 2026", subtitle="X slots available", id="YYYY-MM-DD"
+6. If no dates have available slots, say "No available dates this month."
+
+Respond with the SHOW_OPTIONS for dates."""
 
                     gemini_contents.append({'role': 'model', 'parts': [{'text': clean_reply}]})
                     gemini_contents.append({'role': 'user', 'parts': [{'text': follow_up}]})
