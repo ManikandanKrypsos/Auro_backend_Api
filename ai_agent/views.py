@@ -292,7 +292,30 @@ def _execute_action(action_line, token):
                 return {'action': 'GET_SLOTS', 'status': 500, 'data': {'error': str(e)}}
 
         elif action_line.startswith("ACTION:BOOK_APPOINTMENT:"):
-            body   = json.loads(action_line.split("ACTION:BOOK_APPOINTMENT:")[1])
+            try:
+                # Clean up common AI JSON mistakes
+                raw = action_line.split("ACTION:BOOK_APPOINTMENT:")[1]
+                # Fix single quotes, trailing commas etc
+                raw = raw.strip()
+                body = json.loads(raw)
+            except Exception:
+                # Try to extract values using regex
+                import re
+                raw  = action_line.split("ACTION:BOOK_APPOINTMENT:")[1]
+                body = {}
+                for key in ['patient_id','staff_id','treatment_id','room_id','price_plan_id']:
+                    m = re.search(rf'"{key}"\s*:\s*(\d+)', raw)
+                    if m:
+                        body[key] = int(m.group(1))
+                for key in ['date','time']:
+                    m = re.search(rf'"{key}"\s*:\s*"([^"]+)"', raw)
+                    if m:
+                        body[key] = m.group(1)
+
+            if not body or 'patient_id' not in body:
+                return {'action': 'BOOK_APPOINTMENT', 'success': False,
+                        'message': '❌ Could not parse booking details. Please try again.'}
+
             status, data = _call_api('POST', '/appointments/', token, body=body)
             if status == 201:
                 return {'action': 'BOOK_APPOINTMENT', 'success': True, 'data': data,
