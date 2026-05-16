@@ -293,47 +293,91 @@ def _execute_action(action_line, token):
 
         elif action_line.startswith("ACTION:BOOK_APPOINTMENT:"):
             try:
-                # Clean up common AI JSON mistakes
-                raw = action_line.split("ACTION:BOOK_APPOINTMENT:")[1]
-                # Fix single quotes, trailing commas etc
-                raw = raw.strip()
-                body = json.loads(raw)
-            except Exception:
-                # Try to extract values using regex
-                import re
-                raw  = action_line.split("ACTION:BOOK_APPOINTMENT:")[1]
-                body = {}
-                for key in ['patient_id','staff_id','treatment_id','room_id','price_plan_id']:
-                    m = re.search(rf'"{key}"\s*:\s*(\d+)', raw)
-                    if m:
-                        body[key] = int(m.group(1))
-                for key in ['date','time']:
-                    m = re.search(rf'"{key}"\s*:\s*"([^"]+)"', raw)
-                    if m:
-                        body[key] = m.group(1)
+                import re, datetime
+                from appointments.models import Appointment
+                from patients.models import Patient
+                from users.models import User as StaffUser
+                from treatments.models import Treatment, PricePlan
+                from rooms.models import Room
 
-            if not body or 'patient_id' not in body:
-                return {'action': 'BOOK_APPOINTMENT', 'success': False,
-                        'message': '❌ Could not parse booking details. Please try again.'}
+                raw = action_line.split("ACTION:BOOK_APPOINTMENT:")[1].strip()
+                try:
+                    body = json.loads(raw)
+                except Exception:
+                    body = {}
+                    for key in ['patient_id','staff_id','treatment_id','room_id','price_plan_id']:
+                        m = re.search(rf'"{key}"\s*:\s*(\d+)', raw)
+                        if m:
+                            body[key] = int(m.group(1))
+                    for key in ['date','time']:
+                        m = re.search(rf'"{key}"\s*:\s*"([^"]+)"', raw)
+                        if m:
+                            body[key] = m.group(1)
 
-            status, data = _call_api('POST', '/appointments/', token, body=body)
-            if status == 201:
-                return {'action': 'BOOK_APPOINTMENT', 'success': True, 'data': data,
-                        'message': f"✅ Appointment booked! ID: {data.get('id')}"}
-            else:
-                return {'action': 'BOOK_APPOINTMENT', 'success': False, 'data': data,
-                        'message': f"❌ Booking failed: {data}"}
+                patient   = Patient.objects.get(id=body['patient_id'])
+                staff     = StaffUser.objects.get(id=body['staff_id'])
+                treatment = Treatment.objects.get(id=body['treatment_id'])
+                room      = Room.objects.get(id=body['room_id'])
+                plan      = PricePlan.objects.get(id=body['price_plan_id'])
+
+                date_str  = body['date']
+                time_str  = body['time'].split('-')[0].strip()
+                dt        = datetime.datetime.strptime(f"{date_str} {time_str}", '%Y-%m-%d %H:%M')
+                from django.utils import timezone as tz
+                dt_aware  = tz.make_aware(dt)
+
+                appt = Appointment.objects.create(
+                    patient=patient,
+                    staff=staff,
+                    treatment=treatment,
+                    room_fk=room,
+                    price_plan=plan,
+                    date_time=dt_aware,
+                    duration=treatment.duration,
+                    session_number=1,
+                    total_sessions=plan.sessions,
+                    status='upcoming',
+                    payment_status='pending',
+                    consent_status='pending',
+                    payment_type='cash',
+                )
+                return {
+                    'action':  'BOOK_APPOINTMENT',
+                    'success': True,
+                    'data':    {'id': appt.id},
+                    'message': f"✅ Appointment booked! ID: {appt.id} — {patient.name} on {date_str} at {time_str} with {staff.username}."
+                }
+            except Exception as e:
+                return {
+                    'action':  'BOOK_APPOINTMENT',
+                    'success': False,
+                    'message': f"❌ Booking failed: {str(e)}"
+                }
 
         elif action_line.startswith("ACTION:CANCEL_APPOINTMENT:"):
-            body   = json.loads(action_line.split("ACTION:CANCEL_APPOINTMENT:")[1])
-            appt_id = body.get('appointment_id')
-            status, data = _call_api('PATCH', f'/appointments/{appt_id}/status/', token, body={'status': 'cancelled'})
-            if status == 200:
+            try:
+                import re
+                from appointments.models import Appointment
+                raw = action_line.split("ACTION:CANCEL_APPOINTMENT:")[1]
+                try:
+                    body    = json.loads(raw)
+                    appt_id = body.get('appointment_id')
+                except Exception:
+                    m       = re.search(r'(\d+)', raw)
+                    appt_id = int(m.group(1)) if m else None
+
+                if not appt_id:
+                    return {'action': 'CANCEL_APPOINTMENT', 'success': False,
+                            'message': '❌ Could not find appointment ID.'}
+
+                appt = Appointment.objects.get(id=appt_id)
+                appt.status = 'cancelled'
+                appt.save()
                 return {'action': 'CANCEL_APPOINTMENT', 'success': True,
                         'message': f"✅ Appointment #{appt_id} has been cancelled."}
-            else:
-                return {'action': 'CANCEL_APPOINTMENT', 'success': False, 'data': data,
-                        'message': f"❌ Cancel failed: {data}"}
+            except Exception as e:
+                return {'action': 'CANCEL_APPOINTMENT', 'success': False,
+                        'message': f"❌ Cancel failed: {str(e)}"}
 
     except Exception as e:
         return {'action': 'ERROR', 'message': str(e)}
@@ -430,6 +474,12 @@ class AIChatView(APIView):
                         pass
                     break
 
+            # If reply is empty after parsing, use options question as reply
+            if not clean_reply and options_result:
+                clean_reply = options_result.get('question', 'Please choose an option:')
+            elif not clean_reply and action_line:
+                clean_reply = 'Processing your request...'
+
             if action_line and token:
                 action_result = _execute_action(action_line, token)
 
@@ -465,6 +515,8 @@ Format the label nicely e.g. "Mon, 20 May 2026". Count the slots for subtitle.""
                                 except Exception:
                                     pass
                                 break
+                        if not clean_reply and options_result:
+                            clean_reply = options_result.get('question', 'Please choose a date:')
 
                 elif action_result and action_result.get('action') in ['BOOK_APPOINTMENT', 'CANCEL_APPOINTMENT']:
                     clean_reply = f"{clean_reply}\n\n{action_result.get('message', '')}".strip()
