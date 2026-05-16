@@ -195,9 +195,100 @@ def _call_api(method, endpoint, token, body=None, params=None):
 def _execute_action(action_line, token):
     try:
         if action_line.startswith("ACTION:GET_SLOTS:"):
-            params = json.loads(action_line.split("ACTION:GET_SLOTS:")[1])
-            status, data = _call_api('GET', '/appointments/available-slots/', token, params=params)
-            return {'action': 'GET_SLOTS', 'status': status, 'data': data}
+            params     = json.loads(action_line.split("ACTION:GET_SLOTS:")[1])
+            staff_id   = params.get('staff_id')
+            service_id = params.get('service_id')
+            month      = params.get('month')  # YYYY-MM
+
+            try:
+                import datetime, calendar
+                from appointments.models import Appointment
+                from users.models import StaffWorkingHours, StaffBreakTime, StaffLeave
+                from treatments.models import Treatment
+
+                year, mon    = map(int, month.split('-'))
+                days_in_month = calendar.monthrange(year, mon)[1]
+                today_date   = datetime.date.today()
+
+                try:
+                    duration = Treatment.objects.get(id=service_id).duration
+                except:
+                    duration = 60
+
+                working_hours = {wh.day: wh for wh in StaffWorkingHours.objects.filter(staff_id=staff_id)}
+                DAY_MAP = {0:'Mon',1:'Tue',2:'Wed',3:'Thu',4:'Fri',5:'Sat',6:'Sun'}
+
+                leaves = StaffLeave.objects.filter(staff_id=staff_id)
+                leave_dates = set()
+                for leave in leaves:
+                    d = leave.from_date
+                    while d <= leave.to_date:
+                        leave_dates.add(d)
+                        d += datetime.timedelta(days=1)
+
+                breaks = list(StaffBreakTime.objects.filter(staff_id=staff_id))
+
+                month_start = datetime.date(year, mon, 1)
+                month_end   = datetime.date(year, mon, days_in_month)
+                bookings = Appointment.objects.filter(
+                    staff_id=staff_id,
+                    date_time__date__gte=month_start,
+                    date_time__date__lte=month_end,
+                    status__in=['upcoming', 'in_session']
+                ).values('date_time', 'duration')
+
+                booked_slots = {}
+                for b in bookings:
+                    d = b['date_time'].date()
+                    if d not in booked_slots:
+                        booked_slots[d] = []
+                    booked_slots[d].append((b['date_time'].time(), b['duration']))
+
+                available_dates = {}
+                for day_num in range(1, days_in_month + 1):
+                    date     = datetime.date(year, mon, day_num)
+                    if date < today_date:
+                        continue
+                    if date in leave_dates:
+                        continue
+                    day_name = DAY_MAP[date.weekday()]
+                    if day_name not in working_hours:
+                        continue
+
+                    wh    = working_hours[day_name]
+                    start = datetime.datetime.combine(date, wh.start_time)
+                    end   = datetime.datetime.combine(date, wh.end_time)
+                    slots = []
+                    cur   = start
+
+                    while cur + datetime.timedelta(minutes=duration) <= end:
+                        slot_time = cur.time()
+                        slot_end  = (cur + datetime.timedelta(minutes=duration)).time()
+                        blocked   = False
+
+                        for br in breaks:
+                            if slot_time < br.end_time and slot_end > br.start_time:
+                                blocked = True
+                                break
+
+                        if not blocked and date in booked_slots:
+                            for bt, bd in booked_slots[date]:
+                                bt_end = (datetime.datetime.combine(date, bt) + datetime.timedelta(minutes=bd)).time()
+                                if slot_time < bt_end and slot_end > bt:
+                                    blocked = True
+                                    break
+
+                        if not blocked:
+                            slots.append(cur.strftime('%H:%M'))
+                        cur += datetime.timedelta(minutes=30)
+
+                    if slots:
+                        available_dates[str(date)] = slots
+
+                return {'action': 'GET_SLOTS', 'status': 200, 'data': available_dates}
+
+            except Exception as e:
+                return {'action': 'GET_SLOTS', 'status': 500, 'data': {'error': str(e)}}
 
         elif action_line.startswith("ACTION:BOOK_APPOINTMENT:"):
             body   = json.loads(action_line.split("ACTION:BOOK_APPOINTMENT:")[1])
@@ -319,22 +410,18 @@ class AIChatView(APIView):
                 # If GET_SLOTS — process slots and show available dates
                 if action_result and action_result.get('action') == 'GET_SLOTS':
                     slot_data = action_result.get('data', {})
-                    follow_up = f"""The available slots API returned this data:
+                    if action_result.get('status') != 200:
+                        follow_up = "The slot lookup failed. Tell the user there was an error getting available slots and ask them to try again."
+                    elif not slot_data:
+                        follow_up = "There are no available slots this month for this therapist. Tell the user and suggest picking a different therapist or month."
+                    else:
+                        follow_up = f"""Available dates and slots:
 {json.dumps(slot_data, indent=2)}
 
-From this data:
-1. Find all dates where is_working_day=true
-2. For each working day, calculate available time slots by:
-   - Start from effective_window.start
-   - End at effective_window.end
-   - Skip any blocked_ranges (breaks, booked slots, room unavailable)
-   - Each slot = treatment duration minutes apart
-3. Only include dates that have at least 1 available slot
-4. Show those dates as SHOW_OPTIONS with type="date"
-5. Format: label="Mon, 20 May 2026", subtitle="X slots available", id="YYYY-MM-DD"
-6. If no dates have available slots, say "No available dates this month."
-
-Respond with the SHOW_OPTIONS for dates."""
+The data is a dictionary where key=date (YYYY-MM-DD) and value=list of available times (HH:MM).
+Show the available DATES as clickable options:
+SHOW_OPTIONS:{{"type":"date","question":"Which date would you like?","options":[{{"id":"YYYY-MM-DD","label":"Day, DD Mon YYYY","subtitle":"X slots available"}},...all available dates...]}}
+Format the label nicely e.g. "Mon, 20 May 2026". Count the slots for subtitle."""
 
                     gemini_contents.append({'role': 'model', 'parts': [{'text': clean_reply}]})
                     gemini_contents.append({'role': 'user', 'parts': [{'text': follow_up}]})
