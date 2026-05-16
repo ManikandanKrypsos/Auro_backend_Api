@@ -125,19 +125,36 @@ AVAILABLE ROOMS:
 {rooms_list}
 
 ===== APPOINTMENT BOOKING FLOW =====
-When user wants to BOOK an appointment, follow these steps IN ORDER:
+When user wants to BOOK an appointment, first check if they already provided some details.
+If patient/treatment/therapist/room already mentioned — extract and skip those steps.
 
-STEP 1: Show the PATIENTS LIST above and ask "Which patient?"
-STEP 2: After patient selected → Show TREATMENTS LIST and ask "Which treatment?"
-STEP 3: After treatment selected → Show THERAPISTS LIST and ask "Which therapist?"
-STEP 4: After therapist selected → Show ROOMS LIST and ask "Which room?"
-STEP 5: After room selected → Ask "What date? (e.g. 2026-05-20)"
-STEP 6: After date given → respond ONLY with this action (nothing else on that line):
-         ACTION:GET_SLOTS:{{"staff_id":<therapist_id>,"service_id":<treatment_id>,"month":"YYYY-MM","room_id":<room_id>}}
-STEP 7: After slots shown → ask "Which time slot?"
-STEP 8: After time selected → Show FULL SUMMARY and ask "Confirm booking? (yes/no)"
-STEP 9: If user says YES → respond with:
-         ACTION:BOOK_APPOINTMENT:{{"patient_id":<db_id>,"staff_id":<id>,"treatment_id":<id>,"room_id":<id>,"price_plan_id":<id>,"date":"YYYY-MM-DD","time":"HH:MM"}}
+STEPS (skip any step where info already provided):
+STEP 1: If patient not given → respond with JSON block at end:
+SHOW_OPTIONS:{"type":"patient","question":"Which patient would you like to book for?","options":[{"id":<db_id>,"label":"<name>","subtitle":"<patient_id>"},...]}
+
+STEP 2: If treatment not given → respond with:
+SHOW_OPTIONS:{"type":"treatment","question":"Which treatment?","options":[{"id":<id>,"label":"<name>","subtitle":"<duration> min"},...]}
+
+STEP 3: If therapist not given → respond with:
+SHOW_OPTIONS:{"type":"therapist","question":"Which therapist?","options":[{"id":<id>,"label":"<name>","subtitle":"<specialist_area>"},...]}
+
+STEP 4: If room not given → respond with:
+SHOW_OPTIONS:{"type":"room","question":"Which room?","options":[{"id":<id>,"label":"<name>","subtitle":"<room_type>"},...]}
+
+STEP 5: If date not given → respond with:
+SHOW_OPTIONS:{"type":"date","question":"What date would you like?","options":[]}
+
+STEP 6: Once patient+treatment+therapist+room+date all collected → fetch slots:
+ACTION:GET_SLOTS:{"staff_id":<id>,"service_id":<id>,"month":"YYYY-MM","room_id":<id>}
+
+STEP 7: After slots → show slot options:
+SHOW_OPTIONS:{"type":"slot","question":"Which time slot?","options":[{"id":"HH:MM","label":"HH:MM AM/PM","subtitle":"available"},...]}
+
+STEP 8: After slot selected → Show summary and:
+SHOW_OPTIONS:{"type":"confirm","question":"Confirm this booking?","options":[{"id":"yes","label":"✅ Confirm"},{"id":"no","label":"❌ Cancel"}],"summary":{"patient":"<name>","treatment":"<name>","therapist":"<name>","room":"<name>","date":"<date>","time":"<time>"}}
+
+STEP 9: If confirmed →
+ACTION:BOOK_APPOINTMENT:{"patient_id":<db_id>,"staff_id":<id>,"treatment_id":<id>,"room_id":<id>,"price_plan_id":<id>,"date":"YYYY-MM-DD","time":"HH:MM"}
 
 ===== CANCEL APPOINTMENT FLOW =====
 When user wants to CANCEL an appointment:
@@ -272,15 +289,25 @@ class AIChatView(APIView):
             data  = response.json()
             reply = data['candidates'][0]['content']['parts'][0]['text']
 
-            # Detect action in reply
+            # Detect action or options in reply
             action_result = None
+            options_result = None
             action_line   = None
             clean_reply   = reply
 
             for line in reply.split('\n'):
-                if line.strip().startswith('ACTION:'):
-                    action_line = line.strip()
-                    clean_reply = reply.replace(action_line, '').strip()
+                line_stripped = line.strip()
+                if line_stripped.startswith('ACTION:'):
+                    action_line = line_stripped
+                    clean_reply = reply.replace(line, '').strip()
+                    break
+                elif line_stripped.startswith('SHOW_OPTIONS:'):
+                    try:
+                        options_json   = line_stripped.split('SHOW_OPTIONS:')[1]
+                        options_result = json.loads(options_json)
+                        clean_reply    = reply.replace(line, '').strip()
+                    except Exception:
+                        pass
                     break
 
             if action_line and token:
@@ -318,6 +345,7 @@ Only show available (unblocked) time slots. Ask which slot they prefer."""
                 'reply':         clean_reply,
                 'role':          context.get('role'),
                 'action_result': action_result,
+                'options':       options_result,
                 'context': {
                     'name':  context.get('name'),
                     'today': context.get('today'),
