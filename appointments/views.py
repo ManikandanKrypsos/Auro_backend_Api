@@ -327,6 +327,25 @@ class AppointmentListView(APIView):
             except Exception:
                 pass
             _update_patient_category(appt.patient)
+
+            # Auto-create pending ConsentRecord when appointment is booked
+            try:
+                from patients.models import ConsentRecord
+                ConsentRecord.objects.get_or_create(
+                    patient=appt.patient,
+                    appointment=appt,
+                    defaults={
+                        'title':            f"Consent — {appt.treatment.name if appt.treatment else 'Treatment'}",
+                        'file_name':        '',
+                        'file_url':         '',
+                        'status':           'pending',
+                        'patient_signed':   False,
+                        'therapist_signed': False,
+                    }
+                )
+            except Exception:
+                pass
+
             return Response(AppointmentSerializer(appt).data, status=201)
         return Response(serializer.errors, status=400)
 
@@ -406,6 +425,18 @@ class AppointmentStatusView(APIView):
         # Auto-update patient category
         if status == 'completed':
             _update_patient_category(appt.patient)
+
+        # Remove pending consent record when appointment is cancelled
+        if status == 'cancelled':
+            try:
+                from patients.models import ConsentRecord
+                ConsentRecord.objects.filter(
+                    patient=appt.patient,
+                    appointment=appt,
+                    status='pending'
+                ).delete()
+            except Exception:
+                pass
 
         # Auto-update package if linked
         package_detail = None

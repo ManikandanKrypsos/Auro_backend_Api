@@ -124,6 +124,7 @@ class ConsentRecord(models.Model):
     )
 
     patient           = models.ForeignKey(Patient, on_delete=models.CASCADE, related_name='consent_records')
+    appointment       = models.ForeignKey('appointments.Appointment', on_delete=models.SET_NULL, null=True, blank=True, related_name='consent_records')
     title             = models.CharField(max_length=150)
     file_name         = models.CharField(max_length=255, blank=True)
     file_url          = models.TextField(blank=True)
