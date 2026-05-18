@@ -12,6 +12,7 @@ class Migration(migrations.Migration):
             field=models.CharField(
                 choices=[('consumable','Consumable'),('equipment','Equipment'),('product','Product'),('disposable','Disposable')],
                 default='product',
+                blank=True,
                 max_length=20,
             ),
         ),
