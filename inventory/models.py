@@ -21,7 +21,7 @@ class InventoryItem(models.Model):
     # Basic Info
     name                 = models.CharField(max_length=150)
     description          = models.TextField(blank=True)
-    category             = models.CharField(max_length=20, choices=CATEGORY_CHOICES)
+    category = models.CharField(max_length=20, choices=CATEGORY_CHOICES, default='product')
     unit                 = models.CharField(max_length=20, choices=UNIT_CHOICES)
 
     # Stock Control
