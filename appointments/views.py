@@ -289,35 +289,32 @@ class AppointmentListView(APIView):
             data      = serializer.validated_data
             staff     = data.get('staff')
             date_time = data.get('date_time')
-            duration  = data.get('duration') or (data.get('treatment').duration if data.get('treatment') else 60)
+            treatment = data.get('treatment')
+            duration  = data.get('duration') or (treatment.duration if treatment else 60)
 
             # ── Double booking check ──────────────────────────────────────────
-            import datetime
-            slot_end = date_time + datetime.timedelta(minutes=duration)
+            if staff and date_time:
+                import datetime
+                slot_end = date_time + datetime.timedelta(minutes=duration)
 
-            conflict = Appointment.objects.filter(
-                staff=staff,
-                status__in=['upcoming', 'in_session'],
-            ).exclude(
-                date_time__gte=slot_end,                         # starts after our slot ends
-            ).exclude(
-                date_time__lt=date_time - datetime.timedelta(minutes=600),  # way before
-            )
+                conflict = Appointment.objects.filter(
+                    staff=staff,
+                    status__in=['upcoming', 'in_session'],
+                )
 
-            # Check overlap: existing appt starts before our end AND ends after our start
-            overlapping = [
-                a for a in conflict
-                if a.date_time < slot_end and
-                   a.date_time + datetime.timedelta(minutes=a.duration) > date_time
-            ]
+                overlapping = [
+                    a for a in conflict
+                    if a.date_time < slot_end and
+                       a.date_time + datetime.timedelta(minutes=a.duration) > date_time
+                ]
 
-            if overlapping:
-                existing = overlapping[0]
-                return Response({
-                    'error': f"This time slot is already booked for {staff.username}. "
-                             f"They have an appointment at {existing.date_time.strftime('%H:%M')}. "
-                             f"Please choose a different time or therapist."
-                }, status=400)
+                if overlapping:
+                    existing = overlapping[0]
+                    return Response({
+                        'error': f"This time slot is already booked for {staff.username}. "
+                                 f"They have an appointment at {existing.date_time.strftime('%H:%M')}. "
+                                 f"Please choose a different time or therapist."
+                    }, status=400)
             # ─────────────────────────────────────────────────────────────────
 
             appt = serializer.save()
