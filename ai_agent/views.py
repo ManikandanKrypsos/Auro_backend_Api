@@ -324,6 +324,18 @@ def _execute_action(action_line, token):
                     while cur + datetime.timedelta(minutes=duration) <= end:
                         slot_time = cur.time()
                         slot_end  = (cur + datetime.timedelta(minutes=duration)).time()
+
+                        # Check slot doesn't exceed clinic closing time
+                        try:
+                            from clinic.models import ClinicHours
+                            day_name_clinic = date.strftime('%a')
+                            ch = ClinicHours.objects.filter(day=day_name_clinic, is_open=True).first()
+                            if ch and ch.close_time and slot_end > ch.close_time:
+                                cur += datetime.timedelta(minutes=30)
+                                continue
+                        except Exception:
+                            pass
+
                         blocked   = False
 
                         for br in breaks:

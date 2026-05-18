@@ -292,7 +292,25 @@ class AppointmentListView(APIView):
             treatment = data.get('treatment')
             duration  = data.get('duration') or (treatment.duration if treatment else 60)
 
-            # ── Double booking check ──────────────────────────────────────────
+            # ── Clinic closing time check ─────────────────────────────────────
+            if date_time and duration:
+                import datetime
+                from clinic.models import ClinicHours
+                day_name = date_time.strftime('%a')  # Mon, Tue, etc.
+                try:
+                    clinic_hours = ClinicHours.objects.get(day=day_name)
+                    if clinic_hours.is_open and clinic_hours.close_time:
+                        slot_end_time = (date_time + datetime.timedelta(minutes=duration)).time()
+                        if slot_end_time > clinic_hours.close_time:
+                            return Response({
+                                'error': f"This appointment cannot be booked. The session ends at "
+                                         f"{slot_end_time.strftime('%H:%M')} but the clinic closes at "
+                                         f"{clinic_hours.close_time.strftime('%H:%M')} on {day_name}. "
+                                         f"Please choose an earlier time slot."
+                            }, status=400)
+                except Exception:
+                    pass
+            # ─────────────────────────────────────────────────────────────────
             if staff and date_time:
                 import datetime
                 slot_end = date_time + datetime.timedelta(minutes=duration)
