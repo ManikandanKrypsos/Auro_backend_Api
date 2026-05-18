@@ -134,8 +134,8 @@ Ask: "Who is this appointment for? Type the patient's name:"
 When user types a name, search the AVAILABLE PATIENTS list above for matches.
 Show matched results as a numbered list:
 "I found X patients:
-1. John Smith (#Aura23)
-2. John Doe (#Aura45)
+1. John Smith
+2. John Doe
 
 Reply with the number to select, or type more of the name to search again."
 When user replies with a number → confirm: "Got it! [Name] selected ✅\nNow, which treatment?"
