@@ -310,19 +310,16 @@ class AppointmentListView(APIView):
             if date_time and duration:
                 from clinic.models import ClinicHours
                 day_name = date_time.strftime('%a')
-                try:
-                    clinic_hours = ClinicHours.objects.get(day=day_name)
-                    if clinic_hours.is_open and clinic_hours.close_time:
-                        slot_end_time = (date_time + datetime.timedelta(minutes=duration)).time()
-                        if slot_end_time > clinic_hours.close_time:
-                            return Response({
-                                'error': f"This appointment cannot be booked. The session ends at "
-                                         f"{slot_end_time.strftime('%H:%M')} but the clinic closes at "
-                                         f"{clinic_hours.close_time.strftime('%H:%M')} on {day_name}. "
-                                         f"Please choose an earlier time slot."
-                            }, status=400)
-                except Exception:
-                    pass
+                clinic_hours = ClinicHours.objects.filter(day=day_name).first()
+                if clinic_hours and clinic_hours.is_open and clinic_hours.close_time:
+                    slot_end_time = (date_time + datetime.timedelta(minutes=duration)).time()
+                    if slot_end_time > clinic_hours.close_time:
+                        return Response({
+                            'error': f"This appointment cannot be booked. The session ends at "
+                                     f"{slot_end_time.strftime('%H:%M')} but the clinic closes at "
+                                     f"{clinic_hours.close_time.strftime('%H:%M')} on {day_name}. "
+                                     f"Please choose an earlier time slot."
+                        }, status=400)
             # ─────────────────────────────────────────────────────────────────
 
             # ── Double booking check ──────────────────────────────────────────
@@ -754,16 +751,27 @@ class AvailableSlotsView(APIView):
                 appt_dt = to_local_naive(a.date_time)
                 if appt_dt.date() != date:
                     continue
-                appt_end = appt_dt + datetime.timedelta(minutes=a.duration or treatment.duration)
+                appt_end     = appt_dt + datetime.timedelta(minutes=a.duration or treatment.duration)
                 patient_name = a.patient.name if a.patient else 'Patient'
-                treatment_name = a.treatment.name if a.treatment else 'Appointment'
-                blocked.append({
-                    'start':          appt_dt.strftime('%H:%M'),
-                    'end':            appt_end.strftime('%H:%M'),
-                    'type':           'therapist_occupied',
-                    'label':          'Therapist Occupied',
-                    'appointment_id': a.id,
-                })
+                treat_name   = a.treatment.name if a.treatment else 'Appointment'
+
+                # Same treatment → booked, different treatment → therapist_occupied
+                if a.treatment_id == treatment.id:
+                    blocked.append({
+                        'start':          appt_dt.strftime('%H:%M'),
+                        'end':            appt_end.strftime('%H:%M'),
+                        'type':           'booked',
+                        'label':          f"{patient_name} — {treat_name}",
+                        'appointment_id': a.id,
+                    })
+                else:
+                    blocked.append({
+                        'start':          appt_dt.strftime('%H:%M'),
+                        'end':            appt_end.strftime('%H:%M'),
+                        'type':           'therapist_occupied',
+                        'label':          'Therapist Occupied',
+                        'appointment_id': a.id,
+                    })
 
             # Room booked appointments
             for a in room_appts:
