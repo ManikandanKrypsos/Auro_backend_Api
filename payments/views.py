@@ -176,7 +176,68 @@ class RefundPaymentView(APIView):
             return Response({'error': str(e)}, status=400)
 
 
-class PaymentStatusView(APIView):
+class PaymentListView(APIView):
+    """
+    GET /api/payments/
+    GET /api/payments/?status=paid
+    GET /api/payments/?status=pending
+    GET /api/payments/?search=john
+    GET /api/payments/?sort=date_desc   (default)
+    GET /api/payments/?sort=date_asc
+
+    Returns all appointments with payment info.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from appointments.models import Appointment
+
+        status = request.query_params.get('status', '').strip().lower()
+        search = request.query_params.get('search', '').strip()
+        sort   = request.query_params.get('sort', 'date_desc').strip()
+
+        qs = Appointment.objects.select_related(
+            'patient', 'treatment', 'staff'
+        ).exclude(payment_amount__isnull=True).exclude(status='cancelled')
+
+        if status in ['paid', 'pending', 'refunded']:
+            qs = qs.filter(payment_status=status)
+
+        if search:
+            qs = qs.filter(patient__name__icontains=search)
+
+        if sort == 'date_asc':
+            qs = qs.order_by('date_time')
+        else:
+            qs = qs.order_by('-date_time')
+
+        result = []
+        for appt in qs:
+            result.append({
+                'appointment_id':  appt.id,
+                'patient_name':    appt.patient.name if appt.patient else '',
+                'treatment_name':  appt.treatment.name if appt.treatment else '',
+                'date':            appt.date_time.strftime('%b %d, %Y') if appt.date_time else '',
+                'amount':          f"${float(appt.payment_amount):.2f}" if appt.payment_amount else '$0.00',
+                'payment_status':  appt.payment_status,
+                'payment_type':    appt.payment_type,
+            })
+
+        # Stats for tabs
+        all_qs      = Appointment.objects.exclude(payment_amount__isnull=True).exclude(status='cancelled')
+        total_paid  = sum(float(a.payment_amount) for a in all_qs.filter(payment_status='paid') if a.payment_amount)
+        total_pending = sum(float(a.payment_amount) for a in all_qs.filter(payment_status='pending') if a.payment_amount)
+
+        return Response({
+            'payments': result,
+            'stats': {
+                'total':         all_qs.count(),
+                'paid_count':    all_qs.filter(payment_status='paid').count(),
+                'pending_count': all_qs.filter(payment_status='pending').count(),
+                'total_paid':    f"${total_paid:.2f}",
+                'total_pending': f"${total_pending:.2f}",
+            }
+        })
     """
     GET /api/payments/status/<appointment_id>/
     Get payment status for an appointment
