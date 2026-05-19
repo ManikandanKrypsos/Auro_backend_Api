@@ -306,19 +306,42 @@ class AppointmentListView(APIView):
                 except Exception:
                     pass
 
-            # ── Clinic closing time check ─────────────────────────────────────
+            # ── Clinic closing time + Therapist working hours check ───────────
             if date_time and duration:
                 from clinic.models import ClinicHours
-                day_name = date_time.strftime('%a')
+                from users.models import StaffWorkingHours
+                day_name     = date_time.strftime('%a')
+                slot_end     = date_time + datetime.timedelta(minutes=duration)
+                slot_end_time = slot_end.time()
+
+                # Check clinic closing time
                 clinic_hours = ClinicHours.objects.filter(day=day_name).first()
                 if clinic_hours and clinic_hours.is_open and clinic_hours.close_time:
-                    slot_end_time = (date_time + datetime.timedelta(minutes=duration)).time()
                     if slot_end_time > clinic_hours.close_time:
                         return Response({
                             'error': f"This appointment cannot be booked. The session ends at "
                                      f"{slot_end_time.strftime('%H:%M')} but the clinic closes at "
                                      f"{clinic_hours.close_time.strftime('%H:%M')} on {day_name}. "
                                      f"Please choose an earlier time slot."
+                        }, status=400)
+
+                # Check therapist working hours end time
+                if staff:
+                    staff_hours = StaffWorkingHours.objects.filter(
+                        staff=staff, day=day_name
+                    ).first()
+                    if staff_hours and staff_hours.end_time:
+                        if slot_end_time > staff_hours.end_time:
+                            return Response({
+                                'error': f"This appointment cannot be booked. The session ends at "
+                                         f"{slot_end_time.strftime('%H:%M')} but {staff.username} "
+                                         f"finishes work at {staff_hours.end_time.strftime('%H:%M')} on {day_name}. "
+                                         f"Please choose an earlier time slot."
+                            }, status=400)
+                    elif staff_hours is None:
+                        return Response({
+                            'error': f"{staff.username if staff else 'This therapist'} is not working on {day_name}. "
+                                     f"Please choose a different date or therapist."
                         }, status=400)
             # ─────────────────────────────────────────────────────────────────
 
