@@ -176,6 +176,29 @@ class RefundPaymentView(APIView):
             return Response({'error': str(e)}, status=400)
 
 
+class PaymentStatusView(APIView):
+    """
+    GET /api/payments/status/<appointment_id>/
+    Get payment status for an appointment
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, appointment_id):
+        from appointments.models import Appointment
+        try:
+            appt = Appointment.objects.get(id=appointment_id)
+        except Appointment.DoesNotExist:
+            return Response({'error': 'Appointment not found.'}, status=404)
+
+        return Response({
+            'appointment_id': appt.id,
+            'payment_status': appt.payment_status,
+            'payment_type':   appt.payment_type,
+            'payment_amount': str(appt.payment_amount) if appt.payment_amount else None,
+            'amount_display': f"${float(appt.payment_amount):.2f}" if appt.payment_amount else None,
+        })
+
+
 class PaymentListView(APIView):
     """
     GET /api/payments/
