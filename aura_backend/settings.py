@@ -35,6 +35,7 @@ INSTALLED_APPS = [
     'therapist',
     'packages',
     'ai_agent',
+    'payments',
 ]
 
 MIDDLEWARE = [
