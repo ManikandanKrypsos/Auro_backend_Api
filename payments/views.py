@@ -35,7 +35,6 @@ class CreatePaymentIntentView(APIView):
         if appt.payment_status == 'paid':
             return Response({'error': 'This appointment is already paid.'}, status=400)
 
-        # Get amount
         amount = None
         if appt.price_plan and appt.price_plan.price:
             amount = appt.price_plan.price
@@ -85,7 +84,6 @@ class ConfirmPaymentView(APIView):
     """
     POST /api/payments/confirm/
     Body: { "appointment_id": 42, "payment_intent_id": "pi_xxx" }
-    Call this after Flutter confirms payment with Stripe SDK
     """
     permission_classes = [IsAuthenticated]
 
@@ -127,7 +125,6 @@ class RefundPaymentView(APIView):
     """
     POST /api/payments/refund/
     Body: { "appointment_id": 42 }
-    Refunds payment for a cancelled appointment
     """
     permission_classes = [IsAuthenticated]
 
@@ -147,8 +144,8 @@ class RefundPaymentView(APIView):
             return Response({'error': 'This appointment has no completed payment to refund.'}, status=400)
 
         try:
-            intents     = stripe.PaymentIntent.list(limit=100)
-            target      = None
+            intents = stripe.PaymentIntent.list(limit=100)
+            target  = None
             for intent in intents.data:
                 if intent.metadata.get('appointment_id') == str(appt.id):
                     target = intent
@@ -179,7 +176,6 @@ class RefundPaymentView(APIView):
 class PaymentStatusView(APIView):
     """
     GET /api/payments/status/<appointment_id>/
-    Get payment status for an appointment
     """
     permission_classes = [IsAuthenticated]
 
@@ -205,10 +201,8 @@ class PaymentListView(APIView):
     GET /api/payments/?status=paid
     GET /api/payments/?status=pending
     GET /api/payments/?search=john
-    GET /api/payments/?sort=date_desc   (default)
+    GET /api/payments/?sort=date_desc
     GET /api/payments/?sort=date_asc
-
-    Returns all appointments with payment info.
     """
     permission_classes = [IsAuthenticated]
 
@@ -237,18 +231,17 @@ class PaymentListView(APIView):
         result = []
         for appt in qs:
             result.append({
-                'appointment_id':  appt.id,
-                'patient_name':    appt.patient.name if appt.patient else '',
-                'treatment_name':  appt.treatment.name if appt.treatment else '',
-                'date':            appt.date_time.strftime('%b %d, %Y') if appt.date_time else '',
-                'amount':          f"${float(appt.payment_amount):.2f}" if appt.payment_amount else '$0.00',
-                'payment_status':  appt.payment_status,
-                'payment_type':    appt.payment_type,
+                'appointment_id': appt.id,
+                'patient_name':   appt.patient.name if appt.patient else '',
+                'treatment_name': appt.treatment.name if appt.treatment else '',
+                'date':           appt.date_time.strftime('%b %d, %Y') if appt.date_time else '',
+                'amount':         f"${float(appt.payment_amount):.2f}" if appt.payment_amount else '$0.00',
+                'payment_status': appt.payment_status,
+                'payment_type':   appt.payment_type,
             })
 
-        # Stats for tabs
-        all_qs      = Appointment.objects.exclude(payment_amount__isnull=True).exclude(status='cancelled')
-        total_paid  = sum(float(a.payment_amount) for a in all_qs.filter(payment_status='paid') if a.payment_amount)
+        all_qs        = Appointment.objects.exclude(payment_amount__isnull=True).exclude(status='cancelled')
+        total_paid    = sum(float(a.payment_amount) for a in all_qs.filter(payment_status='paid') if a.payment_amount)
         total_pending = sum(float(a.payment_amount) for a in all_qs.filter(payment_status='pending') if a.payment_amount)
 
         return Response({
@@ -261,36 +254,14 @@ class PaymentListView(APIView):
                 'total_pending': f"${total_pending:.2f}",
             }
         })
-    """
-    GET /api/payments/status/<appointment_id>/
-    Get payment status for an appointment
-    """
-    permission_classes = [IsAuthenticated]
-
-    def get(self, request, appointment_id):
-        from appointments.models import Appointment
-        try:
-            appt = Appointment.objects.get(id=appointment_id)
-        except Appointment.DoesNotExist:
-            return Response({'error': 'Appointment not found.'}, status=404)
-
-        return Response({
-            'appointment_id': appt.id,
-            'payment_status': appt.payment_status,
-            'payment_type':   appt.payment_type,
-            'payment_amount': str(appt.payment_amount) if appt.payment_amount else None,
-            'amount_display': f"${float(appt.payment_amount):.2f}" if appt.payment_amount else None,
-        })
 
 
 @method_decorator(csrf_exempt, name='dispatch')
 class StripeWebhookView(APIView):
     """
     POST /api/payments/webhook/
-    Add this URL in Stripe Dashboard → Webhooks
-    Events: payment_intent.succeeded, payment_intent.payment_failed
     """
-    permission_classes    = []
+    permission_classes     = []
     authentication_classes = []
 
     def post(self, request):
