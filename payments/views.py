@@ -215,7 +215,7 @@ class PaymentListView(APIView):
 
         qs = Appointment.objects.select_related(
             'patient', 'treatment', 'staff'
-        ).exclude(payment_amount__isnull=True).exclude(status='cancelled')
+        ).exclude(status='cancelled')
 
         if status in ['paid', 'pending', 'refunded']:
             qs = qs.filter(payment_status=status)
@@ -240,7 +240,7 @@ class PaymentListView(APIView):
                 'payment_type':   appt.payment_type,
             })
 
-        all_qs        = Appointment.objects.exclude(payment_amount__isnull=True).exclude(status='cancelled')
+        all_qs        = Appointment.objects.exclude(status='cancelled')
         total_paid    = sum(float(a.payment_amount) for a in all_qs.filter(payment_status='paid') if a.payment_amount)
         total_pending = sum(float(a.payment_amount) for a in all_qs.filter(payment_status='pending') if a.payment_amount)
 

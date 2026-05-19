@@ -210,7 +210,7 @@ class AppointmentWriteSerializer(serializers.Serializer):
     staff_id        = serializers.IntegerField(required=False)
     treatment_id    = serializers.IntegerField(required=False)
     room_id         = serializers.IntegerField(required=False, allow_null=True)
-    price_plan_id   = serializers.IntegerField(required=False, allow_null=True)
+    price_plan_id   = serializers.IntegerField(required=True)
     date            = serializers.DateField(required=False)
     time            = serializers.CharField(required=False)  # e.g. "9:00" or "14:30"
     duration        = serializers.IntegerField(min_value=1, required=False)
@@ -427,6 +427,17 @@ class AppointmentWriteSerializer(serializers.Serializer):
             validated_data['room_fk'] = Room.objects.get(id=room_id) if room_id else None
         if price_plan_id is not None:
             validated_data['price_plan'] = PricePlan.objects.get(id=price_plan_id) if price_plan_id else None
+            # Auto set payment_amount from price plan
+            if price_plan_id and 'payment_amount' not in validated_data:
+                try:
+                    plan = PricePlan.objects.get(id=price_plan_id)
+                    validated_data['payment_amount'] = plan.price
+                except Exception:
+                    pass
+
+        # Fallback: set payment_amount from treatment price if still not set
+        if not validated_data.get('payment_amount') and treatment_obj and treatment_obj.price:
+            validated_data['payment_amount'] = treatment_obj.price
 
         if instance is None:
             return Appointment.objects.create(**validated_data)
