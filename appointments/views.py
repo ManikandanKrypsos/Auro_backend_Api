@@ -288,15 +288,28 @@ class AppointmentListView(APIView):
         if serializer.is_valid():
             data      = serializer.validated_data
             staff     = data.get('staff')
-            date_time = data.get('date_time')
             treatment = data.get('treatment')
             duration  = data.get('duration') or (treatment.duration if treatment else 60)
 
+            # Build date_time from request data (date + time fields)
+            import datetime
+            req_date = request.data.get('date')
+            req_time = request.data.get('time', '')
+            # time may be "16:00" or "16:00-17:15" — take only start time
+            req_time_start = req_time.split('-')[0].strip() if req_time else None
+            date_time = None
+            if req_date and req_time_start:
+                try:
+                    date_time = datetime.datetime.strptime(
+                        f"{req_date} {req_time_start}", '%Y-%m-%d %H:%M'
+                    )
+                except Exception:
+                    pass
+
             # ── Clinic closing time check ─────────────────────────────────────
             if date_time and duration:
-                import datetime
                 from clinic.models import ClinicHours
-                day_name = date_time.strftime('%a')  # Mon, Tue, etc.
+                day_name = date_time.strftime('%a')
                 try:
                     clinic_hours = ClinicHours.objects.get(day=day_name)
                     if clinic_hours.is_open and clinic_hours.close_time:
@@ -311,21 +324,19 @@ class AppointmentListView(APIView):
                 except Exception:
                     pass
             # ─────────────────────────────────────────────────────────────────
-            if staff and date_time:
-                import datetime
-                slot_end = date_time + datetime.timedelta(minutes=duration)
 
+            # ── Double booking check ──────────────────────────────────────────
+            if staff and date_time:
+                slot_end = date_time + datetime.timedelta(minutes=duration)
                 conflict = Appointment.objects.filter(
                     staff=staff,
                     status__in=['upcoming', 'in_session'],
                 )
-
                 overlapping = [
                     a for a in conflict
-                    if a.date_time < slot_end and
-                       a.date_time + datetime.timedelta(minutes=a.duration) > date_time
+                    if a.date_time.replace(tzinfo=None) < slot_end and
+                       (a.date_time + datetime.timedelta(minutes=a.duration)).replace(tzinfo=None) > date_time
                 ]
-
                 if overlapping:
                     existing = overlapping[0]
                     return Response({
@@ -749,8 +760,8 @@ class AvailableSlotsView(APIView):
                 blocked.append({
                     'start':          appt_dt.strftime('%H:%M'),
                     'end':            appt_end.strftime('%H:%M'),
-                    'type':           'booked',
-                    'label':          f"{patient_name} — {treatment_name}",
+                    'type':           'therapist_occupied',
+                    'label':          'Therapist Occupied',
                     'appointment_id': a.id,
                 })
 
@@ -766,7 +777,7 @@ class AvailableSlotsView(APIView):
                 blocked.append({
                     'start': appt_dt.strftime('%H:%M'),
                     'end':   appt_end.strftime('%H:%M'),
-                    'type':  'room_unavailable',
+                    'type':  'room_occupied',
                     'label': 'Room Occupied',
                 })
 
