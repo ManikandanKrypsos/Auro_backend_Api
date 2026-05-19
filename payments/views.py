@@ -376,6 +376,8 @@ class MarkAsPaidView(APIView):
 
 
 
+@method_decorator(csrf_exempt, name='dispatch')
+class StripeWebhookView(APIView):
     """
     POST /api/payments/webhook/
     """
