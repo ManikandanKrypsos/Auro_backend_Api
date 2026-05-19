@@ -749,8 +749,8 @@ class AvailableSlotsView(APIView):
                 blocked.append({
                     'start':          appt_dt.strftime('%H:%M'),
                     'end':            appt_end.strftime('%H:%M'),
-                    'type':           'booked',
-                    'label':          f"{patient_name} — {treatment_name}",
+                    'type':           'therapist_occupied',
+                    'label':          'Therapist Occupied',
                     'appointment_id': a.id,
                 })
 
@@ -766,7 +766,7 @@ class AvailableSlotsView(APIView):
                 blocked.append({
                     'start': appt_dt.strftime('%H:%M'),
                     'end':   appt_end.strftime('%H:%M'),
-                    'type':  'room_unavailable',
+                    'type':  'room_occupied',
                     'label': 'Room Occupied',
                 })
 
