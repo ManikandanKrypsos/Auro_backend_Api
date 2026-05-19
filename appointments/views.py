@@ -287,17 +287,40 @@ class AppointmentListView(APIView):
         serializer = AppointmentWriteSerializer(data=request.data)
         if serializer.is_valid():
             data      = serializer.validated_data
-            staff     = data.get('staff')
             treatment = data.get('treatment')
             duration  = data.get('duration') or (treatment.duration if treatment else 60)
 
-            # Build date_time from request data (date + time fields)
+            # Get staff and date_time directly from request data
             import datetime
-            req_date = request.data.get('date')
-            req_time = request.data.get('time', '')
-            # time may be "16:00" or "16:00-17:15" — take only start time
+            from users.models import User as StaffUser
+            from treatments.models import Treatment as TreatmentModel
+
+            # Get staff
+            staff    = None
+            staff_id = request.data.get('staff_id')
+            if staff_id:
+                try:
+                    staff = StaffUser.objects.get(id=staff_id)
+                except Exception:
+                    pass
+
+            # Get treatment and duration directly from DB
+            treatment_obj = None
+            treatment_id  = request.data.get('treatment_id')
+            if treatment_id:
+                try:
+                    treatment_obj = TreatmentModel.objects.get(id=treatment_id)
+                except Exception:
+                    pass
+
+            duration = int(request.data.get('duration') or 0) or \
+                       (treatment_obj.duration if treatment_obj else 60)
+
+            # Build date_time from date + time
+            req_date       = request.data.get('date')
+            req_time       = str(request.data.get('time', ''))
             req_time_start = req_time.split('-')[0].strip() if req_time else None
-            date_time = None
+            date_time      = None
             if req_date and req_time_start:
                 try:
                     date_time = datetime.datetime.strptime(
