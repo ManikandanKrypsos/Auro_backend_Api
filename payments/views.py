@@ -256,8 +256,126 @@ class PaymentListView(APIView):
         })
 
 
-@method_decorator(csrf_exempt, name='dispatch')
-class StripeWebhookView(APIView):
+class InvoiceDetailView(APIView):
+    """
+    GET  /api/payments/invoice/<appointment_id>/
+    Returns full invoice details for an appointment.
+
+    PATCH /api/payments/invoice/<appointment_id>/
+    Update payment details.
+    Body: { "payment_status": "paid", "payment_type": "online", "payment_amount": 420.00 }
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, appointment_id):
+        from appointments.models import Appointment
+        try:
+            appt = Appointment.objects.select_related(
+                'patient', 'treatment', 'staff', 'price_plan'
+            ).get(id=appointment_id)
+        except Appointment.DoesNotExist:
+            return Response({'error': 'Appointment not found.'}, status=404)
+
+        amount    = float(appt.payment_amount) if appt.payment_amount else 0.0
+        tax_rate  = 0.07  # 7% VAT
+        tax       = round(amount * tax_rate, 2)
+        total     = round(amount + tax, 2)
+
+        return Response({
+            'invoice_id':      f"#AURA-{appt.date_time.year if appt.date_time else '2026'}-{appt.id}",
+            'appointment_id':  appt.id,
+            'date':            appt.date_time.strftime('%B %d, %Y') if appt.date_time else '',
+            'patient': {
+                'name':       appt.patient.name if appt.patient else '',
+                'patient_id': appt.patient.patient_id if appt.patient else '',
+                'phone':      appt.patient.phone if appt.patient else '',
+                'email':      appt.patient.email if appt.patient else '',
+            },
+            'therapist': {
+                'name':           appt.staff.username if appt.staff else '',
+                'specialist_area': appt.staff.specialist_area if appt.staff else '',
+            },
+            'service': {
+                'name':      appt.treatment.name if appt.treatment else '',
+                'category':  appt.treatment.category if appt.treatment else '',
+                'duration':  appt.duration,
+                'amount':    f"{amount:.2f}",
+            },
+            'pricing': {
+                'subtotal':     f"{amount:.2f}",
+                'tax_rate':     '7%',
+                'tax_amount':   f"{tax:.2f}",
+                'total_amount': f"{total:.2f}",
+            },
+            'payment': {
+                'status':       appt.payment_status,
+                'type':         appt.payment_type,
+                'amount':       f"{amount:.2f}",
+                'total':        f"{total:.2f}",
+            },
+        })
+
+    def patch(self, request, appointment_id):
+        from appointments.models import Appointment
+        try:
+            appt = Appointment.objects.get(id=appointment_id)
+        except Appointment.DoesNotExist:
+            return Response({'error': 'Appointment not found.'}, status=404)
+
+        payment_status = request.data.get('payment_status')
+        payment_type   = request.data.get('payment_type')
+        payment_amount = request.data.get('payment_amount')
+
+        if payment_status in ['pending', 'paid', 'refunded']:
+            appt.payment_status = payment_status
+        if payment_type in ['online', 'cash']:
+            appt.payment_type = payment_type
+        if payment_amount is not None:
+            appt.payment_amount = payment_amount
+
+        appt.save()
+
+        return Response({
+            'message':        'Payment details updated.',
+            'appointment_id': appt.id,
+            'payment_status': appt.payment_status,
+            'payment_type':   appt.payment_type,
+            'payment_amount': str(appt.payment_amount) if appt.payment_amount else None,
+        })
+
+
+class MarkAsPaidView(APIView):
+    """
+    POST /api/payments/mark-paid/
+    Body: { "appointment_id": 42 }
+    Manually mark appointment as paid (cash payment)
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        from appointments.models import Appointment
+
+        appointment_id = request.data.get('appointment_id')
+        if not appointment_id:
+            return Response({'error': 'appointment_id is required.'}, status=400)
+
+        try:
+            appt = Appointment.objects.get(id=appointment_id)
+        except Appointment.DoesNotExist:
+            return Response({'error': 'Appointment not found.'}, status=404)
+
+        appt.payment_status = 'paid'
+        appt.save()
+
+        return Response({
+            'success':        True,
+            'message':        'Appointment marked as paid.',
+            'appointment_id': appt.id,
+            'payment_status': appt.payment_status,
+        })
+
+
+
     """
     POST /api/payments/webhook/
     """
