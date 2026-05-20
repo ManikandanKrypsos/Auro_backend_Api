@@ -60,7 +60,7 @@ class CreateCheckoutSessionView(APIView):
                 payment_method_types=['card'],
                 line_items=[{
                     'price_data': {
-                        'currency':     'usd',
+                        'currency':     'eur',
                         'unit_amount':  amount_cents,
                         'product_data': {
                             'name':        appt.treatment.name if appt.treatment else 'Treatment',
@@ -89,7 +89,7 @@ class CreateCheckoutSessionView(APIView):
                 'checkout_url': session.url,
                 'session_id':   session.id,
                 'appointment_id': appt.id,
-                'amount_display': f"${float(amount):.2f}",
+                'amount_display': f"€{float(amount):.2f}",
             })
 
         except stripe.error.StripeError as e:
@@ -137,7 +137,7 @@ class CreatePaymentIntentView(APIView):
         try:
             intent = stripe.PaymentIntent.create(
                 amount=amount_cents,
-                currency='usd',
+                currency='eur',
                 metadata={
                     'appointment_id': str(appt.id),
                     'patient_name':   appt.patient.name if appt.patient else '',
@@ -155,8 +155,8 @@ class CreatePaymentIntentView(APIView):
                 'client_secret':     intent.client_secret,
                 'payment_intent_id': intent.id,
                 'amount':            amount_cents,
-                'amount_display':    f"${float(amount):.2f}",
-                'currency':          'usd',
+                'amount_display':    f"€{float(amount):.2f}",
+                'currency':          'eur',
                 'appointment_id':    appt.id,
                 'patient':           appt.patient.name if appt.patient else '',
                 'treatment':         appt.treatment.name if appt.treatment else '',
@@ -198,7 +198,7 @@ class ConfirmPaymentView(APIView):
                     'message':        'Payment confirmed successfully.',
                     'appointment_id': appt.id,
                     'payment_status': appt.payment_status,
-                    'amount_paid':    f"${float(appt.payment_amount):.2f}" if appt.payment_amount else '',
+                    'amount_paid':    f"€{float(appt.payment_amount):.2f}" if appt.payment_amount else '',
                 })
             else:
                 return Response({'success': False, 'message': f"Payment not completed. Status: {intent.status}"}, status=400)
@@ -277,7 +277,7 @@ class PaymentStatusView(APIView):
             'payment_status': appt.payment_status,
             'payment_type':   appt.payment_type,
             'payment_amount': str(appt.payment_amount) if appt.payment_amount else None,
-            'amount_display': f"${float(appt.payment_amount):.2f}" if appt.payment_amount else None,
+            'amount_display': f"€{float(appt.payment_amount):.2f}" if appt.payment_amount else None,
         })
 
 
@@ -326,7 +326,7 @@ class PaymentListView(APIView):
                 'patient_name':   appt.patient.name if appt.patient else '',
                 'treatment_name': appt.treatment.name if appt.treatment else '',
                 'date':           appt.date_time.strftime('%b %d, %Y') if appt.date_time else '',
-                'amount':         f"${float(appt.payment_amount):.2f}" if appt.payment_amount else '$0.00',
+                'amount':         f"€{float(appt.payment_amount):.2f}" if appt.payment_amount else '€0.00',
                 'payment_status': appt.payment_status,
                 'payment_type':   appt.payment_type,
             })
@@ -341,8 +341,8 @@ class PaymentListView(APIView):
                 'total':         all_qs.count(),
                 'paid_count':    all_qs.filter(payment_status='paid').count(),
                 'pending_count': all_qs.filter(payment_status='pending').count(),
-                'total_paid':    f"${total_paid:.2f}",
-                'total_pending': f"${total_pending:.2f}",
+                'total_paid':    f"€{total_paid:.2f}",
+                'total_pending': f"€{total_pending:.2f}",
             }
         })
 
@@ -390,19 +390,19 @@ class InvoiceDetailView(APIView):
                 'name':      appt.treatment.name if appt.treatment else '',
                 'category':  appt.treatment.category if appt.treatment else '',
                 'duration':  appt.duration,
-                'amount':    f"{amount:.2f}",
+                'amount':    f"€{amount:.2f}",
             },
             'pricing': {
-                'subtotal':     f"{amount:.2f}",
+                'subtotal':     f"€{amount:.2f}",
                 'tax_rate':     '7%',
-                'tax_amount':   f"{tax:.2f}",
-                'total_amount': f"{total:.2f}",
+                'tax_amount':   f"€{tax:.2f}",
+                'total_amount': f"€{total:.2f}",
             },
             'payment': {
                 'status':       appt.payment_status,
                 'type':         appt.payment_type,
-                'amount':       f"{amount:.2f}",
-                'total':        f"{total:.2f}",
+                'amount':       f"€{amount:.2f}",
+                'total':        f"€{total:.2f}",
             },
         })
 
