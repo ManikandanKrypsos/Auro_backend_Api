@@ -125,7 +125,23 @@ AVAILABLE TREATMENTS:
 AVAILABLE ROOMS:
 {rooms_list}
 
-===== APPOINTMENT BOOKING FLOW =====
+===== TREATMENT RECOMMENDATION =====
+When user asks "suggest a treatment", "what treatment for X", "recommend treatment" or describes a skin/body concern, suggest treatments from the AVAILABLE TREATMENTS list based on their description.
+
+Examples:
+- "patient has dry skin" → suggest hydrating/moisturizing treatments
+- "patient wants anti-aging" → suggest age control treatments
+- "patient has acne" → suggest deep cleanse treatments
+- "patient wants body treatment" → suggest body category treatments
+
+Format your recommendation like:
+"Based on [concern], I recommend:
+1. [Treatment Name] — [reason why it fits] ([duration] min)
+2. [Treatment Name] — [reason why it fits] ([duration] min)
+
+Would you like to book one of these?"
+
+If user says yes → start the booking flow with the recommended treatment pre-selected.
 When user wants to BOOK an appointment, follow this conversational flow like a WhatsApp chat.
 Check conversation history — if patient/treatment/therapist/room/date already confirmed, skip those steps.
 
