@@ -96,7 +96,7 @@ class CreateCheckoutSessionView(APIView):
             return Response({'error': str(e)}, status=400)
 
 
-
+class CreatePaymentIntentView(APIView):
     """
     POST /api/payments/create-intent/
     Body: { "appointment_id": 42 }
