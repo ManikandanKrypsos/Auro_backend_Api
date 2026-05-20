@@ -10,7 +10,93 @@ from django.utils.decorators import method_decorator
 stripe.api_key = os.environ.get('STRIPE_SECRET_KEY', '')
 
 
-class CreatePaymentIntentView(APIView):
+class CreateCheckoutSessionView(APIView):
+    """
+    POST /api/payments/create-checkout-session/
+    For web payments only (flutter web using url_launcher)
+    Body: { "appointment_id": 34 }
+
+    Response:
+    {
+        "checkout_url": "https://checkout.stripe.com/pay/cs_test_xxx",
+        "session_id": "cs_test_xxx"
+    }
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        from appointments.models import Appointment
+
+        appointment_id = request.data.get('appointment_id')
+        if not appointment_id:
+            return Response({'error': 'appointment_id is required.'}, status=400)
+
+        try:
+            appt = Appointment.objects.select_related(
+                'patient', 'treatment', 'price_plan', 'staff'
+            ).get(id=appointment_id)
+        except Appointment.DoesNotExist:
+            return Response({'error': 'Appointment not found.'}, status=404)
+
+        if appt.payment_status == 'paid':
+            return Response({'error': 'This appointment is already paid.'}, status=400)
+
+        # Get amount
+        amount = None
+        if appt.price_plan and appt.price_plan.price:
+            amount = appt.price_plan.price
+        elif appt.payment_amount:
+            amount = appt.payment_amount
+        elif appt.treatment and appt.treatment.price:
+            amount = appt.treatment.price
+
+        if not amount:
+            return Response({'error': 'No price set for this appointment.'}, status=400)
+
+        amount_cents = int(float(amount) * 100)
+
+        try:
+            session = stripe.checkout.Session.create(
+                payment_method_types=['card'],
+                line_items=[{
+                    'price_data': {
+                        'currency':     'usd',
+                        'unit_amount':  amount_cents,
+                        'product_data': {
+                            'name':        appt.treatment.name if appt.treatment else 'Treatment',
+                            'description': f"Patient: {appt.patient.name if appt.patient else ''} | Therapist: {appt.staff.username if appt.staff else ''}",
+                        },
+                    },
+                    'quantity': 1,
+                }],
+                mode='payment',
+                success_url='https://krypsos-auro.onrender.com/#/paymentSuccessScreen?appointment_id=' + str(appt.id),
+                cancel_url='https://krypsos-auro.onrender.com/#/paymentCancelScreen?appointment_id=' + str(appt.id),
+                metadata={
+                    'appointment_id': str(appt.id),
+                    'patient_name':   appt.patient.name if appt.patient else '',
+                    'treatment_name': appt.treatment.name if appt.treatment else '',
+                },
+            )
+
+            # Update appointment payment info
+            appt.payment_amount = amount
+            appt.payment_type   = 'online'
+            appt.payment_status = 'pending'
+            appt.save()
+
+            return Response({
+                'checkout_url': session.url,
+                'session_id':   session.id,
+                'appointment_id': appt.id,
+                'amount_display': f"${float(amount):.2f}",
+            })
+
+        except stripe.error.StripeError as e:
+            return Response({'error': str(e)}, status=400)
+
+
+
     """
     POST /api/payments/create-intent/
     Body: { "appointment_id": 42 }

@@ -1,6 +1,7 @@
 from django.urls import path
 from .views import (
     PaymentListView,
+    CreateCheckoutSessionView,
     CreatePaymentIntentView,
     ConfirmPaymentView,
     RefundPaymentView,
@@ -12,6 +13,7 @@ from .views import (
 
 urlpatterns = [
     path('',                                  PaymentListView.as_view()),
+    path('create-checkout-session/',          CreateCheckoutSessionView.as_view()),
     path('create-intent/',                    CreatePaymentIntentView.as_view()),
     path('confirm/',                          ConfirmPaymentView.as_view()),
     path('refund/',                           RefundPaymentView.as_view()),
