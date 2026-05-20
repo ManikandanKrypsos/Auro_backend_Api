@@ -456,6 +456,7 @@ class MarkAsPaidView(APIView):
             return Response({'error': 'Appointment not found.'}, status=404)
 
         appt.payment_status = 'paid'
+        appt.payment_type   = 'cash'
         appt.save()
 
         return Response({
