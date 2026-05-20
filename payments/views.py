@@ -212,6 +212,7 @@ class PaymentListView(APIView):
         status = request.query_params.get('status', '').strip().lower()
         search = request.query_params.get('search', '').strip()
         sort   = request.query_params.get('sort', 'date_desc').strip()
+        today  = request.query_params.get('today', '').strip()
 
         qs = Appointment.objects.select_related(
             'patient', 'treatment', 'staff'
@@ -219,6 +220,10 @@ class PaymentListView(APIView):
 
         if status in ['paid', 'pending', 'refunded']:
             qs = qs.filter(payment_status=status)
+
+        if today == 'true':
+            from django.utils import timezone
+            qs = qs.filter(date_time__date=timezone.localdate())
 
         if search:
             qs = qs.filter(patient__name__icontains=search)
