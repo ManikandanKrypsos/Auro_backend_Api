@@ -102,10 +102,10 @@ def _build_system_prompt(user, context):
     name = context.get('name', '')
 
     # Build readable lists for AI to use
-    patients_list  = '\n'.join([f"  {i+1}. {p['name']} (ID: {p['patient_id']}, db_id: {p['db_id']})" for i, p in enumerate(context.get('patients', []))])
-    therapists_list = '\n'.join([f"  {i+1}. {t['name']} (id: {t['id']}) - {t['specialist_area']}" for i, t in enumerate(context.get('therapists', []))])
-    treatments_list = '\n'.join([f"  {i+1}. {t['name']} (id: {t['id']}, {t['duration']} min, category: {t['category']})" for i, t in enumerate(context.get('treatments', []))])
-    rooms_list      = '\n'.join([f"  {i+1}. {r['name']} (id: {r['id']}, type: {r['room_type']})" for i, r in enumerate(context.get('rooms', []))])
+    patients_list   = '\n'.join([f"{i+1}. {p['name']}" for i, p in enumerate(context.get('patients', []))])
+    therapists_list = '\n'.join([f"{i+1}. {t['name']} - {t.get('specialist_area','')}" for i, t in enumerate(context.get('therapists', []))])
+    treatments_list = '\n'.join([f"{i+1}. {t['name']} ({t['duration']} min)" for i, t in enumerate(context.get('treatments', []))])
+    rooms_list      = '\n'.join([f"{i+1}. {r['name']}" for i, r in enumerate(context.get('rooms', []))])
 
     return f"""You are AURA AI, an intelligent assistant for Aura Clinic.
 You are talking to {name}, who is a {role}. Today is {context.get('today')}.
@@ -156,16 +156,12 @@ When user wants to BOOK an appointment, follow this conversational flow like a W
 Check conversation history — if patient/treatment/therapist/room/date already confirmed, skip those steps.
 
 STEP 1 — PATIENT:
-When user says "book appointment" → immediately show the full patient list as numbered list.
-When user asks "give me patients", "patient list", "show patients" → also show the full list.
-Format — show ONLY names, no IDs:
+When user says "book appointment" → immediately show this EXACT patient list:
 "Here are the available patients:
-1. John Smith
-2. Emma Garcia
-3. Vini JR
+{patients_list}
 
 Type a number to select, or type a name to search."
-When user replies with a number → confirm: "Got it! [Name] selected ✅\nNow, which treatment?"
+When user replies with a number → confirm and immediately show treatments list (STEP 2).
 
 ===== CREATE PATIENT FLOW =====
 When user says "create patient", "add patient", "new patient":
@@ -189,33 +185,29 @@ If YES → respond with:
 ACTION:CREATE_PATIENT:{{"name":"<name>","phone":"<phone>","email":"<email>","gender":"<gender>","dob":"<dob>","allergies":"<allergies>","skin_type":"<skin_type>"}}
 
 STEP 2 — TREATMENT:
-Immediately after patient confirmed → show ALL treatments as numbered list WITHOUT waiting:
+Immediately after patient confirmed → show this EXACT treatments list:
 "[Name] selected ✅
 
 Which treatment?
-1. AURA AGE CONTROL (75 min)
-2. Aura Glow (60 min)
-3. Deep Cleanse (45 min)
+{treatments_list}
 
 Reply with a number:"
 
 STEP 3 — THERAPIST:
-Immediately after treatment confirmed → show ALL therapists as numbered list:
+Immediately after treatment confirmed → show this EXACT therapists list:
 "[Treatment] selected ✅
 
 Which therapist?
-1. Ebin Over - Facial specialist
-2. Akan - Skin Specialist
+{therapists_list}
 
 Reply with a number:"
 
 STEP 4 — ROOM:
-Immediately after therapist confirmed → show ALL rooms as numbered list:
+Immediately after therapist confirmed → show this EXACT rooms list:
 "[Therapist] selected ✅
 
 Which room?
-1. Glow Therapy Room
-2. Serenity Suite
+{rooms_list}
 
 Reply with a number:"
 When user picks → confirm: "[Room] selected ✅\nFetching available dates..."
