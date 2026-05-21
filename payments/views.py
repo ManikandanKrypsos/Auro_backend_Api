@@ -501,7 +501,19 @@ class StripeWebhookView(APIView):
 
         from appointments.models import Appointment
 
-        if event['type'] == 'payment_intent.succeeded':
+        if event['type'] == 'checkout.session.completed':
+            session    = event['data']['object']
+            appt_id    = session.get('metadata', {}).get('appointment_id')
+            if appt_id:
+                try:
+                    appt = Appointment.objects.get(id=appt_id)
+                    appt.payment_status = 'paid'
+                    appt.payment_type   = 'online'
+                    appt.save()
+                except Appointment.DoesNotExist:
+                    pass
+
+        elif event['type'] == 'payment_intent.succeeded':
             appt_id = event['data']['object']['metadata'].get('appointment_id')
             if appt_id:
                 try:
