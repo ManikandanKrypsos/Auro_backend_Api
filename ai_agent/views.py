@@ -158,14 +158,35 @@ Check conversation history — if patient/treatment/therapist/room/date already 
 STEP 1 — PATIENT:
 When user says "book appointment" → immediately show the full patient list as numbered list.
 When user asks "give me patients", "patient list", "show patients" → also show the full list.
-Format:
+Format — show ONLY names, no IDs:
 "Here are the available patients:
 1. John Smith
 2. Emma Garcia
 3. Vini JR
-...
 
 Type a number to select, or type a name to search."
+When user replies with a number → confirm: "Got it! [Name] selected ✅\nNow, which treatment?"
+
+===== CREATE PATIENT FLOW =====
+When user says "create patient", "add patient", "new patient":
+Ask questions ONE BY ONE:
+1. "What is the patient's full name?"
+2. "What is their phone number?"
+3. "What is their email? (or type 'skip')"
+4. "What is their gender? (Male/Female/Other)"
+5. "What is their date of birth? (YYYY-MM-DD or type 'skip')"
+6. "Any allergies? (or type 'none')"
+7. "What is their skin type? (Normal/Dry/Oily/Combination/Sensitive or type 'skip')"
+
+After collecting all → show summary and ask confirm:
+"Patient Summary:
+👤 Name: [name]
+📞 Phone: [phone]
+...
+Confirm? Reply YES to create."
+
+If YES → respond with:
+ACTION:CREATE_PATIENT:{{"name":"<name>","phone":"<phone>","email":"<email>","gender":"<gender>","dob":"<dob>","allergies":"<allergies>","skin_type":"<skin_type>"}}
 
 STEP 2 — TREATMENT:
 After patient selected → immediately show ALL treatments as numbered list:
@@ -481,10 +502,50 @@ def _execute_action(action_line, token):
                 return {'action': 'CANCEL_APPOINTMENT', 'success': False,
                         'message': f"❌ Cancel failed: {str(e)}"}
 
-    except Exception as e:
-        return {'action': 'ERROR', 'message': str(e)}
+        elif action_line.startswith("ACTION:CREATE_PATIENT:"):
+            try:
+                import re
+                from patients.models import Patient
 
-    return None
+                raw  = action_line.split("ACTION:CREATE_PATIENT:")[1].strip()
+                try:
+                    body = json.loads(raw)
+                except Exception:
+                    body = {}
+                    for key in ['name','phone','email','gender','dob','allergies','skin_type']:
+                        m = re.search(rf'"{key}"\s*:\s*"([^"]*)"', raw)
+                        if m:
+                            body[key] = m.group(1)
+
+                if not body.get('name') or not body.get('phone'):
+                    return {'action': 'CREATE_PATIENT', 'success': False,
+                            'message': '❌ Name and phone are required.'}
+
+                # Auto generate patient_id
+                last = Patient.objects.order_by('-id').first()
+                next_id = (last.id + 1) if last else 1
+                patient_id = f"Aura{next_id}"
+
+                patient = Patient.objects.create(
+                    patient_id  = patient_id,
+                    name        = body.get('name', ''),
+                    phone       = body.get('phone', ''),
+                    email       = body.get('email', '') if body.get('email') != 'skip' else '',
+                    gender      = body.get('gender', ''),
+                    dob         = body.get('dob') if body.get('dob') and body.get('dob') != 'skip' else None,
+                    allergies   = body.get('allergies', '') if body.get('allergies') != 'none' else '',
+                    skin_type   = body.get('skin_type', '') if body.get('skin_type') != 'skip' else '',
+                    category    = 'New',
+                )
+                return {
+                    'action':  'CREATE_PATIENT',
+                    'success': True,
+                    'message': f"✅ Patient created! ID: {patient.patient_id} — {patient.name}",
+                    'data':    {'id': patient.id, 'patient_id': patient.patient_id, 'name': patient.name}
+                }
+            except Exception as e:
+                return {'action': 'CREATE_PATIENT', 'success': False,
+                        'message': f"❌ Failed to create patient: {str(e)}"}
 
 
 class AIChatView(APIView):
