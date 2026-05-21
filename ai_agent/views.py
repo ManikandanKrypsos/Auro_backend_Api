@@ -196,8 +196,8 @@ Show ALL rooms as a numbered list:
 
 Reply with a number:"
 When user picks → confirm: "[Room] selected ✅\nFetching available dates..."
-Then respond with (replace YYYY-MM with today's actual year and month from context, e.g. 2026-05):
-ACTION:GET_SLOTS:{{"staff_id":<id>,"service_id":<id>,"month":"{today[:7]}","room_id":<id>}}
+Then respond with (use today's actual year and month, today is {context.get('today', '2026-05')}):
+ACTION:GET_SLOTS:{{"staff_id":<id>,"service_id":<id>,"month":"{context.get('today', '2026-05-21')[:7]}","room_id":<id>}}
 
 STEP 5 — DATE (after slots data returned):
 Show available dates as numbered list:
