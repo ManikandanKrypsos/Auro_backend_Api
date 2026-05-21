@@ -643,7 +643,10 @@ class AIChatView(APIView):
             if not clean_reply and options_result:
                 clean_reply = options_result.get('question', 'Please choose an option:')
             elif not clean_reply and action_line:
-                clean_reply = 'Processing your request...'
+                if action_result and action_result.get('success'):
+                    clean_reply = action_result.get('message', '✅ Done!')
+                else:
+                    clean_reply = action_result.get('message', '❌ Something went wrong.') if action_result else 'Processing...'
 
             if action_line and token:
                 action_result = _execute_action(action_line, token)
@@ -683,8 +686,12 @@ Format the label nicely e.g. "Mon, 20 May 2026". Count the slots for subtitle.""
                         if not clean_reply and options_result:
                             clean_reply = options_result.get('question', 'Please choose a date:')
 
-                elif action_result and action_result.get('action') in ['BOOK_APPOINTMENT', 'CANCEL_APPOINTMENT']:
-                    clean_reply = f"{clean_reply}\n\n{action_result.get('message', '')}".strip()
+                elif action_result and action_result.get('action') in ['BOOK_APPOINTMENT', 'CANCEL_APPOINTMENT', 'CREATE_PATIENT']:
+                    msg = action_result.get('message', '')
+                    if action_result.get('action') == 'CREATE_PATIENT' and action_result.get('success'):
+                        clean_reply = f"✅ Patient created successfully!\n{msg}"
+                    else:
+                        clean_reply = f"{clean_reply}\n\n{msg}".strip()
 
             return Response({
                 'reply':         clean_reply,
