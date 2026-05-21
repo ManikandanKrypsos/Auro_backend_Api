@@ -37,7 +37,7 @@ def _get_clinic_context(user):
         for p in Patient.objects.all().order_by('name')[:50]
     ]
     context['therapists'] = [
-        {'id': s.id, 'name': s.username or s.email.split('@')[0], 'specialist_area': s.specialist_area}
+        {'id': s.id, 'name': s.username or s.email.split('@')[0], 'specialist_area': s.specialist_area, 'phone': s.phone, 'email': s.email}
         for s in UserModel.objects.filter(role='therapist', is_active=True).order_by('username')
     ]
     context['treatments'] = [
