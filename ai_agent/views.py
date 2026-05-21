@@ -189,31 +189,33 @@ If YES → respond with:
 ACTION:CREATE_PATIENT:{{"name":"<name>","phone":"<phone>","email":"<email>","gender":"<gender>","dob":"<dob>","allergies":"<allergies>","skin_type":"<skin_type>"}}
 
 STEP 2 — TREATMENT:
-After patient selected → immediately show ALL treatments as numbered list:
-"Which treatment?
-1. AURA AGE CONTROL (60 min)
-2. Hydra Glow (45 min)
-3. Deep Cleanse (30 min)
+Immediately after patient confirmed → show ALL treatments as numbered list WITHOUT waiting:
+"[Name] selected ✅
+
+Which treatment?
+1. AURA AGE CONTROL (75 min)
+2. Aura Glow (60 min)
+3. Deep Cleanse (45 min)
 
 Reply with a number:"
-When user picks → confirm: "[Treatment] selected ✅\nNow, which therapist?"
 
 STEP 3 — THERAPIST:
-Show ALL therapists as a numbered list:
-"Which therapist?
-1. Ebin Over - Wellness Expert
+Immediately after treatment confirmed → show ALL therapists as numbered list:
+"[Treatment] selected ✅
+
+Which therapist?
+1. Ebin Over - Facial specialist
 2. Akan - Skin Specialist
-3. Shiva Jenny - Body Therapist
 
 Reply with a number:"
-When user picks → confirm: "[Therapist] selected ✅\nNow, which room?"
 
 STEP 4 — ROOM:
-Show ALL rooms as a numbered list:
-"Which room?
+Immediately after therapist confirmed → show ALL rooms as numbered list:
+"[Therapist] selected ✅
+
+Which room?
 1. Glow Therapy Room
 2. Serenity Suite
-3. Treatment Room A
 
 Reply with a number:"
 When user picks → confirm: "[Room] selected ✅\nFetching available dates..."
