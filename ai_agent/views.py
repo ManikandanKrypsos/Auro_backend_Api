@@ -210,9 +210,9 @@ Which room?
 {rooms_list}
 
 Reply with a number:"
-DO NOT proceed to fetch slots until user selects a room.
-When user selects room → confirm: "[Room] selected ✅\nFetching available dates..."
-ONLY THEN respond with ACTION:GET_SLOTS
+NEVER say "Fetching available dates" without first getting room selection.
+NEVER trigger ACTION:GET_SLOTS without room_id.
+Wait for user to pick a room number before proceeding.
 When user picks → confirm: "[Room] selected ✅\nFetching available dates..."
 Then respond with (use today's actual year and month, today is {context.get('today', '2026-05')}):
 ACTION:GET_SLOTS:{{"staff_id":<id>,"service_id":<id>,"month":"{context.get('today', '2026-05-21')[:7]}","room_id":<id>}}
@@ -323,6 +323,16 @@ def _execute_action(action_line, token):
                     duration = 60
 
                 working_hours = {wh.day: wh for wh in StaffWorkingHours.objects.filter(staff_id=staff_id)}
+
+                # If no working hours set, use full day as fallback
+                if not working_hours:
+                    from users.models import StaffWorkingHours as SWH
+                    import datetime as dt2
+                    for day in ['Mon','Tue','Wed','Thu','Fri','Sat','Sun']:
+                        class FakeWH:
+                            start_time = dt2.time(9, 0)
+                            end_time   = dt2.time(18, 0)
+                        working_hours[day] = FakeWH()
                 DAY_MAP = {0:'Mon',1:'Tue',2:'Wed',3:'Thu',4:'Fri',5:'Sat',6:'Sun'}
 
                 leaves = StaffLeave.objects.filter(staff_id=staff_id)
@@ -346,10 +356,15 @@ def _execute_action(action_line, token):
 
                 booked_slots = {}
                 for b in bookings:
-                    d = b['date_time'].date()
+                    appt_dt = b['date_time']
+                    # Handle timezone aware datetimes
+                    if hasattr(appt_dt, 'tzinfo') and appt_dt.tzinfo:
+                        import pytz
+                        appt_dt = appt_dt.astimezone(pytz.timezone('Asia/Kolkata')).replace(tzinfo=None)
+                    d = appt_dt.date()
                     if d not in booked_slots:
                         booked_slots[d] = []
-                    booked_slots[d].append((b['date_time'].time(), b['duration']))
+                    booked_slots[d].append((appt_dt.time(), b['duration']))
 
                 available_dates = {}
                 for day_num in range(1, days_in_month + 1):
