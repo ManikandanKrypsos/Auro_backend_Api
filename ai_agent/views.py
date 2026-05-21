@@ -547,6 +547,11 @@ def _execute_action(action_line, token):
                 return {'action': 'CREATE_PATIENT', 'success': False,
                         'message': f"❌ Failed to create patient: {str(e)}"}
 
+    except Exception as e:
+        return {'action': 'ERROR', 'message': str(e)}
+
+    return None
+
 
 class AIChatView(APIView):
     """
