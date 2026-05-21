@@ -229,6 +229,19 @@ class RefundPaymentView(APIView):
         if appt.payment_status != 'paid':
             return Response({'error': 'This appointment has no completed payment to refund.'}, status=400)
 
+        # Cash payment — no Stripe, just update DB
+        if appt.payment_type == 'cash':
+            appt.payment_status = 'refunded'
+            appt.status         = 'cancelled'
+            appt.save()
+            return Response({
+                'success':        True,
+                'message':        'Cash payment refunded successfully.',
+                'appointment_id': appt.id,
+                'note':           'Cash refund — please return money manually to patient.',
+            })
+
+        # Online payment — refund via Stripe
         try:
             intents = stripe.PaymentIntent.list(limit=100)
             target  = None
