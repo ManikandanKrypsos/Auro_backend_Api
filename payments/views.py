@@ -243,17 +243,23 @@ class RefundPaymentView(APIView):
 
         # Online payment — refund via Stripe
         try:
-            intents = stripe.PaymentIntent.list(limit=100)
-            target  = None
-            for intent in intents.data:
-                if intent.metadata.get('appointment_id') == str(appt.id):
-                    target = intent
-                    break
+            # First check if payment_intent_id stored in notes (web checkout)
+            payment_intent_id = None
+            if appt.notes and appt.notes.startswith('stripe_pi:'):
+                payment_intent_id = appt.notes.split('stripe_pi:')[1].strip()
 
-            if not target:
+            # If not in notes, search Stripe
+            if not payment_intent_id:
+                intents = stripe.PaymentIntent.list(limit=100)
+                for intent in intents.data:
+                    if intent.metadata.get('appointment_id') == str(appt.id):
+                        payment_intent_id = intent.id
+                        break
+
+            if not payment_intent_id:
                 return Response({'error': 'Payment record not found in Stripe.'}, status=404)
 
-            refund = stripe.Refund.create(payment_intent=target.id)
+            refund = stripe.Refund.create(payment_intent=payment_intent_id)
 
             if refund.status == 'succeeded':
                 appt.payment_status = 'refunded'
@@ -502,13 +508,17 @@ class StripeWebhookView(APIView):
         from appointments.models import Appointment
 
         if event['type'] == 'checkout.session.completed':
-            session    = event['data']['object']
-            appt_id    = session.get('metadata', {}).get('appointment_id')
+            session        = event['data']['object']
+            appt_id        = session.get('metadata', {}).get('appointment_id')
+            payment_intent = session.get('payment_intent')
             if appt_id:
                 try:
                     appt = Appointment.objects.get(id=appt_id)
                     appt.payment_status = 'paid'
                     appt.payment_type   = 'online'
+                    # Store payment_intent_id in notes field for refund lookup
+                    if payment_intent:
+                        appt.notes = f"stripe_pi:{payment_intent}"
                     appt.save()
                 except Appointment.DoesNotExist:
                     pass
