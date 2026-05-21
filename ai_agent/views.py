@@ -210,6 +210,9 @@ Which room?
 {rooms_list}
 
 Reply with a number:"
+DO NOT proceed to fetch slots until user selects a room.
+When user selects room → confirm: "[Room] selected ✅\nFetching available dates..."
+ONLY THEN respond with ACTION:GET_SLOTS
 When user picks → confirm: "[Room] selected ✅\nFetching available dates..."
 Then respond with (use today's actual year and month, today is {context.get('today', '2026-05')}):
 ACTION:GET_SLOTS:{{"staff_id":<id>,"service_id":<id>,"month":"{context.get('today', '2026-05-21')[:7]}","room_id":<id>}}
