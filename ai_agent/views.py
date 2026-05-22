@@ -33,7 +33,21 @@ def _get_clinic_context(user):
 
     # Always include booking data
     context['patients'] = [
-        {'db_id': p.id, 'patient_id': p.patient_id, 'name': p.name, 'phone': p.phone, 'category': p.category}
+        {
+            'db_id':             p.id,
+            'patient_id':        p.patient_id,
+            'name':              p.name,
+            'phone':             p.phone,
+            'email':             p.email or '',
+            'gender':            p.gender or '',
+            'dob':               str(p.dob) if p.dob else '',
+            'blood_type':        p.blood_type or '',
+            'allergies':         p.allergies or 'None',
+            'skin_type':         p.skin_type or '',
+            'contraindications': p.contraindications or '',
+            'notes':             p.notes or '',
+            'category':          p.category or '',
+        }
         for p in Patient.objects.all().order_by('name')[:50]
     ]
     context['therapists'] = [
@@ -86,7 +100,7 @@ def _get_clinic_context(user):
         month_appts    = Appointment.objects.filter(date_time__gte=start_of_month)
         context['todays_appointments']  = todays_appts.count()
         context['monthly_appointments'] = month_appts.count()
-        context['revenue_this_month']   = float(month_appts.filter(status='completed').aggregate(t=Sum('payment_amount'))['t'] or 0)
+        context['revenue_this_month']   = float(month_appts.filter(payment_status='paid').aggregate(t=Sum('payment_amount'))['t'] or 0)
         context['todays_schedule'] = [
             {'appointment_id': a.id, 'time': a.date_time.strftime('%H:%M') if a.date_time else None,
              'patient': a.patient.name if a.patient else None, 'treatment': a.treatment.name if a.treatment else None,
