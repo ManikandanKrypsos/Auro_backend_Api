@@ -116,7 +116,10 @@ def _build_system_prompt(user, context):
     name = context.get('name', '')
 
     # Build readable lists for AI to use
-    patients_list   = '\n'.join([f"{i+1}. {p['name']}" for i, p in enumerate(context.get('patients', []))])
+    patients_list   = '\n'.join([
+        f"{i+1}. {p['name']} | Phone: {p['phone']} | Skin: {p.get('skin_type','N/A')} | Allergies: {p.get('allergies','None')} | Gender: {p.get('gender','N/A')}"
+        for i, p in enumerate(context.get('patients', []))
+    ])
     therapists_list = '\n'.join([f"{i+1}. {t['name']} - {t.get('specialist_area','')}" for i, t in enumerate(context.get('therapists', []))])
     treatments_list = '\n'.join([f"{i+1}. {t['name']} ({t['duration']} min)" for i, t in enumerate(context.get('treatments', []))])
     rooms_list      = '\n'.join([f"{i+1}. {r['name']}" for i, r in enumerate(context.get('rooms', []))])
