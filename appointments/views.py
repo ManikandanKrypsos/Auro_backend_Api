@@ -151,6 +151,12 @@ def _build_month_availability(staff, treatment, month_str, room=None):
         slot_start = datetime.datetime.combine(date, effective_open)
         slot_end   = datetime.datetime.combine(date, effective_close)
 
+        # For today, start from current time
+        if date == today:
+            now_rounded = now_local.replace(second=0, microsecond=0)
+            if now_rounded > slot_start:
+                slot_start = now_rounded
+
         slots   = []
         current = slot_start
         while current + dur_delta <= slot_end:
@@ -370,22 +376,32 @@ class AppointmentListView(APIView):
 
             # ── Double booking check ──────────────────────────────────────────
             if staff and date_time:
-                slot_end = date_time + datetime.timedelta(minutes=duration)
+                slot_start = date_time
+                slot_end   = date_time + datetime.timedelta(minutes=duration)
+
                 conflict = Appointment.objects.filter(
                     staff=staff,
                     status__in=['upcoming', 'in_session'],
                 )
-                overlapping = [
-                    a for a in conflict
-                    if a.date_time.replace(tzinfo=None) < slot_end and
-                       (a.date_time + datetime.timedelta(minutes=a.duration)).replace(tzinfo=None) > date_time
-                ]
+
+                overlapping = []
+                for a in conflict:
+                    # Normalize to naive datetime for comparison
+                    a_start = a.date_time.replace(tzinfo=None) if a.date_time.tzinfo else a.date_time
+                    a_end   = a_start + datetime.timedelta(minutes=a.duration)
+
+                    # Overlap condition: new slot starts before existing ends AND new slot ends after existing starts
+                    if slot_start < a_end and slot_end > a_start:
+                        overlapping.append(a)
+
                 if overlapping:
                     existing = overlapping[0]
+                    ex_start = existing.date_time.replace(tzinfo=None) if existing.date_time.tzinfo else existing.date_time
+                    ex_end   = ex_start + datetime.timedelta(minutes=existing.duration)
                     return Response({
-                        'error': f"This time slot is already booked for {staff.username}. "
-                                 f"They have an appointment at {existing.date_time.strftime('%H:%M')}. "
-                                 f"Please choose a different time or therapist."
+                        'error': f"This time slot overlaps with an existing appointment for {staff.username}. "
+                                 f"They have a booking from {ex_start.strftime('%H:%M')} to {ex_end.strftime('%H:%M')}. "
+                                 f"Please choose a different time slot."
                     }, status=400)
             # ─────────────────────────────────────────────────────────────────
 

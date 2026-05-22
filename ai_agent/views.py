@@ -382,6 +382,18 @@ def _execute_action(action_line, token):
                     wh    = working_hours[day_name]
                     start = datetime.datetime.combine(date, wh.start_time)
                     end   = datetime.datetime.combine(date, wh.end_time)
+
+                    # For today, start from current time (rounded up to next 30 min)
+                    if date == today_date:
+                        now_time = datetime.datetime.now()
+                        # Round up to next 30 minute slot
+                        minutes  = now_time.minute
+                        if minutes < 30:
+                            rounded = now_time.replace(minute=30, second=0, microsecond=0)
+                        else:
+                            rounded = (now_time + datetime.timedelta(hours=1)).replace(minute=0, second=0, microsecond=0)
+                        if rounded > start:
+                            start = rounded
                     slots = []
                     cur   = start
 
