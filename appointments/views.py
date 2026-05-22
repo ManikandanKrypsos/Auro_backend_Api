@@ -322,27 +322,25 @@ class AppointmentListView(APIView):
             duration = int(request.data.get('duration') or 0) or \
                        (treatment_obj.duration if treatment_obj else 60)
 
-            # Build date_time from date + time
+            # Build date_time from date + time - timezone aware
             req_date       = request.data.get('date')
             req_time       = str(request.data.get('time', ''))
             req_time_start = req_time.split('-')[0].strip() if req_time else None
             date_time      = None
+            from django.utils import timezone as tz
             if req_date and req_time_start:
                 try:
-                    date_time = datetime.datetime.strptime(
-                        f"{req_date} {req_time_start}", '%Y-%m-%d %H:%M'
-                    )
+                    naive     = datetime.datetime.strptime(f"{req_date} {req_time_start}", '%Y-%m-%d %H:%M')
+                    date_time = tz.make_aware(naive)
                 except Exception:
                     pass
 
             # ── Past time check ───────────────────────────────────────────────
             if date_time:
-                from django.utils import timezone as tz
-                now_naive = datetime.datetime.now()
-                if date_time < now_naive:
+                if date_time < tz.now():
                     return Response({
                         'error': f"Cannot book an appointment in the past. "
-                                 f"The selected time {date_time.strftime('%d %b %Y %H:%M')} has already passed."
+                                 f"The selected time {tz.localtime(date_time).strftime('%d %b %Y %H:%M')} has already passed."
                     }, status=400)
             # ─────────────────────────────────────────────────────────────────
 
@@ -397,23 +395,37 @@ class AppointmentListView(APIView):
 
                 overlapping = []
                 for a in conflict:
-                    # Normalize to naive datetime for comparison
-                    a_start = a.date_time.replace(tzinfo=None) if a.date_time.tzinfo else a.date_time
+                    a_start = a.date_time if a.date_time.tzinfo else tz.make_aware(a.date_time)
                     a_end   = a_start + datetime.timedelta(minutes=a.duration)
-
-                    # Overlap condition: new slot starts before existing ends AND new slot ends after existing starts
                     if slot_start < a_end and slot_end > a_start:
-                        overlapping.append(a)
+                        overlapping.append((a, a_start, a_end))
 
                 if overlapping:
-                    existing = overlapping[0]
-                    ex_start = existing.date_time.replace(tzinfo=None) if existing.date_time.tzinfo else existing.date_time
-                    ex_end   = ex_start + datetime.timedelta(minutes=existing.duration)
+                    existing, ex_start, ex_end = overlapping[0]
                     return Response({
                         'error': f"This time slot overlaps with an existing appointment for {staff.username}. "
-                                 f"They have a booking from {ex_start.strftime('%H:%M')} to {ex_end.strftime('%H:%M')}. "
+                                 f"They have a booking from {tz.localtime(ex_start).strftime('%H:%M')} to {tz.localtime(ex_end).strftime('%H:%M')}. "
                                  f"Please choose a different time slot."
                     }, status=400)
+            # ─────────────────────────────────────────────────────────────────
+
+            # ── Room conflict check ───────────────────────────────────────────
+            room_id = request.data.get('room_id')
+            if room_id and date_time:
+                slot_start    = date_time
+                slot_end      = date_time + datetime.timedelta(minutes=duration)
+                room_conflict = Appointment.objects.filter(
+                    room_fk_id=room_id,
+                    status__in=['upcoming', 'in_session'],
+                )
+                for a in room_conflict:
+                    a_start = a.date_time if a.date_time.tzinfo else tz.make_aware(a.date_time)
+                    a_end   = a_start + datetime.timedelta(minutes=a.duration)
+                    if slot_start < a_end and slot_end > a_start:
+                        return Response({
+                            'error': f"This room is already booked from {tz.localtime(a_start).strftime('%H:%M')} to {tz.localtime(a_end).strftime('%H:%M')}. "
+                                     f"Please choose a different room or time slot."
+                        }, status=400)
             # ─────────────────────────────────────────────────────────────────
 
             appt = serializer.save()
