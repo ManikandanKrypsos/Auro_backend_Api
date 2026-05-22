@@ -231,9 +231,10 @@ Reply with a number:"
 NEVER say "Fetching available dates" without first getting room selection.
 NEVER trigger ACTION:GET_SLOTS without room_id.
 Wait for user to pick a room number before proceeding.
-When user picks → confirm: "[Room] selected ✅\nFetching available dates..."
-Then respond with (use today's actual year and month, today is {context.get('today', '2026-05')}):
-ACTION:GET_SLOTS:{{"staff_id":<id>,"service_id":<id>,"month":"{context.get('today', '2026-05-21')[:7]}","room_id":<id>}}
+When user picks a room number → look up the room id from AVAILABLE ROOMS list above → confirm: "[Room] selected ✅" then on the NEXT LINE write ONLY:
+ACTION:GET_SLOTS:{{"staff_id":<actual_staff_id>,"service_id":<actual_treatment_id>,"month":"CURRENT_MONTH","room_id":<actual_room_id>}}
+Replace CURRENT_MONTH with today's year-month e.g. 2026-05
+Replace all IDs with actual numeric IDs from the selected items — not placeholder text.
 
 STEP 5 — DATE (after slots data returned):
 Show available dates as numbered list:
