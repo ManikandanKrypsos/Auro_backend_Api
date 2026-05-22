@@ -642,13 +642,28 @@ class AIChatView(APIView):
         groq_messages.append({'role': 'user', 'content': message})
 
         def _call_groq(messages, api_key):
-            resp = requests.post(
-                GROQ_API_URL,
-                headers={'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'},
-                json={'model': GROQ_MODEL, 'messages': messages, 'max_tokens': 1024, 'temperature': 0.3},
-                timeout=30,
-            )
-            return resp.status_code, resp
+            for attempt in range(4):  # retry up to 4 times
+                try:
+                    resp = requests.post(
+                        GROQ_API_URL,
+                        headers={'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'},
+                        json={'model': GROQ_MODEL, 'messages': messages, 'max_tokens': 1024, 'temperature': 0.3},
+                        timeout=30,
+                    )
+                    if resp.status_code == 200:
+                        return resp.status_code, resp
+                    elif resp.status_code == 429:  # rate limit - wait and retry
+                        import time
+                        time.sleep(2 * (attempt + 1))
+                        continue
+                    else:
+                        return resp.status_code, resp
+                except requests.Timeout:
+                    if attempt == 3:
+                        raise
+                    import time
+                    time.sleep(1)
+            return 503, None
 
         try:
             api_key = os.environ.get('GROQ_API_KEY', '')
