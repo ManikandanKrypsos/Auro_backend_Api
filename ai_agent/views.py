@@ -333,7 +333,10 @@ def _execute_action(action_line, token):
 
                 year, mon    = map(int, month.split('-'))
                 days_in_month = calendar.monthrange(year, mon)[1]
-                today_date   = datetime.date.today()
+                # Use local timezone for today
+                from django.utils.timezone import localdate, localtime as ltime
+                today_date   = localdate()
+                now_local    = ltime(timezone.now())
 
                 try:
                     duration = Treatment.objects.get(id=service_id).duration
@@ -403,10 +406,14 @@ def _execute_action(action_line, token):
 
                     # For today, start from current time (rounded up to next 30 min)
                     if date == today_date:
-                        now_time = datetime.datetime.now()
+                        from django.utils.timezone import localtime as ltime2
+                        from django.utils import timezone as dj_tz2
+                        now_time = ltime2(dj_tz2.now()).replace(tzinfo=None)
                         # Round up to next 30 minute slot
                         minutes  = now_time.minute
-                        if minutes < 30:
+                        if minutes == 0:
+                            rounded = now_time.replace(second=0, microsecond=0)
+                        elif minutes <= 30:
                             rounded = now_time.replace(minute=30, second=0, microsecond=0)
                         else:
                             rounded = (now_time + datetime.timedelta(hours=1)).replace(minute=0, second=0, microsecond=0)
