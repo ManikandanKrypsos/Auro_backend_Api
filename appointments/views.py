@@ -335,6 +335,17 @@ class AppointmentListView(APIView):
                 except Exception:
                     pass
 
+            # ── Past time check ───────────────────────────────────────────────
+            if date_time:
+                from django.utils import timezone as tz
+                now_naive = datetime.datetime.now()
+                if date_time < now_naive:
+                    return Response({
+                        'error': f"Cannot book an appointment in the past. "
+                                 f"The selected time {date_time.strftime('%d %b %Y %H:%M')} has already passed."
+                    }, status=400)
+            # ─────────────────────────────────────────────────────────────────
+
             # ── Clinic closing time + Therapist working hours check ───────────
             if date_time and duration:
                 from clinic.models import ClinicHours
