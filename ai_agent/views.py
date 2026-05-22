@@ -2,6 +2,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from django.utils import timezone
+from django.utils.timezone import localtime
 import json
 import requests
 import os
@@ -73,7 +74,7 @@ def _get_clinic_context(user):
     if role == 'therapist':
         todays_appts = Appointment.objects.filter(staff=user, date_time__date=today).select_related('patient', 'treatment', 'room_fk')
         context['my_schedule_today'] = [
-            {'time': a.date_time.strftime('%H:%M') if a.date_time else None, 'patient': a.patient.name if a.patient else None,
+            {'time': localtime(a.date_time).strftime('%H:%M') if a.date_time else None, 'patient': a.patient.name if a.patient else None,
              'treatment': a.treatment.name if a.treatment else None, 'status': a.status, 'appointment_id': a.id}
             for a in todays_appts.order_by('date_time')
         ]
@@ -87,7 +88,7 @@ def _get_clinic_context(user):
         context['cancelled_today']      = todays_appts.filter(status='cancelled').count()
         context['in_session_today']     = todays_appts.filter(status='in_session').count()
         context['todays_schedule'] = [
-            {'appointment_id': a.id, 'time': a.date_time.strftime('%H:%M') if a.date_time else None,
+            {'appointment_id': a.id, 'time': localtime(a.date_time).strftime('%H:%M') if a.date_time else None,
              'patient': a.patient.name if a.patient else None, 'treatment': a.treatment.name if a.treatment else None,
              'therapist': a.staff.username if a.staff else None, 'status': a.status}
             for a in todays_appts.select_related('patient', 'treatment', 'staff').order_by('date_time')
@@ -102,7 +103,7 @@ def _get_clinic_context(user):
         context['monthly_appointments'] = month_appts.count()
         context['revenue_this_month']   = float(month_appts.filter(payment_status='paid').aggregate(t=Sum('payment_amount'))['t'] or 0)
         context['todays_schedule'] = [
-            {'appointment_id': a.id, 'time': a.date_time.strftime('%H:%M') if a.date_time else None,
+            {'appointment_id': a.id, 'time': localtime(a.date_time).strftime('%H:%M') if a.date_time else None,
              'patient': a.patient.name if a.patient else None, 'treatment': a.treatment.name if a.treatment else None,
              'therapist': a.staff.username if a.staff else None, 'status': a.status}
             for a in todays_appts.select_related('patient', 'treatment', 'staff').order_by('date_time')
