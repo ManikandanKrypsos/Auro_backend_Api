@@ -415,7 +415,7 @@ class AppointmentListView(APIView):
                 slot_start    = date_time
                 slot_end      = date_time + datetime.timedelta(minutes=duration)
                 room_conflict = Appointment.objects.filter(
-                    room_fk_id=room_id,
+                    room_fk__id=room_id,
                     status__in=['upcoming', 'in_session'],
                 )
                 for a in room_conflict:
