@@ -808,11 +808,6 @@ class AIChatView(APIView):
             # If reply is empty after parsing, use options question as reply
             if not clean_reply and options_result:
                 clean_reply = options_result.get('question', 'Please choose an option:')
-            elif not clean_reply and action_line:
-                if action_result and action_result.get('success'):
-                    clean_reply = action_result.get('message', '✅ Done!')
-                else:
-                    clean_reply = action_result.get('message', '❌ Something went wrong.') if action_result else 'Processing...'
 
             if action_line and token:
                 action_result = _execute_action(action_line, token)
@@ -874,6 +869,7 @@ Format the label nicely e.g. "Mon, 20 May 2026". Count the slots for subtitle.""
                 'role':          context.get('role'),
                 'action_result': action_result,
                 'options':       options_result,
+                'debug_raw':     reply[:500] if reply else '',  # temp debug
                 'context': {
                     'name':  context.get('name'),
                     'today': context.get('today'),
