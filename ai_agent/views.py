@@ -285,7 +285,27 @@ If user says YES/yes/confirm/ok:
 ACTION:BOOK_APPOINTMENT:{{"patient_id":<db_id>,"staff_id":<id>,"treatment_id":<id>,"room_id":<id>,"price_plan_id":<id>,"date":"YYYY-MM-DD","time":"HH:MM"}}
 Then say: "✅ Appointment booked successfully!"
 
-===== CANCEL APPOINTMENT FLOW =====
+===== UPDATE PATIENT FLOW =====
+When user says "update patient", "change patient", "edit patient name/phone/email/etc":
+1. If patient not specified → ask "Which patient? Type the name:"
+2. Find patient from AVAILABLE PATIENTS list
+3. Ask "What do you want to update?" if field not specified
+4. Get new value
+5. Confirm: "Update [field] of [patient] to [new value]? Reply YES"
+6. If YES → respond with:
+ACTION:UPDATE_PATIENT:{{"patient_id":<db_id>,"field":"<field_name>","value":"<new_value>"}}
+
+Field names: name, phone, email, gender, dob, city, country, blood_type, allergies, skin_type
+
+Example: "change Vini's phone to 123456789"
+→ ACTION:UPDATE_PATIENT:{{"patient_id":6,"field":"phone","value":"123456789"}}
+
+===== DELETE PATIENT FLOW =====
+When user says "delete patient", "remove patient":
+1. Ask which patient if not specified
+2. Show warning: "⚠️ Are you sure you want to delete [patient name]? This cannot be undone. Reply YES to confirm."
+3. If YES → respond with:
+ACTION:DELETE_PATIENT:{{"patient_id":<db_id>}}
 When user wants to CANCEL:
 Show today's schedule as numbered list:
 "Today's appointments:
@@ -563,7 +583,71 @@ def _execute_action(action_line, token):
                 return {'action': 'CANCEL_APPOINTMENT', 'success': False,
                         'message': f"❌ Cancel failed: {str(e)}"}
 
-        elif action_line.startswith("ACTION:CREATE_PATIENT:"):
+        elif action_line.startswith("ACTION:UPDATE_PATIENT:"):
+            try:
+                import re
+                from patients.models import Patient
+
+                raw  = action_line.split("ACTION:UPDATE_PATIENT:")[1].strip()
+                try:
+                    body = json.loads(raw)
+                except Exception:
+                    body = {}
+                    m = re.search(r'"patient_id"\s*:\s*(\d+)', raw)
+                    if m: body['patient_id'] = int(m.group(1))
+                    m = re.search(r'"field"\s*:\s*"([^"]+)"', raw)
+                    if m: body['field'] = m.group(1)
+                    m = re.search(r'"value"\s*:\s*"([^"]+)"', raw)
+                    if m: body['value'] = m.group(1)
+
+                patient_id = body.get('patient_id')
+                field      = body.get('field')
+                value      = body.get('value')
+
+                if not patient_id or not field:
+                    return {'action': 'UPDATE_PATIENT', 'success': False,
+                            'message': '❌ Could not identify patient or field to update.'}
+
+                patient = Patient.objects.get(id=patient_id)
+                setattr(patient, field, value)
+                patient.save()
+                return {
+                    'action':  'UPDATE_PATIENT',
+                    'success': True,
+                    'message': f"✅ {patient.name}'s {field} updated successfully to '{value}'."
+                }
+            except Exception as e:
+                return {'action': 'UPDATE_PATIENT', 'success': False,
+                        'message': f"❌ Failed to update patient: {str(e)}"}
+
+        elif action_line.startswith("ACTION:DELETE_PATIENT:"):
+            try:
+                import re
+                from patients.models import Patient
+
+                raw = action_line.split("ACTION:DELETE_PATIENT:")[1].strip()
+                try:
+                    body = json.loads(raw)
+                    patient_id = body.get('patient_id')
+                except Exception:
+                    m = re.search(r'(\d+)', raw)
+                    patient_id = int(m.group(1)) if m else None
+
+                if not patient_id:
+                    return {'action': 'DELETE_PATIENT', 'success': False,
+                            'message': '❌ Could not find patient ID.'}
+
+                patient = Patient.objects.get(id=patient_id)
+                name = patient.name
+                patient.delete()
+                return {
+                    'action':  'DELETE_PATIENT',
+                    'success': True,
+                    'message': f"✅ Patient {name} has been deleted successfully."
+                }
+            except Exception as e:
+                return {'action': 'DELETE_PATIENT', 'success': False,
+                        'message': f"❌ Failed to delete patient: {str(e)}"}
             try:
                 import re
                 from patients.models import Patient
@@ -768,7 +852,7 @@ Format the label nicely e.g. "Mon, 20 May 2026". Count the slots for subtitle.""
                         if not clean_reply and options_result:
                             clean_reply = options_result.get('question', 'Please choose a date:')
 
-                elif action_result and action_result.get('action') in ['BOOK_APPOINTMENT', 'CANCEL_APPOINTMENT', 'CREATE_PATIENT']:
+                elif action_result and action_result.get('action') in ['BOOK_APPOINTMENT', 'CANCEL_APPOINTMENT', 'CREATE_PATIENT', 'UPDATE_PATIENT', 'DELETE_PATIENT']:
                     msg = action_result.get('message', '')
                     if action_result.get('action') == 'CREATE_PATIENT' and action_result.get('success'):
                         clean_reply = f"✅ Patient created successfully!\n{msg}"
