@@ -189,29 +189,18 @@ Ask questions ONE BY ONE:
 3. "What is their email? (or type 'skip')"
 4. "What is their gender? (Male/Female/Other)"
 5. "What is their date of birth? (YYYY-MM-DD or type 'skip')"
-6. "What is their city? (or type 'skip')"
-7. "What is their country? (or type 'skip')"
-8. "What is their blood group? (A+/A-/B+/B-/AB+/AB-/O+/O- or type 'skip')"
-9. "Any allergies? (or type 'none')"
-10. "What is their skin type? (Normal/Dry/Oily/Combination/Sensitive or type 'skip')"
+6. "Any allergies? (or type 'none')"
+7. "What is their skin type? (Normal/Dry/Oily/Combination/Sensitive or type 'skip')"
 
 After collecting all → show summary and ask confirm:
 "Patient Summary:
 👤 Name: [name]
 📞 Phone: [phone]
-📧 Email: [email]
-⚧ Gender: [gender]
-🎂 DOB: [dob]
-🏙 City: [city]
-🌍 Country: [country]
-🩸 Blood Group: [blood_group]
-⚠️ Allergies: [allergies]
-💆 Skin Type: [skin_type]
-
+...
 Confirm? Reply YES to create."
 
 If YES → respond with:
-ACTION:CREATE_PATIENT:{{"name":"<name>","phone":"<phone>","email":"<email>","gender":"<gender>","dob":"<dob>","city":"<city>","country":"<country>","blood_type":"<blood_group>","allergies":"<allergies>","skin_type":"<skin_type>"}}
+ACTION:CREATE_PATIENT:{{"name":"<name>","phone":"<phone>","email":"<email>","gender":"<gender>","dob":"<dob>","allergies":"<allergies>","skin_type":"<skin_type>"}}
 
 STEP 2 — TREATMENT:
 Immediately after patient confirmed → show this EXACT treatments list:
@@ -285,27 +274,7 @@ If user says YES/yes/confirm/ok:
 ACTION:BOOK_APPOINTMENT:{{"patient_id":<db_id>,"staff_id":<id>,"treatment_id":<id>,"room_id":<id>,"price_plan_id":<id>,"date":"YYYY-MM-DD","time":"HH:MM"}}
 Then say: "✅ Appointment booked successfully!"
 
-===== UPDATE PATIENT FLOW =====
-When user says "update patient", "change patient", "edit patient name/phone/email/etc":
-1. If patient not specified → ask "Which patient? Type the name:"
-2. Find patient from AVAILABLE PATIENTS list
-3. Ask "What do you want to update?" if field not specified
-4. Get new value
-5. Confirm: "Update [field] of [patient] to [new value]? Reply YES"
-6. If YES → respond with:
-ACTION:UPDATE_PATIENT:{{"patient_id":<db_id>,"field":"<field_name>","value":"<new_value>"}}
-
-Field names: name, phone, email, gender, dob, city, country, blood_type, allergies, skin_type
-
-Example: "change Vini's phone to 123456789"
-→ ACTION:UPDATE_PATIENT:{{"patient_id":6,"field":"phone","value":"123456789"}}
-
-===== DELETE PATIENT FLOW =====
-When user says "delete patient", "remove patient":
-1. Ask which patient if not specified
-2. Show warning: "⚠️ Are you sure you want to delete [patient name]? This cannot be undone. Reply YES to confirm."
-3. If YES → respond with:
-ACTION:DELETE_PATIENT:{{"patient_id":<db_id>}}
+===== CANCEL APPOINTMENT FLOW =====
 When user wants to CANCEL:
 Show today's schedule as numbered list:
 "Today's appointments:
@@ -583,71 +552,7 @@ def _execute_action(action_line, token):
                 return {'action': 'CANCEL_APPOINTMENT', 'success': False,
                         'message': f"❌ Cancel failed: {str(e)}"}
 
-        elif action_line.startswith("ACTION:UPDATE_PATIENT:"):
-            try:
-                import re
-                from patients.models import Patient
-
-                raw  = action_line.split("ACTION:UPDATE_PATIENT:")[1].strip()
-                try:
-                    body = json.loads(raw)
-                except Exception:
-                    body = {}
-                    m = re.search(r'"patient_id"\s*:\s*(\d+)', raw)
-                    if m: body['patient_id'] = int(m.group(1))
-                    m = re.search(r'"field"\s*:\s*"([^"]+)"', raw)
-                    if m: body['field'] = m.group(1)
-                    m = re.search(r'"value"\s*:\s*"([^"]+)"', raw)
-                    if m: body['value'] = m.group(1)
-
-                patient_id = body.get('patient_id')
-                field      = body.get('field')
-                value      = body.get('value')
-
-                if not patient_id or not field:
-                    return {'action': 'UPDATE_PATIENT', 'success': False,
-                            'message': '❌ Could not identify patient or field to update.'}
-
-                patient = Patient.objects.get(id=patient_id)
-                setattr(patient, field, value)
-                patient.save()
-                return {
-                    'action':  'UPDATE_PATIENT',
-                    'success': True,
-                    'message': f"✅ {patient.name}'s {field} updated successfully to '{value}'."
-                }
-            except Exception as e:
-                return {'action': 'UPDATE_PATIENT', 'success': False,
-                        'message': f"❌ Failed to update patient: {str(e)}"}
-
-        elif action_line.startswith("ACTION:DELETE_PATIENT:"):
-            try:
-                import re
-                from patients.models import Patient
-
-                raw = action_line.split("ACTION:DELETE_PATIENT:")[1].strip()
-                try:
-                    body = json.loads(raw)
-                    patient_id = body.get('patient_id')
-                except Exception:
-                    m = re.search(r'(\d+)', raw)
-                    patient_id = int(m.group(1)) if m else None
-
-                if not patient_id:
-                    return {'action': 'DELETE_PATIENT', 'success': False,
-                            'message': '❌ Could not find patient ID.'}
-
-                patient = Patient.objects.get(id=patient_id)
-                name = patient.name
-                patient.delete()
-                return {
-                    'action':  'DELETE_PATIENT',
-                    'success': True,
-                    'message': f"✅ Patient {name} has been deleted successfully."
-                }
-            except Exception as e:
-                return {'action': 'DELETE_PATIENT', 'success': False,
-                        'message': f"❌ Failed to delete patient: {str(e)}"}
+        elif action_line.startswith("ACTION:CREATE_PATIENT:"):
             try:
                 import re
                 from patients.models import Patient
@@ -678,9 +583,9 @@ def _execute_action(action_line, token):
                     email       = body.get('email', '') if body.get('email') != 'skip' else '',
                     gender      = body.get('gender', ''),
                     dob         = body.get('dob') if body.get('dob') and body.get('dob') != 'skip' else None,
-                    city        = body.get('city', '') if body.get('city') != 'skip' else '',
-                    country     = body.get('country', '') if body.get('country') != 'skip' else '',
-                    blood_type  = body.get('blood_type', '') if body.get('blood_type') != 'skip' else '',
+                    city       = clean(body.get('city', '')),
+                    country    = clean(body.get('country', '')),
+                    blood_type = clean(body.get('blood_type', '')),
                     allergies   = body.get('allergies', '') if body.get('allergies') != 'none' else '',
                     skin_type   = body.get('skin_type', '') if body.get('skin_type') != 'skip' else '',
                     category    = 'New',
@@ -808,8 +713,13 @@ class AIChatView(APIView):
             # If reply is empty after parsing, use options question as reply
             if not clean_reply and options_result:
                 clean_reply = options_result.get('question', 'Please choose an option:')
+            elif not clean_reply and action_line:
+                if action_result and action_result.get('success'):
+                    clean_reply = action_result.get('message', '✅ Done!')
+                else:
+                    clean_reply = action_result.get('message', '❌ Something went wrong.') if action_result else 'Processing...'
 
-            if action_line:
+            if action_line and token:
                 action_result = _execute_action(action_line, token)
 
                 # If GET_SLOTS — process slots and show available dates
@@ -847,29 +757,18 @@ Format the label nicely e.g. "Mon, 20 May 2026". Count the slots for subtitle.""
                         if not clean_reply and options_result:
                             clean_reply = options_result.get('question', 'Please choose a date:')
 
-                elif action_result and action_result.get('action') in ['BOOK_APPOINTMENT', 'CANCEL_APPOINTMENT', 'CREATE_PATIENT', 'UPDATE_PATIENT', 'DELETE_PATIENT']:
+                elif action_result and action_result.get('action') in ['BOOK_APPOINTMENT', 'CANCEL_APPOINTMENT', 'CREATE_PATIENT']:
                     msg = action_result.get('message', '')
                     if action_result.get('action') == 'CREATE_PATIENT' and action_result.get('success'):
                         clean_reply = f"✅ Patient created successfully!\n{msg}"
-                    elif action_result.get('action') == 'UPDATE_PATIENT' and action_result.get('success'):
-                        clean_reply = msg
-                    elif action_result.get('action') == 'DELETE_PATIENT' and action_result.get('success'):
-                        clean_reply = msg
                     else:
-                        clean_reply = f"{clean_reply}\n\n{msg}".strip() if clean_reply else msg
-
-            # If reply still empty after all processing use action message
-            if not clean_reply and action_result:
-                clean_reply = action_result.get('message', '✅ Done!')
-            elif not clean_reply and options_result:
-                clean_reply = options_result.get('question', 'Please choose an option:')
+                        clean_reply = f"{clean_reply}\n\n{msg}".strip()
 
             return Response({
                 'reply':         clean_reply,
                 'role':          context.get('role'),
                 'action_result': action_result,
                 'options':       options_result,
-                'debug_raw':     reply[:500] if reply else '',  # temp debug
                 'context': {
                     'name':  context.get('name'),
                     'today': context.get('today'),
