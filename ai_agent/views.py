@@ -856,8 +856,18 @@ Format the label nicely e.g. "Mon, 20 May 2026". Count the slots for subtitle.""
                     msg = action_result.get('message', '')
                     if action_result.get('action') == 'CREATE_PATIENT' and action_result.get('success'):
                         clean_reply = f"✅ Patient created successfully!\n{msg}"
+                    elif action_result.get('action') == 'UPDATE_PATIENT' and action_result.get('success'):
+                        clean_reply = msg
+                    elif action_result.get('action') == 'DELETE_PATIENT' and action_result.get('success'):
+                        clean_reply = msg
                     else:
-                        clean_reply = f"{clean_reply}\n\n{msg}".strip()
+                        clean_reply = f"{clean_reply}\n\n{msg}".strip() if clean_reply else msg
+
+            # If reply still empty after all processing use action message
+            if not clean_reply and action_result:
+                clean_reply = action_result.get('message', '✅ Done!')
+            elif not clean_reply and options_result:
+                clean_reply = options_result.get('question', 'Please choose an option:')
 
             return Response({
                 'reply':         clean_reply,
