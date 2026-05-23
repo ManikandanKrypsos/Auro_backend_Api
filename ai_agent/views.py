@@ -189,18 +189,29 @@ Ask questions ONE BY ONE:
 3. "What is their email? (or type 'skip')"
 4. "What is their gender? (Male/Female/Other)"
 5. "What is their date of birth? (YYYY-MM-DD or type 'skip')"
-6. "Any allergies? (or type 'none')"
-7. "What is their skin type? (Normal/Dry/Oily/Combination/Sensitive or type 'skip')"
+6. "What is their city? (or type 'skip')"
+7. "What is their country? (or type 'skip')"
+8. "What is their blood group? (A+/A-/B+/B-/AB+/AB-/O+/O- or type 'skip')"
+9. "Any allergies? (or type 'none')"
+10. "What is their skin type? (Normal/Dry/Oily/Combination/Sensitive or type 'skip')"
 
 After collecting all → show summary and ask confirm:
 "Patient Summary:
 👤 Name: [name]
 📞 Phone: [phone]
-...
+📧 Email: [email]
+⚧ Gender: [gender]
+🎂 DOB: [dob]
+🏙 City: [city]
+🌍 Country: [country]
+🩸 Blood Group: [blood_group]
+⚠️ Allergies: [allergies]
+💆 Skin Type: [skin_type]
+
 Confirm? Reply YES to create."
 
 If YES → respond with:
-ACTION:CREATE_PATIENT:{{"name":"<name>","phone":"<phone>","email":"<email>","gender":"<gender>","dob":"<dob>","allergies":"<allergies>","skin_type":"<skin_type>"}}
+ACTION:CREATE_PATIENT:{{"name":"<name>","phone":"<phone>","email":"<email>","gender":"<gender>","dob":"<dob>","city":"<city>","country":"<country>","blood_type":"<blood_group>","allergies":"<allergies>","skin_type":"<skin_type>"}}
 
 STEP 2 — TREATMENT:
 Immediately after patient confirmed → show this EXACT treatments list:
@@ -583,6 +594,9 @@ def _execute_action(action_line, token):
                     email       = body.get('email', '') if body.get('email') != 'skip' else '',
                     gender      = body.get('gender', ''),
                     dob         = body.get('dob') if body.get('dob') and body.get('dob') != 'skip' else None,
+                    city        = body.get('city', '') if body.get('city') != 'skip' else '',
+                    country     = body.get('country', '') if body.get('country') != 'skip' else '',
+                    blood_type  = body.get('blood_type', '') if body.get('blood_type') != 'skip' else '',
                     allergies   = body.get('allergies', '') if body.get('allergies') != 'none' else '',
                     skin_type   = body.get('skin_type', '') if body.get('skin_type') != 'skip' else '',
                     category    = 'New',
