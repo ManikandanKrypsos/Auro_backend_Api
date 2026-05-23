@@ -809,7 +809,7 @@ class AIChatView(APIView):
             if not clean_reply and options_result:
                 clean_reply = options_result.get('question', 'Please choose an option:')
 
-            if action_line and token:
+            if action_line:
                 action_result = _execute_action(action_line, token)
 
                 # If GET_SLOTS — process slots and show available dates
