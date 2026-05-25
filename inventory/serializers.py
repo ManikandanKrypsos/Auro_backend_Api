@@ -103,13 +103,13 @@ class InventoryItemWriteSerializer(serializers.Serializer):
     }
     """
     name                 = serializers.CharField(max_length=150, required=False)
-    description          = serializers.CharField(required=False, allow_blank=True)
+    description          = serializers.CharField(required=False, allow_blank=True, allow_null=True, default='')
     category_id          = serializers.IntegerField(required=False)
     unit_id              = serializers.IntegerField(required=False)
     initial_stock        = serializers.IntegerField(min_value=0, required=False)
     minimum_stock_alert  = serializers.IntegerField(min_value=0, required=False)
-    supplier_name        = serializers.CharField(max_length=150, required=False, allow_blank=True)
-    supplier_phone       = serializers.CharField(max_length=30, required=False, allow_blank=True)
+    supplier_name        = serializers.CharField(max_length=150, required=False, allow_blank=True, allow_null=True, default='')
+    supplier_phone       = serializers.CharField(max_length=30, required=False, allow_blank=True, allow_null=True, default='')
     cost_per_unit        = serializers.DecimalField(max_digits=10, decimal_places=2, required=False)
 
     def validate_category_id(self, value):
