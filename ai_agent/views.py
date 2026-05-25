@@ -74,9 +74,11 @@ def _get_clinic_context(user):
 
     # Schedule and stats — all roles get all data
     from django.db.models import Sum
-    start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    todays_appts   = Appointment.objects.filter(date_time__date=today)
-    month_appts    = Appointment.objects.filter(date_time__gte=start_of_month)
+    import datetime as dt
+    local_today    = timezone.localdate()
+    start_of_month = dt.date(local_today.year, local_today.month, 1)
+    todays_appts   = Appointment.objects.filter(date_time__date=local_today)
+    month_appts    = Appointment.objects.filter(date_time__date__gte=start_of_month)
 
     # If therapist — show their own schedule too
     if role == 'therapist':
@@ -96,6 +98,7 @@ def _get_clinic_context(user):
 
     context['todays_appointments']  = todays_appts.count()
     context['monthly_appointments'] = month_appts.count()
+    context['revenue_today']        = float(todays_appts.filter(payment_status='paid').aggregate(t=Sum('payment_amount'))['t'] or 0)
     context['revenue_this_month']   = float(month_appts.filter(payment_status='paid').aggregate(t=Sum('payment_amount'))['t'] or 0)
     context['checked_in_today']     = todays_appts.filter(patient_arrived=True).count()
     context['cancelled_today']      = todays_appts.filter(status='cancelled').count()
