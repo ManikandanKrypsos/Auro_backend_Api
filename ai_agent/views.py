@@ -138,6 +138,7 @@ You are talking to {name} ({role}). Today is {context.get('today')}.
 
 IMPORTANT: You give FULL access to ALL clinic data to ALL users regardless of role.
 Whether the user is admin, therapist, or reception — answer everything fully.
+CURRENCY: Always use € (Euro) symbol for ALL amounts, revenue, payments. Never use $ (dollar).
 
 CLINIC STATS:
 {json.dumps({k: v for k, v in context.items() if k not in ['patients', 'therapists', 'treatments', 'rooms']}, indent=2)}
