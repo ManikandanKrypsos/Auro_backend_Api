@@ -105,7 +105,7 @@ class PatientOverviewView(APIView):
                 'type':     'treatment',
                 'date':     str(dt.date()),
                 'title':    f"{a.treatment.name if a.treatment else 'Treatment'} — Session {a.session_number} of {plan.sessions if plan else a.total_sessions}",
-                'subtitle': f"{a.staff.username if a.staff else ''} · {a.duration} min · ${a.payment_amount or ''}",
+                'subtitle': f"{a.staff.username if a.staff else ''} · {a.duration} min · €{a.payment_amount or ''}",
                 'status':   a.status,
             })
 
@@ -142,7 +142,7 @@ class PatientOverviewView(APIView):
                 'type':     'payment',
                 'date':     str(dt.date()),
                 'title':    'Payment Received',
-                'subtitle': f"${a.payment_amount} · {a.treatment.name if a.treatment else ''} · {plan.sessions if plan else ''} Sessions",
+                'subtitle': f"€{a.payment_amount} · {a.treatment.name if a.treatment else ''} · {plan.sessions if plan else ''} Sessions",
             })
 
         # Sort by date desc

@@ -136,6 +136,16 @@ class InventoryItemWriteSerializer(serializers.Serializer):
         if unit_id:
             validated_data['unit'] = UNIT_MAP[unit_id]
 
+        # Set defaults for optional fields to avoid NOT NULL DB constraint
+        validated_data.setdefault('description',    '')
+        validated_data.setdefault('supplier_name',  '')
+        validated_data.setdefault('supplier_phone', '')
+
+        # Replace None with empty string for these fields
+        for field in ['description', 'supplier_name', 'supplier_phone']:
+            if validated_data.get(field) is None:
+                validated_data[field] = ''
+
         validated_data['current_stock'] = initial_stock
         item = InventoryItem.objects.create(**validated_data)
 
