@@ -120,7 +120,7 @@ def _build_system_prompt(user, context):
     role = context.get('role', '')
 
     patients_list   = '\n'.join([
-        f"{i+1}. {p['name']} | Phone: {p['phone']} | Skin: {p.get('skin_type','N/A')} | Allergies: {p.get('allergies','None')} | Gender: {p.get('gender','N/A')} | City: {p.get('city','N/A')} | Blood: {p.get('blood_type','N/A')}"
+        f"{i+1}. {p['name']} [db_id:{p['db_id']}] | Phone: {p['phone']} | Skin: {p.get('skin_type','N/A')} | Allergies: {p.get('allergies','None')} | Gender: {p.get('gender','N/A')} | City: {p.get('city','N/A')} | Blood: {p.get('blood_type','N/A')}"
         for i, p in enumerate(context.get('patients', []))
     ])
     therapists_list = '\n'.join([
