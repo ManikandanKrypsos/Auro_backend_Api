@@ -236,14 +236,24 @@ ACTION:CREATE_PATIENT:{{"name":"<n>","phone":"<p>","email":"<e>","gender":"<g>",
 
 ===== UPDATE PATIENT FLOW =====
 When user says "update/change/edit patient [field]":
-1. Find patient → confirm new value → if YES:
+1. Find patient by NAME from AVAILABLE PATIENTS list — do NOT use list numbers for update
+2. Confirm: "Update [field] of [patient name] to [new value]? Reply YES"
+3. If YES → use their exact db_id:
 ACTION:UPDATE_PATIENT:{{"patient_id":<db_id>,"field":"<field>","value":"<value>"}}
 Fields: name, phone, email, gender, dob, city, country, blood_type, allergies, skin_type
+IMPORTANT: Always match patient by NAME. Never update the wrong patient.
 
 ===== DELETE PATIENT FLOW =====
-When user says "delete patient":
-Show warning → confirm → if YES:
+When user says "delete patient [name]":
+1. Find the patient by NAME from AVAILABLE PATIENTS list — do NOT use list numbers for delete
+2. Show their exact details and warning:
+"⚠️ You are about to delete:
+👤 [Full Name]
+📞 [Phone]
+Are you sure? This CANNOT be undone. Type YES to confirm."
+3. If YES → use their exact db_id:
 ACTION:DELETE_PATIENT:{{"patient_id":<db_id>}}
+IMPORTANT: Always match patient by NAME not by number. Never delete the wrong patient.
 
 ===== IMPORTANT RULES =====
 - Always show numbered lists before asking
