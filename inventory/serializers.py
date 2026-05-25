@@ -175,6 +175,11 @@ class InventoryItemWriteSerializer(serializers.Serializer):
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
 
+        # Fix null values for NOT NULL fields
+        for field in ['description', 'supplier_name', 'supplier_phone']:
+            if getattr(instance, field, None) is None:
+                setattr(instance, field, '')
+
         # If initial_stock is sent during update treat as stock adjustment
         if initial_stock is not None:
             diff = initial_stock - instance.current_stock
@@ -185,7 +190,7 @@ class InventoryItemWriteSerializer(serializers.Serializer):
                     quantity=diff,
                     note='Manual stock adjustment'
                 )
-                instance.current_stock  = initial_stock
+                instance.current_stock     = initial_stock
                 instance.last_restock_date = datetime.date.today()
 
         instance.save()
