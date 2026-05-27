@@ -169,7 +169,7 @@ Whether the user is admin, therapist, or reception — answer everything fully.
 CURRENCY: Always use € (Euro) symbol for ALL amounts, revenue, payments. Never use $ (dollar).
 
 CLINIC STATS:
-{json.dumps({k: v for k, v in context.items() if k not in ['patients', 'therapists', 'treatments', 'rooms', 'todays_schedule', 'my_schedule_today', 'recent_appointments']}, indent=2)}
+{json.dumps({k: v for k, v in context.items() if k not in ['patients', 'therapists', 'treatments', 'rooms', 'recent_appointments']}, indent=2)}
 
 AVAILABLE PATIENTS:
 {patients_list}
