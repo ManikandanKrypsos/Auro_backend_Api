@@ -143,23 +143,6 @@ def _get_clinic_context(user):
         for a in todays_appts.filter(payment_status='pending').select_related('patient', 'treatment').order_by('date_time')
     ]
 
-    # Patient appointment history — last 5 appointments per patient (for quick lookup)
-    context['recent_appointments'] = [
-        {
-            'appointment_id': a.id,
-            'patient':        a.patient.name if a.patient else '',
-            'patient_db_id':  a.patient.id if a.patient else None,
-            'treatment':      a.treatment.name if a.treatment else '',
-            'therapist':      a.staff.username if a.staff else '',
-            'date':           localtime(a.date_time).strftime('%Y-%m-%d') if a.date_time else '',
-            'time':           localtime(a.date_time).strftime('%H:%M') if a.date_time else '',
-            'status':         a.status,
-            'payment_status': a.payment_status,
-            'amount':         f"€{a.payment_amount}" if a.payment_amount else '€0',
-        }
-        for a in Appointment.objects.select_related('patient', 'treatment', 'staff').order_by('-date_time')[:100]
-    ]
-
     return context
 
 
@@ -187,9 +170,6 @@ CURRENCY: Always use € (Euro) symbol for ALL amounts, revenue, payments. Never
 
 CLINIC STATS:
 {json.dumps({k: v for k, v in context.items() if k not in ['patients', 'therapists', 'treatments', 'rooms', 'todays_schedule', 'my_schedule_today', 'recent_appointments']}, indent=2)}
-
-RECENT APPOINTMENTS (last 100):
-{json.dumps(context.get('recent_appointments', []), indent=2)}
 
 AVAILABLE PATIENTS:
 {patients_list}
@@ -241,11 +221,8 @@ Show from pending_payments_today:
 If none: "No pending payments today ✅"
 
 ===== PATIENT APPOINTMENT HISTORY =====
-When user asks "[patient name]'s history", "[patient name]'s appointments", "show appointments for [name]":
-Filter recent_appointments by patient name and show:
-"📋 [Patient Name]'s Appointment History:
-1. [Date] [Time] — [Treatment] with [Therapist] — [Status] — [Amount]
-2. ..."
+When user asks "[patient name]'s history", "[patient name]'s appointments":
+Say: "For detailed appointment history, please check the patient profile in the app."
 STEP 1 — PATIENT: Show exact list:
 "Here are the available patients:
 {patients_list}
@@ -605,7 +582,46 @@ def _execute_action(action_line, token):
             except Exception as e:
                 return {'action': 'UPDATE_PATIENT', 'success': False, 'message': f"❌ Update failed: {str(e)}"}
 
-        elif action_line.startswith("ACTION:DELETE_PATIENT:"):
+        elif action_line.startswith("ACTION:GET_PATIENT_HISTORY:"):
+            try:
+                import re
+                from appointments.models import Appointment
+                from patients.models import Patient
+                from django.utils.timezone import localtime as ltime
+
+                raw = action_line.split("ACTION:GET_PATIENT_HISTORY:")[1].strip()
+                try:
+                    body = json.loads(raw)
+                    patient_id = body.get('patient_id')
+                except:
+                    m = re.search(r'(\d+)', raw)
+                    patient_id = int(m.group(1)) if m else None
+
+                patient = Patient.objects.get(id=patient_id)
+                appts   = Appointment.objects.filter(patient=patient).select_related('treatment', 'staff').order_by('-date_time')[:20]
+
+                history = []
+                for a in appts:
+                    dt = ltime(a.date_time) if a.date_time else None
+                    history.append({
+                        'date':           dt.strftime('%Y-%m-%d') if dt else '',
+                        'time':           dt.strftime('%H:%M') if dt else '',
+                        'treatment':      a.treatment.name if a.treatment else '',
+                        'therapist':      a.staff.username if a.staff else '',
+                        'status':         a.status,
+                        'payment_status': a.payment_status,
+                        'amount':         f"€{a.payment_amount}" if a.payment_amount else '€0',
+                    })
+
+                return {
+                    'action':  'GET_PATIENT_HISTORY',
+                    'success': True,
+                    'patient': patient.name,
+                    'data':    history,
+                    'message': f"Found {len(history)} appointments for {patient.name}"
+                }
+            except Exception as e:
+                return {'action': 'GET_PATIENT_HISTORY', 'success': False, 'message': f"❌ Error: {str(e)}"}
             try:
                 import re
                 from patients.models import Patient
@@ -758,6 +774,26 @@ Show available DATES as numbered list with slot count. Ask which date."""
                 ]:
                     msg = action_result.get('message', '')
                     clean_reply = msg if action_result.get('success') else f"{clean_reply}\n\n{msg}".strip()
+
+                elif action_result and action_result.get('action') == 'GET_PATIENT_HISTORY':
+                    if action_result.get('success'):
+                        history_data = action_result.get('data', [])
+                        patient_name = action_result.get('patient', '')
+                        follow_up = f"""Patient history data for {patient_name}:
+{json.dumps(history_data, indent=2)}
+Show this as a formatted list:
+"📋 {patient_name}'s Appointment History:
+1. [Date] [Time] — [Treatment] with [Therapist] — [Status] — [Amount]
+..."
+If empty say "No appointments found for {patient_name}."
+"""
+                        groq_messages.append({'role': 'assistant', 'content': clean_reply})
+                        groq_messages.append({'role': 'user', 'content': follow_up})
+                        status_code2, response2 = _call_groq(groq_messages, api_key)
+                        if status_code2 == 200 and response2:
+                            clean_reply = response2.json()['choices'][0]['message']['content']
+                    else:
+                        clean_reply = action_result.get('message', '❌ Could not fetch history.')
 
             if not clean_reply and options_result:
                 clean_reply = options_result.get('question', 'Please choose an option:')
