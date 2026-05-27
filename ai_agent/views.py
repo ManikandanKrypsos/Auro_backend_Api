@@ -18,6 +18,7 @@ def _get_clinic_context(user):
     from users.models import User as UserModel
     from treatments.models import Treatment
     from rooms.models import Room
+    from inventory.models import InventoryItem
 
     today = timezone.localdate()
     now   = timezone.now()
@@ -115,6 +116,50 @@ def _get_clinic_context(user):
         for a in todays_appts.select_related('patient', 'treatment', 'staff').order_by('date_time')
     ]
 
+    # Inventory stock levels
+    context['inventory'] = [
+        {
+            'id':            item.id,
+            'name':          item.name,
+            'current_stock': item.current_stock,
+            'minimum_stock': item.minimum_stock_alert,
+            'unit':          item.unit,
+            'category':      item.category,
+            'status':        'out_of_stock' if item.current_stock == 0 else 'low_stock' if item.current_stock <= item.minimum_stock_alert else 'in_stock',
+        }
+        for item in InventoryItem.objects.all().order_by('name')
+    ]
+
+    # Today's pending payments
+    context['pending_payments_today'] = [
+        {
+            'appointment_id': a.id,
+            'patient':        a.patient.name if a.patient else '',
+            'treatment':      a.treatment.name if a.treatment else '',
+            'amount':         f"€{a.payment_amount}" if a.payment_amount else '€0',
+            'time':           localtime(a.date_time).strftime('%H:%M') if a.date_time else '',
+            'payment_type':   a.payment_type,
+        }
+        for a in todays_appts.filter(payment_status='pending').select_related('patient', 'treatment').order_by('date_time')
+    ]
+
+    # Patient appointment history — last 5 appointments per patient (for quick lookup)
+    context['recent_appointments'] = [
+        {
+            'appointment_id': a.id,
+            'patient':        a.patient.name if a.patient else '',
+            'patient_db_id':  a.patient.id if a.patient else None,
+            'treatment':      a.treatment.name if a.treatment else '',
+            'therapist':      a.staff.username if a.staff else '',
+            'date':           localtime(a.date_time).strftime('%Y-%m-%d') if a.date_time else '',
+            'time':           localtime(a.date_time).strftime('%H:%M') if a.date_time else '',
+            'status':         a.status,
+            'payment_status': a.payment_status,
+            'amount':         f"€{a.payment_amount}" if a.payment_amount else '€0',
+        }
+        for a in Appointment.objects.select_related('patient', 'treatment', 'staff').order_by('-date_time')[:100]
+    ]
+
     return context
 
 
@@ -141,7 +186,10 @@ Whether the user is admin, therapist, or reception — answer everything fully.
 CURRENCY: Always use € (Euro) symbol for ALL amounts, revenue, payments. Never use $ (dollar).
 
 CLINIC STATS:
-{json.dumps({k: v for k, v in context.items() if k not in ['patients', 'therapists', 'treatments', 'rooms']}, indent=2)}
+{json.dumps({k: v for k, v in context.items() if k not in ['patients', 'therapists', 'treatments', 'rooms', 'todays_schedule', 'my_schedule_today', 'recent_appointments']}, indent=2)}
+
+RECENT APPOINTMENTS (last 100):
+{json.dumps(context.get('recent_appointments', []), indent=2)}
 
 AVAILABLE PATIENTS:
 {patients_list}
@@ -171,7 +219,33 @@ When user describes a skin/body concern, suggest from AVAILABLE TREATMENTS:
 1. [Treatment] — [reason] ([duration] min)
 Would you like to book one of these?"
 
-===== APPOINTMENT BOOKING FLOW =====
+===== INVENTORY =====
+When user asks "check stock", "stock levels", "inventory":
+Show all items with status:
+"📦 Inventory Stock:
+✅ In Stock: [name] — [count] [unit]
+⚠️ Low Stock: [name] — [count] [unit] (min: [min])
+❌ Out of Stock: [name] — 0 [unit]"
+
+When user asks "low stock" → show only items where current_stock <= minimum_stock
+When user asks "out of stock" → show only items where current_stock == 0
+
+Use CLINIC STATS inventory data.
+
+===== PENDING PAYMENTS =====
+When user asks "pending payments", "today's pending", "who hasn't paid":
+Show from pending_payments_today:
+"💳 Today's Pending Payments:
+1. [Patient] — [Treatment] — [Amount] at [Time]
+2. ..."
+If none: "No pending payments today ✅"
+
+===== PATIENT APPOINTMENT HISTORY =====
+When user asks "[patient name]'s history", "[patient name]'s appointments", "show appointments for [name]":
+Filter recent_appointments by patient name and show:
+"📋 [Patient Name]'s Appointment History:
+1. [Date] [Time] — [Treatment] with [Therapist] — [Status] — [Amount]
+2. ..."
 STEP 1 — PATIENT: Show exact list:
 "Here are the available patients:
 {patients_list}
