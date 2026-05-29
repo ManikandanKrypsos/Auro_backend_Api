@@ -63,7 +63,7 @@ class PatientOverviewView(APIView):
                 'total_sessions': plan.sessions if plan else a.total_sessions,
             }
 
-        # Active packages — appointments with price_plan grouped by plan
+        # Active packages
         from treatments.models import PricePlan
         active_packages = []
         plan_ids = Appointment.objects.filter(
@@ -78,28 +78,34 @@ class PatientOverviewView(APIView):
             ).select_related('price_plan', 'treatment', 'staff').order_by('date_time')
             if not appts_in_plan.exists():
                 continue
-            first = appts_in_plan.first()
-            plan  = first.price_plan
+            first     = appts_in_plan.first()
+            plan      = first.price_plan
+            total_sessions = plan.sessions if plan else first.total_sessions
             completed = appts_in_plan.filter(status='completed').count()
-            next_a    = appts_in_plan.filter(status='upcoming', date_time__gte=now).order_by('date_time').first()
+
+            # Only show if not all sessions completed
+            if completed >= total_sessions:
+                continue
+
+            next_a = appts_in_plan.filter(status='upcoming', date_time__gte=now).order_by('date_time').first()
             active_packages.append({
-                'plan_id':       plan_id,
-                'package_name':  first.treatment.name if first.treatment else '',
-                'therapist':     first.staff.username if first.staff else None,
-                'sessions_used': completed,
-                'total_sessions': plan.sessions if plan else first.total_sessions,
-                'next_date':     str(next_a.date_time.date()) if next_a else None,
+                'plan_id':        plan_id,
+                'package_name':   first.treatment.name if first.treatment else '',
+                'therapist':      first.staff.username if first.staff else None,
+                'sessions_used':  completed,
+                'total_sessions': total_sessions,
+                'next_date':      str(next_a.date_time.date()) if next_a else None,
             })
 
         # Patient activity timeline
         activity = []
 
-        # Completed appointments
+        # Appointments
         for a in Appointment.objects.filter(
             patient=patient
         ).select_related('staff', 'treatment', 'price_plan').order_by('-date_time')[:20]:
             from django.utils import timezone as tz
-            dt = tz.localtime(a.date_time) if tz.is_aware(a.date_time) else a.date_time
+            dt   = tz.localtime(a.date_time) if tz.is_aware(a.date_time) else a.date_time
             plan = a.price_plan
             activity.append({
                 'type':     'treatment',
@@ -134,9 +140,9 @@ class PatientOverviewView(APIView):
             patient=patient,
             payment_status='paid',
             payment_amount__isnull=False
-        ).select_related('price_plan').order_by('-date_time')[:5]:
+        ).select_related('price_plan', 'treatment').order_by('-date_time')[:5]:
             from django.utils import timezone as tz
-            dt = tz.localtime(a.date_time) if tz.is_aware(a.date_time) else a.date_time
+            dt   = tz.localtime(a.date_time) if tz.is_aware(a.date_time) else a.date_time
             plan = a.price_plan
             activity.append({
                 'type':     'payment',
@@ -145,17 +151,16 @@ class PatientOverviewView(APIView):
                 'subtitle': f"€{a.payment_amount} · {a.treatment.name if a.treatment else ''} · {plan.sessions if plan else ''} Sessions",
             })
 
-        # Sort by date desc
         activity.sort(key=lambda x: x['date'], reverse=True)
 
         return Response({
-            'patient_id':      patient.patient_id,
-            'name':            patient.name,
-            'category':        patient.category,
-            'allergy_warning': patient.allergies if hasattr(patient, 'allergies') else None,
+            'patient_id':           patient.patient_id,
+            'name':                 patient.name,
+            'category':             patient.category,
+            'allergy_warning':      patient.allergies if hasattr(patient, 'allergies') else None,
             'upcoming_appointment': fmt_appt(next_appt),
-            'active_packages': active_packages,
-            'patient_activity': activity[:15],
+            'active_packages':      active_packages,
+            'patient_activity':     activity[:15],
         })
 
 
@@ -194,18 +199,18 @@ class PatientHistoryView(APIView):
             ).order_by('date_time').first() if plan else None
 
             timeline.append({
-                'id':             a.id,
-                'date':           str(dt.date()),
-                'treatment':      a.treatment.name if a.treatment else None,
-                'therapist':      a.staff.username if a.staff else None,
-                'duration':       a.duration,
-                'price':          str(plan.price) if plan else str(a.payment_amount or ''),
-                'package':        a.treatment.name if a.treatment and plan else None,
-                'session_number': a.session_number,
-                'total_sessions': plan.sessions if plan else a.total_sessions,
-                'rating':         None,
-                'next_date':      str(next_a.date_time.date()) if next_a else None,
-                'status':         a.status,
+                'id':                  a.id,
+                'date':                str(dt.date()),
+                'treatment':           a.treatment.name if a.treatment else None,
+                'therapist':           a.staff.username if a.staff else None,
+                'duration':            a.duration,
+                'price':               str(plan.price) if plan else str(a.payment_amount or ''),
+                'package':             a.treatment.name if a.treatment and plan else None,
+                'session_number':      a.session_number,
+                'total_sessions':      plan.sessions if plan else a.total_sessions,
+                'rating':              None,
+                'next_date':           str(next_a.date_time.date()) if next_a else None,
+                'status':              a.status,
                 'cancellation_reason': None,
             })
 
@@ -224,19 +229,6 @@ class PatientNotesView(APIView):
     """
     GET  /api/patients/<id>/notes/      — list all session notes
     POST /api/patients/<id>/notes/      — add a session note
-
-    POST body:
-    {
-        "appointment_id":        25,
-        "treatment_name":        "Detox Face",
-        "skin_observation":      "Skin slightly dehydrated on T-zone.",
-        "advice_given":          "Avoid sun exposure for 48 hours.",
-        "products_used":         ["Gentle Cleanser", "Hyaluronic Acid Serum"],
-        "recommended_to_patient": ["Hydrating Serum", "SPF 50+"],
-        "next_treatment":        "HydraBalance — in 2-3 weeks",
-        "before_photo":          "https://...",
-        "after_photo":           "https://..."
-    }
     """
     permission_classes = [IsAuthenticated]
 
@@ -246,7 +238,7 @@ class PatientNotesView(APIView):
         if not patient:
             return Response({'error': 'Patient not found.'}, status=404)
 
-        notes = SessionNote.objects.filter(patient=patient).select_related('therapist')
+        notes       = SessionNote.objects.filter(patient=patient).select_related('therapist')
         total       = notes.count()
         with_photos = notes.exclude(before_photo='').exclude(after_photo='').count()
         completed   = notes.filter(appointment__status='completed').count()
@@ -256,25 +248,24 @@ class PatientNotesView(APIView):
                 return None
             if url.startswith('http'):
                 return url
-            # Ensure it starts with / for build_absolute_uri
             if not url.startswith('/'):
                 url = '/' + url
             return request.build_absolute_uri(url)
 
         def fmt_note(n):
             return {
-                'id':                    n.id,
-                'treatment_name':        n.treatment_name,
-                'therapist':             n.therapist.username if n.therapist else None,
-                'date':                  str(n.created_at.date()),
-                'skin_observation':      n.skin_observation,
-                'session_notes':         n.session_notes,
-                'products_used':         n.products_used,
+                'id':                     n.id,
+                'treatment_name':         n.treatment_name,
+                'therapist':              n.therapist.username if n.therapist else None,
+                'date':                   str(n.created_at.date()),
+                'skin_observation':       n.skin_observation,
+                'session_notes':          n.session_notes,
+                'products_used':          n.products_used,
                 'recommended_to_patient': n.recommended_to_patient,
-                'next_treatment':        n.next_treatment,
-                'before_photo':          _full_url(n.before_photo),
-                'after_photo':           _full_url(n.after_photo),
-                'appointment_status':    n.appointment.status if n.appointment else None,
+                'next_treatment':         n.next_treatment,
+                'before_photo':           _full_url(n.before_photo),
+                'after_photo':            _full_url(n.after_photo),
+                'appointment_status':     n.appointment.status if n.appointment else None,
             }
 
         return Response({
@@ -317,17 +308,17 @@ class PatientNotesView(APIView):
         )
 
         return Response({
-            'id':                    note.id,
-            'treatment_name':        note.treatment_name,
-            'therapist':             note.therapist.username if note.therapist else None,
-            'date':                  str(note.created_at.date()),
-            'skin_observation':      note.skin_observation,
-            'session_notes':          note.advice_given,
-            'products_used':         note.products_used,
+            'id':                     note.id,
+            'treatment_name':         note.treatment_name,
+            'therapist':              note.therapist.username if note.therapist else None,
+            'date':                   str(note.created_at.date()),
+            'skin_observation':       note.skin_observation,
+            'session_notes':          note.session_notes,
+            'products_used':          note.products_used,
             'recommended_to_patient': note.recommended_to_patient,
-            'next_treatment':        note.next_treatment,
-            'before_photo':          note.before_photo if note.before_photo and note.before_photo.startswith('http') else request.build_absolute_uri('/' + note.before_photo.lstrip('/')) if note.before_photo else None,
-            'after_photo':           note.after_photo if note.after_photo and note.after_photo.startswith('http') else request.build_absolute_uri('/' + note.after_photo.lstrip('/')) if note.after_photo else None,
+            'next_treatment':         note.next_treatment,
+            'before_photo':           note.before_photo if note.before_photo and note.before_photo.startswith('http') else request.build_absolute_uri('/' + note.before_photo.lstrip('/')) if note.before_photo else None,
+            'after_photo':            note.after_photo if note.after_photo and note.after_photo.startswith('http') else request.build_absolute_uri('/' + note.after_photo.lstrip('/')) if note.after_photo else None,
         }, status=201)
 
 

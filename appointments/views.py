@@ -383,6 +383,43 @@ class AppointmentListView(APIView):
                         }, status=400)
             # ─────────────────────────────────────────────────────────────────
 
+            # ── Staff break time check ────────────────────────────────────────
+            if staff and date_time:
+                from users.models import StaffBreakTime, StaffLeave
+                slot_start    = date_time
+                slot_end      = date_time + datetime.timedelta(minutes=duration)
+                slot_date     = date_time.date() if hasattr(date_time, 'date') else date_time
+
+                # Check break times
+                breaks = StaffBreakTime.objects.filter(staff=staff)
+                for br in breaks:
+                    break_start = datetime.datetime.combine(slot_date, br.start_time)
+                    break_end   = datetime.datetime.combine(slot_date, br.end_time)
+                    # Make aware for comparison
+                    if slot_start.tzinfo:
+                        break_start = tz.make_aware(break_start)
+                        break_end   = tz.make_aware(break_end)
+                    if slot_start < break_end and slot_end > break_start:
+                        return Response({
+                            'error': f"This time slot overlaps with {staff.username}'s break time "
+                                     f"({br.start_time.strftime('%H:%M')} — {br.end_time.strftime('%H:%M')}). "
+                                     f"Please choose a different time slot."
+                        }, status=400)
+
+                # Check staff leave
+                leaves = StaffLeave.objects.filter(
+                    staff=staff,
+                    from_date__lte=slot_date,
+                    to_date__gte=slot_date
+                )
+                if leaves.exists():
+                    leave = leaves.first()
+                    return Response({
+                        'error': f"{staff.username} is on leave from {leave.from_date} to {leave.to_date}. "
+                                 f"Please choose a different date or therapist."
+                    }, status=400)
+            # ─────────────────────────────────────────────────────────────────
+
             # ── Double booking check ──────────────────────────────────────────
             if staff and date_time:
                 slot_start = date_time
