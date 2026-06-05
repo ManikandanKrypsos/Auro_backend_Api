@@ -116,7 +116,64 @@ def _get_clinic_context(user):
         for a in todays_appts.select_related('patient', 'treatment', 'staff').order_by('date_time')
     ]
 
-    # Inventory stock levels
+    # Revenue by therapist this month
+    from django.db.models import Sum
+    from users.models import User as UserModel2, StaffLeave
+    therapist_revenue = []
+    for t in UserModel2.objects.filter(role='therapist', is_active=True):
+        rev = month_appts.filter(staff=t, payment_status='paid').aggregate(t=Sum('payment_amount'))['t'] or 0
+        therapist_revenue.append({
+            'therapist': t.username,
+            'revenue':   f"€{float(rev):.2f}",
+        })
+    context['revenue_by_therapist'] = sorted(therapist_revenue, key=lambda x: float(x['revenue'][1:]), reverse=True)
+
+    # VIP patients
+    from patients.models import Patient
+    context['vip_patients'] = [
+        {'name': p.name, 'phone': p.phone, 'patient_id': p.patient_id}
+        for p in Patient.objects.filter(category='VIP').order_by('name')
+    ]
+
+    # Patients who haven't visited in 30+ days
+    thirty_days_ago = local_today - dt.timedelta(days=30)
+    recent_patient_ids = Appointment.objects.filter(
+        date_time__date__gte=thirty_days_ago,
+        status='completed'
+    ).values_list('patient_id', flat=True).distinct()
+    inactive = Patient.objects.exclude(id__in=recent_patient_ids).order_by('name')[:20]
+    context['inactive_patients'] = [
+        {'name': p.name, 'phone': p.phone, 'patient_id': p.patient_id, 'category': p.category}
+        for p in inactive
+    ]
+
+    # Therapists currently in session
+    in_session_appts = todays_appts.filter(status='in_session').select_related('staff', 'patient', 'treatment')
+    context['therapists_in_session'] = [
+        {
+            'therapist': a.staff.username if a.staff else '',
+            'patient':   a.patient.name if a.patient else '',
+            'treatment': a.treatment.name if a.treatment else '',
+            'time':      localtime(a.date_time).strftime('%H:%M') if a.date_time else '',
+        }
+        for a in in_session_appts
+    ]
+
+    # Staff leave schedule
+    upcoming_leaves = StaffLeave.objects.filter(
+        to_date__gte=local_today
+    ).select_related('staff').order_by('from_date')[:20]
+    context['staff_leaves'] = [
+        {
+            'therapist':  l.staff.username if l.staff else '',
+            'from_date':  str(l.from_date),
+            'to_date':    str(l.to_date),
+            'reason':     l.reason if hasattr(l, 'reason') else '',
+        }
+        for l in upcoming_leaves
+    ]
+
+
     context['inventory'] = [
         {
             'id':            item.id,
@@ -199,7 +256,43 @@ When user describes a skin/body concern, suggest from AVAILABLE TREATMENTS:
 1. [Treatment] — [reason] ([duration] min)
 Would you like to book one of these?"
 
-===== INVENTORY =====
+===== REVENUE BY THERAPIST =====
+When user asks "revenue by therapist", "which therapist earned most", "therapist revenue":
+Show from revenue_by_therapist:
+"💰 Revenue by Therapist (This Month):
+1. [Therapist] — €[amount]
+2. ..."
+
+===== VIP PATIENTS =====
+When user asks "VIP patients", "show VIP list":
+Show from vip_patients:
+"⭐ VIP Patients:
+1. [Name] — [Phone]
+2. ..."
+If none: "No VIP patients yet."
+
+===== INACTIVE PATIENTS =====
+When user asks "inactive patients", "patients who haven't visited", "patients not visited in 30 days":
+Show from inactive_patients:
+"📋 Patients with no visit in 30+ days:
+1. [Name] — [Phone] — [Category]
+2. ..."
+
+===== THERAPISTS IN SESSION =====
+When user asks "who is in session", "which therapist is busy now", "currently in session":
+Show from therapists_in_session:
+"🟢 Currently In Session:
+1. [Therapist] — with [Patient] ([Treatment]) since [Time]
+2. ..."
+If none: "No therapists currently in session."
+
+===== STAFF LEAVE SCHEDULE =====
+When user asks "staff leave", "who is on leave", "leave schedule":
+Show from staff_leaves:
+"📅 Staff Leave Schedule:
+1. [Therapist] — [From] to [To]
+2. ..."
+If none: "No upcoming leaves scheduled."
 When user asks "check stock", "stock levels", "inventory":
 Show all items with status:
 "📦 Inventory Stock:
