@@ -554,7 +554,7 @@ def _execute_action(action_line, token):
                     category   = 'New',
                 )
                 return {'action': 'CREATE_PATIENT', 'success': True,
-                        'message': f"✅ Patient created! {patient.patient_id} — {patient.name}",
+                        'message': f"✅ Patient created! ID: {patient.patient_id} — {patient.name}",
                         'data': {'id': patient.id, 'patient_id': patient.patient_id, 'name': patient.name}}
             except Exception as e:
                 return {'action': 'CREATE_PATIENT', 'success': False, 'message': f"❌ Failed to create patient: {str(e)}"}
