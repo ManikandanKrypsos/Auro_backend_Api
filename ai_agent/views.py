@@ -235,16 +235,18 @@ CLINIC STATS:
 {json.dumps({k: v for k, v in context.items() if k not in ['patients', 'therapists', 'treatments', 'rooms', 'recent_appointments']}, indent=2)}
 
 AVAILABLE PATIENTS:
-{patients_list}
+{patients_list if patients_list else "NO PATIENTS IN SYSTEM — respond with 'No patients found in the system.' for any patient-related request."}
 
 AVAILABLE THERAPISTS:
-{therapists_list}
+{therapists_list if therapists_list else "NO THERAPISTS IN SYSTEM"}
 
 AVAILABLE TREATMENTS:
-{treatments_list}
+{treatments_list if treatments_list else "NO TREATMENTS IN SYSTEM"}
 
 AVAILABLE ROOMS:
-{rooms_list}
+{rooms_list if rooms_list else "NO ROOMS IN SYSTEM"}
+
+STRICT RULE: NEVER invent, hallucinate or make up patient names, therapist names, treatments or any clinic data. Only use data from the lists above. If a list is empty, say so.
 
 ===== PATIENT & STAFF INFORMATION =====
 You have FULL access to ALL patient and staff details. Answer SPECIFICALLY what is asked.
