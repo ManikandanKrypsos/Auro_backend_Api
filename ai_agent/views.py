@@ -143,6 +143,69 @@ def _get_clinic_context(user):
         for a in todays_appts.filter(payment_status='pending').select_related('patient', 'treatment').order_by('date_time')
     ]
 
+    # ── NEW FEATURES ──────────────────────────────────────────────────────────
+
+    # Revenue by therapist this month
+    from users.models import StaffLeave
+    therapist_revenue = []
+    for t in UserModel.objects.filter(role='therapist', is_active=True):
+        rev = month_appts.filter(staff=t, payment_status='paid').aggregate(t=Sum('payment_amount'))['t'] or 0
+        therapist_revenue.append({
+            'therapist': t.username,
+            'revenue':   f"€{float(rev):.2f}",
+        })
+    context['revenue_by_therapist'] = sorted(therapist_revenue, key=lambda x: float(x['revenue'][1:]), reverse=True)
+
+    # VIP patients
+    context['vip_patients'] = [
+        {'name': p.name, 'phone': p.phone, 'patient_id': p.patient_id}
+        for p in Patient.objects.filter(category='VIP').order_by('name')
+    ]
+
+    # Patients who haven't visited in 30+ days
+    thirty_days_ago    = local_today - dt.timedelta(days=30)
+    recent_patient_ids = Appointment.objects.filter(
+        date_time__date__gte=thirty_days_ago,
+        status='completed'
+    ).values_list('patient_id', flat=True).distinct()
+    context['inactive_patients'] = [
+        {'name': p.name, 'phone': p.phone, 'patient_id': p.patient_id, 'category': p.category}
+        for p in Patient.objects.exclude(id__in=recent_patient_ids).order_by('name')[:20]
+    ]
+
+    # Therapists currently in session
+    context['therapists_in_session'] = [
+        {
+            'therapist': a.staff.username if a.staff else '',
+            'patient':   a.patient.name if a.patient else '',
+            'treatment': a.treatment.name if a.treatment else '',
+            'time':      localtime(a.date_time).strftime('%H:%M') if a.date_time else '',
+        }
+        for a in todays_appts.filter(status='in_session').select_related('staff', 'patient', 'treatment')
+    ]
+
+    # Therapists currently free (not in session)
+    busy_therapist_ids = todays_appts.filter(
+        status='in_session'
+    ).values_list('staff_id', flat=True)
+    context['therapists_free_now'] = [
+        {
+            'name':            t.username,
+            'specialist_area': t.specialist_area,
+        }
+        for t in UserModel.objects.filter(role='therapist', is_active=True).exclude(id__in=busy_therapist_ids)
+    ]
+
+    # Staff leave schedule
+    context['staff_leaves'] = [
+        {
+            'therapist': l.staff.username if l.staff else '',
+            'from_date': str(l.from_date),
+            'to_date':   str(l.to_date),
+        }
+        for l in StaffLeave.objects.filter(to_date__gte=local_today).select_related('staff').order_by('from_date')[:20]
+    ]
+
     return context
 
 
@@ -198,6 +261,52 @@ When user describes a skin/body concern, suggest from AVAILABLE TREATMENTS:
 "Based on [concern], I recommend:
 1. [Treatment] — [reason] ([duration] min)
 Would you like to book one of these?"
+
+===== REVENUE BY THERAPIST =====
+When user asks "revenue by therapist", "which therapist earned most", "therapist revenue":
+Show from revenue_by_therapist in CLINIC STATS:
+"💰 Revenue by Therapist (This Month):
+1. [Therapist] — €[amount]
+2. ..."
+
+===== VIP PATIENTS =====
+When user asks "VIP patients", "show VIP list":
+Show from vip_patients in CLINIC STATS:
+"⭐ VIP Patients:
+1. [Name] — [Phone]
+2. ..."
+If none: "No VIP patients yet."
+
+===== INACTIVE PATIENTS =====
+When user asks "inactive patients", "patients who haven't visited", "patients not visited in 30 days":
+Show from inactive_patients in CLINIC STATS:
+"📋 Patients with no visit in 30+ days:
+1. [Name] — [Phone] — [Category]
+2. ..."
+
+===== THERAPISTS IN SESSION =====
+When user asks "who is in session", "which therapist is busy now", "currently in session":
+Show from therapists_in_session in CLINIC STATS:
+"🟢 Currently In Session:
+1. [Therapist] — with [Patient] ([Treatment]) since [Time]
+2. ..."
+If none: "No therapists currently in session."
+
+===== FREE THERAPISTS =====
+When user asks "who is free", "which therapist is available now", "free therapist":
+Show from therapists_free_now in CLINIC STATS:
+"✅ Therapists Available Now:
+1. [Name] — [Specialist Area]
+2. ..."
+If none: "All therapists are currently in session."
+
+===== STAFF LEAVE SCHEDULE =====
+When user asks "staff leave", "who is on leave", "leave schedule":
+Show from staff_leaves in CLINIC STATS:
+"📅 Staff Leave Schedule:
+1. [Therapist] — [From] to [To]
+2. ..."
+If none: "No upcoming leaves scheduled."
 
 ===== INVENTORY =====
 When user asks "check stock", "stock levels", "inventory":
@@ -582,6 +691,23 @@ def _execute_action(action_line, token):
             except Exception as e:
                 return {'action': 'UPDATE_PATIENT', 'success': False, 'message': f"❌ Update failed: {str(e)}"}
 
+        elif action_line.startswith("ACTION:DELETE_PATIENT:"):
+            try:
+                import re
+                from patients.models import Patient
+                raw = action_line.split("ACTION:DELETE_PATIENT:")[1].strip()
+                try:
+                    patient_id = json.loads(raw).get('patient_id')
+                except:
+                    m = re.search(r'(\d+)', raw)
+                    patient_id = int(m.group(1)) if m else None
+                patient = Patient.objects.get(id=patient_id)
+                name = patient.name
+                patient.delete()
+                return {'action': 'DELETE_PATIENT', 'success': True, 'message': f"✅ Patient {name} deleted successfully."}
+            except Exception as e:
+                return {'action': 'DELETE_PATIENT', 'success': False, 'message': f"❌ Delete failed: {str(e)}"}
+
         elif action_line.startswith("ACTION:GET_PATIENT_HISTORY:"):
             try:
                 import re
@@ -622,21 +748,6 @@ def _execute_action(action_line, token):
                 }
             except Exception as e:
                 return {'action': 'GET_PATIENT_HISTORY', 'success': False, 'message': f"❌ Error: {str(e)}"}
-            try:
-                import re
-                from patients.models import Patient
-                raw = action_line.split("ACTION:DELETE_PATIENT:")[1].strip()
-                try:
-                    patient_id = json.loads(raw).get('patient_id')
-                except:
-                    m = re.search(r'(\d+)', raw)
-                    patient_id = int(m.group(1)) if m else None
-                patient = Patient.objects.get(id=patient_id)
-                name = patient.name
-                patient.delete()
-                return {'action': 'DELETE_PATIENT', 'success': True, 'message': f"✅ Patient {name} deleted successfully."}
-            except Exception as e:
-                return {'action': 'DELETE_PATIENT', 'success': False, 'message': f"❌ Delete failed: {str(e)}"}
 
     except Exception as e:
         return {'action': 'ERROR', 'message': str(e)}
