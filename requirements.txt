@@ -60,3 +60,4 @@ wcwidth==0.6.0
 whitenoise==6.11.0
 yarl==1.23.0
 stripe==11.4.0
+django-sendgrid-v5
