@@ -188,6 +188,7 @@ TWILIO_WHATSAPP_FROM = os.environ.get('TWILIO_WHATSAPP_FROM', 'whatsapp:+1415523
 EMAIL_BACKEND     = 'sendgrid_backend.SendgridBackend'
 SENDGRID_API_KEY  = os.environ.get('SENDGRID_API_KEY', '')
 DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'info@krypsos.tech')
+SENDGRID_SANDBOX_MODE_IN_DEBUG = False
 
 # ── Cache (for OTP storage) ────────────────────────────────
 CACHES = {
