@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from .models import Patient, MARKETING_SOURCE_CHOICES
+import datetime
 from django.utils import timezone
 
 MARKETING_SOURCE_MAP = {
@@ -10,6 +11,30 @@ MARKETING_SOURCE_MAP = {
     5: 'WhatsApp',
     6: 'Other',
 }
+
+# A patient is "inactive" with no completed visit in this many days
+# (same 30-day rule the AI agent uses for "inactive patients").
+INACTIVE_AFTER_DAYS = 30
+
+
+def patient_status(instance, last_visit_date, next_appointment_date):
+    """
+    vip      → category is VIP
+    active   → completed visit in the last 30 days, an upcoming appointment,
+               or registered in the last 30 days
+    inactive → everything else
+    """
+    if instance.category == 'VIP':
+        return 'vip'
+    cutoff = timezone.localdate() - datetime.timedelta(days=INACTIVE_AFTER_DAYS)
+    if next_appointment_date:
+        return 'active'
+    if last_visit_date and last_visit_date >= cutoff:
+        return 'active'
+    if instance.created_at and timezone.localtime(instance.created_at).date() >= cutoff:
+        return 'active'
+    return 'inactive'
+
 
 class PatientSerializer(serializers.ModelSerializer):
     age = serializers.SerializerMethodField()
@@ -70,6 +95,19 @@ class PatientSerializer(serializers.ModelSerializer):
             }
         else:
             data['last_visit'] = {'date': None, 'treatment': None}
+
+        # Next upcoming appointment (not cancelled, from now on)
+        next_appt = Appointment.objects.filter(
+            patient=instance,
+            status='upcoming',
+            date_time__gte=timezone.now(),
+        ).order_by('date_time').values_list('date_time', flat=True).first()
+        next_date = timezone.localtime(next_appt).date() if next_appt else None
+        data['next_appointment'] = str(next_date) if next_date else None
+
+        # Badge status: active / inactive / vip
+        last_date = timezone.localtime(last_appt.date_time).date() if last_appt and last_appt.date_time else None
+        data['status'] = patient_status(instance, last_date, next_date)
 
         # Total money spent (sum of payment_amount for paid completed appointments)
         total = appts.filter(

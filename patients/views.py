@@ -8,6 +8,43 @@ from users.permissions import IsAdminOrReception
 from .models import Patient
 from .serializers import PatientSerializer
 from django.db.models import Q
+import datetime
+from django.utils import timezone
+from rest_framework.pagination import PageNumberPagination
+
+
+class OptionalPagePagination(PageNumberPagination):
+    """
+    Pagination only when ?page= or ?page_size= is sent; otherwise the plain list
+    is returned exactly as before (keeps the current app working).
+    """
+    page_size             = 20
+    page_size_query_param = 'page_size'
+    max_page_size         = 100
+
+    def paginate_queryset(self, queryset, request, view=None):
+        if 'page' not in request.query_params and 'page_size' not in request.query_params:
+            return None
+        return super().paginate_queryset(queryset, request, view)
+
+    def get_paginated_response(self, data):
+        return Response({
+            'count':       self.page.paginator.count,
+            'page':        self.page.number,
+            'page_size':   self.page.paginator.per_page,
+            'total_pages': self.page.paginator.num_pages,
+            'results':     data,
+        })
+
+
+def _trend(current, previous):
+    if previous == 0:
+        pct   = 100.0 if current > 0 else 0.0
+        trend = 'up' if current > 0 else 'neutral'
+    else:
+        pct   = round((current - previous) / previous * 100, 1)
+        trend = 'up' if pct > 0 else ('down' if pct < 0 else 'neutral')
+    return {'value': current, 'change_pct': abs(pct), 'trend': trend}
 
 
 class MarketingSourceListView(APIView):
@@ -27,6 +64,7 @@ class MarketingSourceListView(APIView):
 class PatientViewSet(viewsets.ModelViewSet):
     serializer_class = PatientSerializer
     filter_backends = []
+    pagination_class = OptionalPagePagination
 
     def get_queryset(self):
         qs = Patient.objects.all().order_by('-created_at')
@@ -136,6 +174,35 @@ class PatientViewSet(viewsets.ModelViewSet):
             'deleted_id':       patient_id,
             'deleted_patient':  patient_name,
         }, status=200)
+
+    @action(detail=False, methods=['get'], url_path='stats',
+            permission_classes=[IsAuthenticated])
+    def stats(self, request):
+        """
+        GET /api/patients/stats/
+        Compared with last month ("vs. mes anterior"):
+          total     → all patients now vs patients registered before the 1st of this month
+          new       → registered this month vs registered last month
+          returning → category 'Returning' now vs same among patients registered before this month
+          vip       → category 'VIP'       now vs same among patients registered before this month
+        (Category has no history, so returning/vip comparisons use the current category.)
+        Therapists only see stats for their own patients, same as the list.
+        """
+        qs  = self.get_queryset()
+        now = timezone.localtime()
+        start_of_month      = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        start_of_last_month = (start_of_month - datetime.timedelta(days=1)).replace(day=1)
+        before = qs.filter(created_at__lt=start_of_month)
+
+        return Response({
+            'total':     _trend(qs.count(), before.count()),
+            'new':       _trend(
+                qs.filter(created_at__gte=start_of_month).count(),
+                qs.filter(created_at__gte=start_of_last_month, created_at__lt=start_of_month).count(),
+            ),
+            'returning': _trend(qs.filter(category='Returning').count(), before.filter(category='Returning').count()),
+            'vip':       _trend(qs.filter(category='VIP').count(), before.filter(category='VIP').count()),
+        })
 
     @action(detail=False, methods=['get'], url_path='form-choices',
             permission_classes=[IsAuthenticated])
