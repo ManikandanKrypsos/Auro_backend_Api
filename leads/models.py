@@ -32,6 +32,7 @@ class Lead(models.Model):
     assigned_to    = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='leads')
     value          = models.DecimalField(max_digits=10, decimal_places=2, default=0)  # estimated value
     last_contacted = models.DateField(null=True, blank=True)
+    next_action_date = models.DateField(null=True, blank=True)  # next follow-up date shown on the card
     created_at     = models.DateTimeField(auto_now_add=True)
     updated_at     = models.DateTimeField(auto_now=True)
 

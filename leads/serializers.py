@@ -31,6 +31,35 @@ STAGE_MAP = {
 STAGE_ID_MAP = {v: k for k, v in STAGE_MAP.items()}
 
 
+def scheduled_phones_for(leads):
+    """Phones of converted leads whose patient has at least one non-cancelled appointment."""
+    from appointments.models import Appointment
+    phones = {l.phone for l in leads if l.stage == 'converted' and l.phone}
+    if not phones:
+        return set()
+    return set(
+        Appointment.objects.filter(patient__phone__in=phones)
+        .exclude(status='cancelled')
+        .values_list('patient__phone', flat=True)
+    )
+
+
+class LeadExtraFieldsMixin:
+    """assigned_staff_id + treatment_scheduled, shared by list & detail serializers."""
+
+    def get_assigned_staff_id(self, obj):
+        return obj.assigned_to_id
+
+    def get_treatment_scheduled(self, obj):
+        # Only meaningful for converted leads; always False otherwise.
+        if obj.stage != 'converted' or not obj.phone:
+            return False
+        phones = self.context.get('scheduled_phones')
+        if phones is None:
+            phones = scheduled_phones_for([obj])
+        return obj.phone in phones
+
+
 class LeadActivitySerializer(serializers.ModelSerializer):
     created_by_name = serializers.SerializerMethodField()
 
@@ -44,8 +73,10 @@ class LeadActivitySerializer(serializers.ModelSerializer):
         return None
 
 
-class LeadListSerializer(serializers.ModelSerializer):
+class LeadListSerializer(LeadExtraFieldsMixin, serializers.ModelSerializer):
     marketing_source_id = serializers.SerializerMethodField()
+    assigned_staff_id   = serializers.SerializerMethodField()
+    treatment_scheduled = serializers.SerializerMethodField()
     stage_id            = serializers.SerializerMethodField()
     service_detail      = serializers.SerializerMethodField()
     assigned_to_name    = serializers.SerializerMethodField()
@@ -58,8 +89,8 @@ class LeadListSerializer(serializers.ModelSerializer):
             'stage', 'stage_id',
             'interest', 'service_id', 'service_detail',
             'notes', 'value',
-            'assigned_to', 'assigned_to_name',
-            'last_contacted',
+            'assigned_to', 'assigned_to_name', 'assigned_staff_id',
+            'last_contacted', 'next_action_date', 'treatment_scheduled',
             'created_at', 'updated_at',
         ]
 
@@ -85,8 +116,10 @@ class LeadListSerializer(serializers.ModelSerializer):
         return None
 
 
-class LeadSerializer(serializers.ModelSerializer):
+class LeadSerializer(LeadExtraFieldsMixin, serializers.ModelSerializer):
     marketing_source_id = serializers.SerializerMethodField()
+    assigned_staff_id   = serializers.SerializerMethodField()
+    treatment_scheduled = serializers.SerializerMethodField()
     stage_id            = serializers.SerializerMethodField()
     service_detail      = serializers.SerializerMethodField()
     assigned_to_name    = serializers.SerializerMethodField()
@@ -99,8 +132,8 @@ class LeadSerializer(serializers.ModelSerializer):
             'stage', 'stage_id',
             'interest', 'service_id', 'service_detail',
             'notes', 'value',
-            'assigned_to', 'assigned_to_name',
-            'last_contacted',
+            'assigned_to', 'assigned_to_name', 'assigned_staff_id',
+            'last_contacted', 'next_action_date', 'treatment_scheduled',
             'created_at', 'updated_at',
         ]
 
@@ -138,7 +171,8 @@ class LeadWriteSerializer(serializers.Serializer):
         "interest":      "Signature Glow",
         "notes":         "Prefers evening slots",
         "value":         1500.00,
-        "assigned_to":   8
+        "assigned_to":   8,     // or "assigned_staff_id": 8 (same thing)
+        "next_action_date": "2026-11-07"
     }
     """
     name         = serializers.CharField(max_length=100, required=False)
@@ -151,6 +185,21 @@ class LeadWriteSerializer(serializers.Serializer):
     notes        = serializers.CharField(required=False, allow_blank=True)
     value        = serializers.DecimalField(max_digits=10, decimal_places=2, required=False)
     assigned_to  = serializers.IntegerField(required=False, allow_null=True)
+    assigned_staff_id = serializers.IntegerField(required=False, allow_null=True)  # alias of assigned_to
+    next_action_date  = serializers.DateField(required=False, allow_null=True)
+
+    def _validate_staff(self, value):
+        if value is not None:
+            from users.models import User
+            if not User.objects.filter(id=value).exists():
+                raise serializers.ValidationError(f"User with id {value} not found.")
+        return value
+
+    def validate_assigned_to(self, value):
+        return self._validate_staff(value)
+
+    def validate_assigned_staff_id(self, value):
+        return self._validate_staff(value)
 
     def validate_marketing_source_id(self, value):
         if value not in SOURCE_MAP:
@@ -177,13 +226,15 @@ class LeadWriteSerializer(serializers.Serializer):
         from users.models import User
         source_id   = validated_data.pop('marketing_source_id', None)
         stage_id    = validated_data.pop('stage_id', None)
-        assigned_to = validated_data.pop('assigned_to', None)
+        staff_given = 'assigned_to' in validated_data or 'assigned_staff_id' in validated_data
+        alias       = validated_data.pop('assigned_staff_id', None)
+        assigned_to = validated_data.pop('assigned_to', alias)
 
         if source_id:
             validated_data['source'] = SOURCE_MAP[source_id]
         if stage_id:
             validated_data['stage'] = STAGE_MAP[stage_id]
-        if assigned_to is not None:
+        if staff_given:   # null unassigns the lead
             validated_data['assigned_to'] = User.objects.get(id=assigned_to) if assigned_to else None
 
         if instance is None:

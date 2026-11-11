@@ -1,6 +1,7 @@
 import datetime
 from django.utils import timezone
-from django.db.models import Q, Sum
+from django.core.paginator import Paginator
+from django.db.models import Q, Sum, Count
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from users.permissions import IsAdmin, IsAdminOrReception
@@ -8,7 +9,7 @@ from .models import Lead, LeadActivity
 from .serializers import (
     LeadSerializer, LeadListSerializer, LeadWriteSerializer,
     LeadStageUpdateSerializer, LeadActivityWriteSerializer,
-    STAGE_MAP, SOURCE_MAP,
+    STAGE_MAP, SOURCE_MAP, scheduled_phones_for,
 )
 
 
@@ -37,27 +38,78 @@ class LeadMetaView(APIView):
         })
 
 
+ACTIVE_STAGES = ['new_inquiries', 'engaged', 'consultation', 'winning']
+ALL_STAGES    = ['new_inquiries', 'engaged', 'consultation', 'winning', 'converted', 'lost']
+
+
+def _trend(current, previous):
+    """Percent change, same shape as the dashboard: {value, change_pct, trend}."""
+    if previous == 0:
+        pct   = 100.0 if current > 0 else 0.0
+        trend = 'up' if current > 0 else 'neutral'
+    else:
+        pct   = round((current - previous) / previous * 100, 1)
+        trend = 'up' if pct > 0 else ('down' if pct < 0 else 'neutral')
+    return {'value': current, 'change_pct': abs(pct), 'trend': trend}
+
+
+def _lead_snapshot(qs):
+    total     = qs.count()
+    active    = qs.filter(stage__in=ACTIVE_STAGES).count()
+    converted = qs.filter(stage='converted').count()
+    valuation = float(qs.aggregate(t=Sum('value'))['t'] or 0)
+    rate      = round(converted / total * 100, 1) if total else 0.0
+    return total, active, rate, valuation
+
+
 class LeadStatsView(APIView):
     """
     GET /api/leads/stats/
-    Returns total leads, active count and total valuation — shown at top of pipeline.
+    KPI tiles + per-stage count/valuation for the pipeline columns.
+
+    Comparison ("vs. mes anterior") = the same numbers for leads that existed
+    before the 1st of this month. Leads have no stage history, so for active /
+    conversion / valuation the comparison uses each lead's current stage & value.
+      total_leads, active, valuation → change_pct (percent change)
+      conversion_rate                → change_pp  (percentage-point difference)
+    conversion_rate = converted leads / total leads × 100
     """
     def get(self, request):
-        total       = Lead.objects.count()
-        active      = Lead.objects.filter(
-            stage__in=['new_inquiries', 'engaged', 'consultation', 'winning']
-        ).count()
-        valuation   = Lead.objects.aggregate(total=Sum('value'))['total'] or 0
+        now            = timezone.localtime()
+        start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+        total, active, rate, valuation = _lead_snapshot(Lead.objects.all())
+        p_total, p_active, p_rate, p_valuation = _lead_snapshot(
+            Lead.objects.filter(created_at__lt=start_of_month)
+        )
+
+        change_pp = round(rate - p_rate, 1)
+        stages = {
+            s: {'count': 0, 'valuation': 0.0} for s in ALL_STAGES
+        }
+        for row in Lead.objects.values('stage').annotate(count=Count('id'), valuation=Sum('value')):
+            if row['stage'] in stages:
+                stages[row['stage']] = {
+                    'count':     row['count'],
+                    'valuation': float(row['valuation'] or 0),
+                }
 
         return Response({
-            'new_inquiries': Lead.objects.filter(stage='new_inquiries').count(),
-            'engaged':       Lead.objects.filter(stage='engaged').count(),
-            'consultation':  Lead.objects.filter(stage='consultation').count(),
-            'winning':       Lead.objects.filter(stage='winning').count(),
-            'lost':          Lead.objects.filter(stage='lost').count(),
-            'total_leads':   total,
-            'active':        active,
-            'valuation':     float(valuation),
+            'total_leads':     _trend(total, p_total),
+            'active':          _trend(active, p_active),
+            'conversion_rate': {
+                'value_pct': rate,
+                'change_pp': abs(change_pp),
+                'trend':     'up' if change_pp > 0 else ('down' if change_pp < 0 else 'neutral'),
+            },
+            'valuation':       _trend(valuation, p_valuation),
+            'stages':          stages,
+            # Legacy flat counts kept for the current UI
+            'new_inquiries': stages['new_inquiries']['count'],
+            'engaged':       stages['engaged']['count'],
+            'consultation':  stages['consultation']['count'],
+            'winning':       stages['winning']['count'],
+            'lost':          stages['lost']['count'],
         })
 
 
@@ -87,20 +139,60 @@ class LeadPipelineView(APIView):
 
 class LeadListView(APIView):
     """
-    GET  /api/leads/           — list all leads
-         ?search=name/phone    search
-         ?stage=engaged        filter by stage
-         ?source=instagram     filter by source
+    GET  /api/leads/           — list leads
+         ?search=name/phone/email
+         ?stage=engaged              ?source=instagram
+         ?service_id=7               ?marketing_source_id=3
+         ?assigned_staff_id=4
+         ?date_from=2026-11-01&date_to=2026-11-30   (by created date, inclusive)
+         All filters optional and combinable.
+         Pagination (opt-in): ?page=1&page_size=20 (max 100) → returns
+         {count, page, page_size, total_pages, results}. Without page/page_size
+         the response is a plain list, as before.
     POST /api/leads/           — create new inquiry
     """
     def get_permissions(self):
         return [IsAdminOrReception()]
 
+    @staticmethod
+    def _int_param(params, name, errors):
+        raw = params.get(name, '').strip()
+        if not raw:
+            return None
+        try:
+            return int(raw)
+        except ValueError:
+            errors[name] = 'Must be an integer.'
+            return None
+
+    @staticmethod
+    def _date_param(params, name, errors):
+        raw = params.get(name, '').strip()
+        if not raw:
+            return None
+        try:
+            return datetime.date.fromisoformat(raw)
+        except ValueError:
+            errors[name] = 'Use YYYY-MM-DD.'
+            return None
+
     def get(self, request):
-        leads  = Lead.objects.all()
-        search = request.query_params.get('search', '').strip()
-        stage  = request.query_params.get('stage', '').strip()
-        source = request.query_params.get('source', '').strip()
+        params = request.query_params
+        errors = {}
+        leads  = Lead.objects.select_related('assigned_to')
+        search = params.get('search', '').strip()
+        stage  = params.get('stage', '').strip()
+        source = params.get('source', '').strip()
+
+        service_id          = self._int_param(params, 'service_id', errors)
+        marketing_source_id = self._int_param(params, 'marketing_source_id', errors)
+        assigned_staff_id   = self._int_param(params, 'assigned_staff_id', errors)
+        date_from           = self._date_param(params, 'date_from', errors)
+        date_to             = self._date_param(params, 'date_to', errors)
+        if marketing_source_id is not None and marketing_source_id not in SOURCE_MAP:
+            errors['marketing_source_id'] = 'Use 1=Instagram, 2=Web, 3=Walk-In, 4=Referral, 5=WhatsApp, 6=Other.'
+        if errors:
+            return Response(errors, status=400)
 
         if search:
             leads = leads.filter(
@@ -112,8 +204,45 @@ class LeadListView(APIView):
             leads = leads.filter(stage=stage)
         if source:
             leads = leads.filter(source=source)
+        if service_id is not None:
+            leads = leads.filter(service_id=service_id)
+        if marketing_source_id is not None:
+            leads = leads.filter(source=SOURCE_MAP[marketing_source_id])
+        if assigned_staff_id is not None:
+            leads = leads.filter(assigned_to_id=assigned_staff_id)
+        if date_from:
+            leads = leads.filter(created_at__gte=timezone.make_aware(
+                datetime.datetime.combine(date_from, datetime.time.min)))
+        if date_to:
+            leads = leads.filter(created_at__lt=timezone.make_aware(
+                datetime.datetime.combine(date_to + datetime.timedelta(days=1), datetime.time.min)))
 
-        return Response(LeadListSerializer(leads, many=True).data)
+        paginate = 'page' in params or 'page_size' in params
+        if paginate:
+            page_size = self._int_param(params, 'page_size', errors) or 20
+            page_num  = self._int_param(params, 'page', errors) or 1
+            if errors:
+                return Response(errors, status=400)
+            page_size = max(1, min(page_size, 100))
+            paginator = Paginator(leads, page_size)
+            page      = paginator.get_page(page_num)
+            items     = list(page.object_list)
+        else:
+            items = list(leads)
+
+        data = LeadListSerializer(
+            items, many=True, context={'scheduled_phones': scheduled_phones_for(items)}
+        ).data
+
+        if paginate:
+            return Response({
+                'count':       paginator.count,
+                'page':        page.number,
+                'page_size':   page_size,
+                'total_pages': paginator.num_pages,
+                'results':     data,
+            })
+        return Response(data)
 
     def post(self, request):
         serializer = LeadWriteSerializer(data=request.data)
