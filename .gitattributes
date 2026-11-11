@@ -1,0 +1,5 @@
+# Normalise line endings so Windows CRLF checkouts don't show every file as modified
+* text=auto
+*.ico binary
+*.png binary
+*.jpg binary

@@ -107,7 +107,7 @@ else:
             'ENGINE':   'django.db.backends.mysql',
             'NAME':     'aura_clinic',
             'USER':     'root',
-            'PASSWORD': os.environ.get('DB_PASSWORD', '@Deepak.10'),
+            'PASSWORD': os.environ.get('DB_PASSWORD', ''),
             'HOST':     'localhost',
             'PORT':     '3306',
         }
@@ -151,7 +151,10 @@ SIMPLE_JWT = {
 }
 
 # ── CORS ───────────────────────────────────────────────────
-CORS_ALLOW_ALL_ORIGINS = True
+# Set CORS_ALLOWED_ORIGINS (comma-separated) in production to restrict the API to known frontends.
+# If it is not set, all origins are allowed (keeps current behaviour for local dev).
+CORS_ALLOWED_ORIGINS = [o.strip() for o in os.environ.get('CORS_ALLOWED_ORIGINS', '').split(',') if o.strip()]
+CORS_ALLOW_ALL_ORIGINS = not CORS_ALLOWED_ORIGINS
 CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOW_HEADERS = [
     'accept',
@@ -177,7 +180,7 @@ STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 # ── Celery ─────────────────────────────────────────────────
 CELERY_BROKER_URL    = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
 CELERY_RESULT_BACKEND = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
-CELERY_TIMEZONE      = 'Asia/Kolkata'
+CELERY_TIMEZONE      = os.environ.get('TIME_ZONE', 'Asia/Kolkata')
 
 # ── Twilio ─────────────────────────────────────────────────
 TWILIO_ACCOUNT_SID   = os.environ.get('TWILIO_ACCOUNT_SID', '')
@@ -199,7 +202,7 @@ CACHES = {
 
 # ── i18n ───────────────────────────────────────────────────
 LANGUAGE_CODE = 'en-us'
-TIME_ZONE     = 'Asia/Kolkata'
+TIME_ZONE     = os.environ.get('TIME_ZONE', 'Asia/Kolkata')  # set TIME_ZONE=Europe/Madrid for the Spain clinic
 USE_I18N      = True
 USE_TZ        = True
 

@@ -8,7 +8,8 @@ from appointments.models import Appointment
 from patients.models import Patient
 from treatments.models import Treatment
 from leads.models import Lead
-from users.models import User
+from users.models import User, StaffWorkingHours, StaffBreakTime, StaffLeave
+from clinic.models import ClinicHours, PlannedClosure
 
 
 def _calc_trend(current, previous):
@@ -47,12 +48,198 @@ def _fmt_appt(a):
     }
 
 
+# ── Shared helpers for chart / occupancy / tasks ─────────────────────────────
+
+CHART_RANGES = ('week', 'month', 'year')
+DEFAULT_CHART_RANGE = 'month'
+DAY_CODES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']   # date.weekday() → code
+
+
+def _revenue_total(qs):
+    """Revenue = sum of payment_amount for completed appointments (same rule as admin)."""
+    return float(qs.filter(status='completed').aggregate(t=Sum('payment_amount'))['t'] or 0)
+
+
+def _get_chart_range(request):
+    value = (request.query_params.get('chart_range') or DEFAULT_CHART_RANGE).lower()
+    return value if value in CHART_RANGES else DEFAULT_CHART_RANGE
+
+
+def _day_start(day):
+    """Timezone-aware datetime for 00:00 of a local date."""
+    return timezone.make_aware(datetime.datetime.combine(day, datetime.time.min))
+
+
+def _build_revenue_chart(chart_range, today):
+    """
+    week  → last 7 days, one point per day
+    month → last 30 days, one point per day (previous fixed behaviour)
+    year  → last 12 months, one point per month (date = first day of month)
+    revenue            = completed appointments' payment_amount
+    appointments_count = all appointments except cancelled
+    """
+    if chart_range == 'year':
+        first = today.replace(day=1)
+        months = []
+        y, m = first.year, first.month
+        for _ in range(12):
+            months.append(datetime.date(y, m, 1))
+            m -= 1
+            if m == 0:
+                y, m = y - 1, 12
+        buckets = sorted(months)
+        key_of = lambda d: d.replace(day=1)
+    else:
+        days = 7 if chart_range == 'week' else 30
+        buckets = [today - datetime.timedelta(days=i) for i in range(days - 1, -1, -1)]
+        key_of = lambda d: d
+
+    points = {b: {'revenue': 0.0, 'appointments_count': 0} for b in buckets}
+    rows = (
+        Appointment.objects
+        .filter(date_time__gte=_day_start(buckets[0]),
+                date_time__lt=_day_start(today + datetime.timedelta(days=1)))
+        .exclude(status='cancelled')
+        .values_list('date_time', 'status', 'payment_amount')
+    )
+    for dt, status, amount in rows:
+        key = key_of(timezone.localtime(dt).date())
+        if key not in points:
+            continue
+        points[key]['appointments_count'] += 1
+        if status == 'completed' and amount:
+            points[key]['revenue'] += float(amount)
+
+    return [
+        {'date': str(b), 'revenue': round(points[b]['revenue'], 2),
+         'appointments_count': points[b]['appointments_count']}
+        for b in buckets
+    ]
+
+
+def _to_min(t):
+    return t.hour * 60 + t.minute
+
+
+def _merge(intervals):
+    """Merge overlapping (start, end) minute intervals."""
+    out = []
+    for s, e in sorted(i for i in intervals if i[1] > i[0]):
+        if out and s <= out[-1][1]:
+            out[-1] = (out[-1][0], max(out[-1][1], e))
+        else:
+            out.append((s, e))
+    return out
+
+
+def _clip(intervals, lo, hi):
+    return [(max(s, lo), min(e, hi)) for s, e in intervals if min(e, hi) > max(s, lo)]
+
+
+def _length(intervals):
+    return sum(e - s for s, e in _merge(intervals))
+
+
+def _percentages(parts):
+    """Integer percentages that always add up to 100 (largest remainder)."""
+    total = sum(parts)
+    if total <= 0:
+        return [0] * len(parts)
+    raw = [p * 100 / total for p in parts]
+    floors = [int(r) for r in raw]
+    order = sorted(range(len(raw)), key=lambda i: raw[i] - floors[i], reverse=True)
+    for i in order[:100 - sum(floors)]:
+        floors[i] += 1
+    return floors
+
+
+def _today_occupancy(today):
+    """
+    Today's therapist schedule capacity split into:
+      confirmed — minutes booked by non-cancelled appointments
+      blocked   — staff breaks, staff on leave, clinic closed / planned closure
+      available — everything else in the therapists' working hours
+    """
+    zero = {'confirmed_pct': 0, 'available_pct': 0, 'blocked_pct': 0}
+    day_code = DAY_CODES[today.weekday()]
+
+    shifts = list(
+        StaffWorkingHours.objects
+        .filter(day=day_code, staff__role='therapist', staff__is_active=True)
+    )
+    if not shifts:
+        return zero
+
+    clinic_day = ClinicHours.objects.filter(day=day_code).first()
+    clinic_closed = (
+        (clinic_day is not None and not clinic_day.is_open)
+        or PlannedClosure.objects.filter(from_date__lte=today, to_date__gte=today).exists()
+    )
+    if clinic_day and clinic_day.is_open and clinic_day.open_time and clinic_day.close_time:
+        clinic_window = (_to_min(clinic_day.open_time), _to_min(clinic_day.close_time))
+    else:
+        clinic_window = (0, 24 * 60)
+
+    staff_ids = [s.staff_id for s in shifts]
+    on_leave = set(
+        StaffLeave.objects.filter(staff_id__in=staff_ids, from_date__lte=today, to_date__gte=today)
+        .values_list('staff_id', flat=True)
+    )
+    breaks = {}
+    for b in StaffBreakTime.objects.filter(staff_id__in=staff_ids):
+        breaks.setdefault(b.staff_id, []).append((_to_min(b.start_time), _to_min(b.end_time)))
+    booked = {}
+    for a in Appointment.objects.filter(staff_id__in=staff_ids, date_time__date=today).exclude(status='cancelled'):
+        start = timezone.localtime(a.date_time)
+        s = start.hour * 60 + start.minute
+        booked.setdefault(a.staff_id, []).append((s, s + (a.duration or 0)))
+
+    total = confirmed = blocked = 0
+    for shift in shifts:
+        lo, hi = _to_min(shift.start_time), _to_min(shift.end_time)
+        if not clinic_closed:
+            lo, hi = max(lo, clinic_window[0]), min(hi, clinic_window[1])
+        if hi <= lo:
+            continue
+        length = hi - lo
+        total += length
+        if clinic_closed or shift.staff_id in on_leave:
+            blocked += length
+            continue
+        brk = _clip(breaks.get(shift.staff_id, []), lo, hi)
+        appts = _clip(booked.get(shift.staff_id, []), lo, hi)
+        b_len = _length(brk)
+        blocked += b_len
+        confirmed += _length(brk + appts) - b_len   # booked time not already counted as break
+
+    if total == 0:
+        return zero
+    c, a, b = _percentages([confirmed, total - confirmed - blocked, blocked])
+    return {'confirmed_pct': c, 'available_pct': a, 'blocked_pct': b}
+
+
+def _reception_tasks(today):
+    """Only 'confirm_appointments' for now: tomorrow's appointments still in 'upcoming' status."""
+    tomorrow = today + datetime.timedelta(days=1)
+    count = Appointment.objects.filter(date_time__date=tomorrow, status='upcoming').count()
+    tasks = []
+    if count:
+        tasks.append({
+            'type':  'confirm_appointments',
+            'label': "Confirm tomorrow's appointments",
+            'count': count,
+        })
+    return tasks
+
+
 class DashboardView(APIView):
     """
     GET /api/dashboard/
     Returns the correct dashboard based on logged-in user role:
     - Admin     → full overview (revenue, leads, best services, staff performance)
-    - Reception → today's stats + next up appointments
+    - Reception → today's stats (with % change), occupancy, today's revenue,
+                  revenue chart, tasks + next up appointments
+    Query params: ?chart_range=week|month|year  (default: month)
     - Therapist → my schedule (today's sessions, current session, next up)
     """
     permission_classes = [IsAuthenticated]
@@ -114,12 +301,15 @@ class DashboardView(APIView):
     # ── Reception Dashboard ───────────────────────────────────────────────────
     def _reception_dashboard(self, request):
         today          = timezone.localdate()
+        yesterday      = today - datetime.timedelta(days=1)
         now            = timezone.now()
         start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        chart_range    = _get_chart_range(request)
 
         todays_appts = Appointment.objects.filter(
             date_time__date=today
         ).select_related('patient', 'staff', 'treatment', 'room_fk')
+        yesterdays_appts = Appointment.objects.filter(date_time__date=yesterday)
 
         next_up = Appointment.objects.filter(
             date_time__date=today,
@@ -132,18 +322,40 @@ class DashboardView(APIView):
             status='in_session'
         ).select_related('patient', 'staff', 'treatment', 'room_fk').order_by('date_time')
 
+        appts_today_count = todays_appts.count()
+        checked_in_today  = todays_appts.filter(patient_arrived=True).count()
+        cancelled_today   = todays_appts.filter(status='cancelled').count()
+
         return Response({
             'role':     'reception',
             'greeting': _get_greeting(),
             'name':     request.user.username or request.user.email.split('@')[0],
             'date':     str(today),
+            # Kept unchanged for backward compatibility with the current app
             'stats': {
-                'todays_appointments': todays_appts.count(),
-                'checked_in':          todays_appts.filter(patient_arrived=True).count(),
-                'cancelled':           todays_appts.filter(status='cancelled').count(),
+                'todays_appointments': appts_today_count,
+                'checked_in':          checked_in_today,
+                'cancelled':           cancelled_today,
                 'in_session':          current_sessions.count(),
                 'new_patients':        Patient.objects.filter(created_at__gte=start_of_month).count(),
             },
+            # New design: every tile is {value, change_pct, trend} compared with yesterday
+            'today': {
+                'appointments': _calc_trend(appts_today_count, yesterdays_appts.count()),
+                'checked_in':   _calc_trend(checked_in_today, yesterdays_appts.filter(patient_arrived=True).count()),
+                'cancelled':    _calc_trend(cancelled_today, yesterdays_appts.filter(status='cancelled').count()),
+                'new_patients': _calc_trend(
+                    Patient.objects.filter(created_at__date=today).count(),
+                    Patient.objects.filter(created_at__date=yesterday).count(),
+                ),
+                'occupancy':    _today_occupancy(today),
+            },
+            'revenue': {
+                'today': _calc_trend(_revenue_total(todays_appts), _revenue_total(yesterdays_appts)),
+            },
+            'chart_range':      chart_range,
+            'revenue_chart':    _build_revenue_chart(chart_range, today),
+            'tasks':            _reception_tasks(today),
             'current_sessions': [_fmt_appt(a) for a in current_sessions],
             'next_up': [_fmt_appt(a) for a in next_up],
         })
@@ -280,17 +492,9 @@ class DashboardView(APIView):
             })
         staff_perf.sort(key=lambda x: x['revenue'], reverse=True)
 
-        # Revenue chart — last 30 days
-        revenue_chart = []
-        for i in range(29, -1, -1):
-            day = today - datetime.timedelta(days=i)
-            revenue_chart.append({
-                'date':    str(day),
-                'revenue': float(
-                    Appointment.objects.filter(date_time__date=day, status='completed')
-                    .aggregate(t=Sum('payment_amount'))['t'] or 0
-                ),
-            })
+        # Revenue chart — ?chart_range=week|month|year (default month = last 30 days)
+        chart_range   = _get_chart_range(request)
+        revenue_chart = _build_revenue_chart(chart_range, today)
 
         return Response({
             'role':     'admin',
@@ -339,6 +543,7 @@ class DashboardView(APIView):
                 for s in best_services
             ],
             'staff_performance': staff_perf,
+            'chart_range':       chart_range,
             'revenue_chart':     revenue_chart,
         })
 

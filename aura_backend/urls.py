@@ -18,6 +18,13 @@ def api_root(request):
             'leads':        '/api/leads/',
             'dashboard':    '/api/dashboard/',
             'roles':        '/api/users/roles/',
+            'rooms':        '/api/rooms/',
+            'clinic':       '/api/clinic/',
+            'inventory':    '/api/inventory/',
+            'therapist':    '/api/therapist/',
+            'packages':     '/api/packages/',
+            'ai':           '/api/ai/',
+            'payments':     '/api/payments/',
         }
     })
 
