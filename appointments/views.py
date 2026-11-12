@@ -344,125 +344,17 @@ class AppointmentListView(APIView):
                     }, status=400)
             # ─────────────────────────────────────────────────────────────────
 
-            # ── Clinic closing time + Therapist working hours check ───────────
+            # ── Conflict checks (clinic, staff, breaks, leave, staff + room double booking) ──
             if date_time and duration:
-                from clinic.models import ClinicHours
-                from users.models import StaffWorkingHours
-                day_name     = date_time.strftime('%a')
-                slot_end     = date_time + datetime.timedelta(minutes=duration)
-                slot_end_time = slot_end.time()
-
-                # Check clinic closing time
-                clinic_hours = ClinicHours.objects.filter(day=day_name).first()
-                if clinic_hours and clinic_hours.is_open and clinic_hours.close_time:
-                    if slot_end_time > clinic_hours.close_time:
-                        return Response({
-                            'error': f"This appointment cannot be booked. The session ends at "
-                                     f"{slot_end_time.strftime('%H:%M')} but the clinic closes at "
-                                     f"{clinic_hours.close_time.strftime('%H:%M')} on {day_name}. "
-                                     f"Please choose an earlier time slot."
-                        }, status=400)
-
-                # Check therapist working hours end time
-                if staff:
-                    staff_hours = StaffWorkingHours.objects.filter(
-                        staff=staff, day=day_name
-                    ).first()
-                    if staff_hours and staff_hours.end_time:
-                        if slot_end_time > staff_hours.end_time:
-                            return Response({
-                                'error': f"This appointment cannot be booked. The session ends at "
-                                         f"{slot_end_time.strftime('%H:%M')} but {staff.username} "
-                                         f"finishes work at {staff_hours.end_time.strftime('%H:%M')} on {day_name}. "
-                                         f"Please choose an earlier time slot."
-                            }, status=400)
-                    elif staff_hours is None:
-                        return Response({
-                            'error': f"{staff.username if staff else 'This therapist'} is not working on {day_name}. "
-                                     f"Please choose a different date or therapist."
-                        }, status=400)
-            # ─────────────────────────────────────────────────────────────────
-
-            # ── Staff break time check ────────────────────────────────────────
-            if staff and date_time:
-                from users.models import StaffBreakTime, StaffLeave
-                slot_start    = date_time
-                slot_end      = date_time + datetime.timedelta(minutes=duration)
-                slot_date     = date_time.date() if hasattr(date_time, 'date') else date_time
-
-                # Check break times
-                breaks = StaffBreakTime.objects.filter(staff=staff)
-                for br in breaks:
-                    break_start = datetime.datetime.combine(slot_date, br.start_time)
-                    break_end   = datetime.datetime.combine(slot_date, br.end_time)
-                    # Make aware for comparison
-                    if slot_start.tzinfo:
-                        break_start = tz.make_aware(break_start)
-                        break_end   = tz.make_aware(break_end)
-                    if slot_start < break_end and slot_end > break_start:
-                        return Response({
-                            'error': f"This time slot overlaps with {staff.username}'s break time "
-                                     f"({br.start_time.strftime('%H:%M')} — {br.end_time.strftime('%H:%M')}). "
-                                     f"Please choose a different time slot."
-                        }, status=400)
-
-                # Check staff leave
-                leaves = StaffLeave.objects.filter(
-                    staff=staff,
-                    from_date__lte=slot_date,
-                    to_date__gte=slot_date
-                )
-                if leaves.exists():
-                    leave = leaves.first()
-                    return Response({
-                        'error': f"{staff.username} is on leave from {leave.from_date} to {leave.to_date}. "
-                                 f"Please choose a different date or therapist."
-                    }, status=400)
-            # ─────────────────────────────────────────────────────────────────
-
-            # ── Double booking check ──────────────────────────────────────────
-            if staff and date_time:
-                slot_start = date_time
-                slot_end   = date_time + datetime.timedelta(minutes=duration)
-
-                conflict = Appointment.objects.filter(
-                    staff=staff,
-                    status__in=['upcoming', 'in_session'],
-                )
-
-                overlapping = []
-                for a in conflict:
-                    a_start = a.date_time if a.date_time.tzinfo else tz.make_aware(a.date_time)
-                    a_end   = a_start + datetime.timedelta(minutes=a.duration)
-                    if slot_start < a_end and slot_end > a_start:
-                        overlapping.append((a, a_start, a_end))
-
-                if overlapping:
-                    existing, ex_start, ex_end = overlapping[0]
-                    return Response({
-                        'error': f"This time slot overlaps with an existing appointment for {staff.username}. "
-                                 f"They have a booking from {tz.localtime(ex_start).strftime('%H:%M')} to {tz.localtime(ex_end).strftime('%H:%M')}. "
-                                 f"Please choose a different time slot."
-                    }, status=400)
-            # ─────────────────────────────────────────────────────────────────
-
-            # ── Room conflict check ───────────────────────────────────────────
-            room_id = request.data.get('room_id')
-            if room_id and date_time:
-                slot_start    = date_time
-                slot_end      = date_time + datetime.timedelta(minutes=duration)
-                room_conflict = Appointment.objects.filter(
-                    room_fk__id=room_id,
-                    status__in=['upcoming', 'in_session'],
-                )
-                for a in room_conflict:
-                    a_start = a.date_time if a.date_time.tzinfo else tz.make_aware(a.date_time)
-                    a_end   = a_start + datetime.timedelta(minutes=a.duration)
-                    if slot_start < a_end and slot_end > a_start:
-                        return Response({
-                            'error': f"This room is already booked from {tz.localtime(a_start).strftime('%H:%M')} to {tz.localtime(a_end).strftime('%H:%M')}. "
-                                     f"Please choose a different room or time slot."
-                        }, status=400)
+                from rooms.models import Room
+                from .conflicts import find_conflict
+                room_obj = None
+                room_id  = request.data.get('room_id')
+                if room_id:
+                    room_obj = Room.objects.filter(id=room_id).first()
+                clash = find_conflict(date_time, duration, staff=staff, room=room_obj)
+                if clash:
+                    return Response(clash, status=409)
             # ─────────────────────────────────────────────────────────────────
 
             appt = serializer.save()
@@ -524,11 +416,56 @@ class AppointmentDetailView(APIView):
         appt = self._get(pk)
         if not appt:
             return Response({'error': 'Appointment not found.'}, status=404)
+        clash = self._reschedule_conflict(appt, request.data)
+        if clash:
+            return Response(clash, status=409)
         serializer = AppointmentWriteSerializer(appt, data=request.data, partial=True)
         if serializer.is_valid():
             appt = serializer.save()
             return Response(AppointmentSerializer(appt).data)
         return Response(serializer.errors, status=400)
+
+    SLOT_FIELDS = ('date', 'time', 'staff_id', 'room_id', 'duration', 'treatment_id')
+
+    def _reschedule_conflict(self, appt, data):
+        """Re-check conflicts if the slot (date/time/staff/room/duration/treatment) changes."""
+        if not any(f in data for f in self.SLOT_FIELDS):
+            return None
+        if appt.status not in ('upcoming', 'in_session'):
+            return None
+        from rooms.models import Room
+        from .conflicts import find_conflict
+
+        local = timezone.localtime(appt.date_time)
+        day   = parse_date(str(data['date'])) if data.get('date') else local.date()
+        t     = local.time()
+        if data.get('time'):
+            try:
+                t = datetime.datetime.strptime(str(data['time']).split('-')[0].strip(), '%H:%M').time()
+            except ValueError:
+                return None   # let the serializer report the bad value
+        if not day:
+            return None
+        start = timezone.make_aware(datetime.datetime.combine(day, t))
+
+        staff = appt.staff
+        if data.get('staff_id'):
+            staff = User.objects.filter(id=data['staff_id']).first() or staff
+        room = appt.room_fk
+        if 'room_id' in data:
+            room = Room.objects.filter(id=data['room_id']).first() if data['room_id'] else None
+
+        duration = appt.duration
+        if data.get('duration'):
+            try:
+                duration = int(data['duration'])
+            except (TypeError, ValueError):
+                pass
+        elif data.get('treatment_id'):
+            tr = Treatment.objects.filter(id=data['treatment_id']).first()
+            duration = tr.duration if tr and tr.duration else duration
+
+        return find_conflict(start, duration or 60, staff=staff, room=room, exclude_id=appt.pk)
 
     def patch(self, request, pk):
         return self._update(request, pk)
@@ -789,7 +726,7 @@ class AvailableSlotsView(APIView):
             staff=staff,
             date_time__year=year,
             date_time__month=mon,
-            status='upcoming'
+            status__in=['upcoming', 'in_session']
         ).select_related('patient', 'treatment')
 
         # Booked appointments for room this month
@@ -799,7 +736,7 @@ class AvailableSlotsView(APIView):
                 room_fk=room,
                 date_time__year=year,
                 date_time__month=mon,
-                status='upcoming'
+                status__in=['upcoming', 'in_session']
             ).select_related('patient', 'treatment'))
 
         def to_local_naive(dt):

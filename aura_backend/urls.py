@@ -3,6 +3,7 @@ from django.urls import path, include
 from django.http import JsonResponse
 from django.conf import settings
 from django.conf.urls.static import static
+from appointments.schedule_views import DayScheduleView
 
 
 def api_root(request):
@@ -25,6 +26,7 @@ def api_root(request):
             'packages':     '/api/packages/',
             'ai':           '/api/ai/',
             'payments':     '/api/payments/',
+            'schedule_day': '/api/schedule/day/?date=YYYY-MM-DD',
         }
     })
 
@@ -45,6 +47,7 @@ urlpatterns = [
     path('api/packages/', include('packages.urls')),
     path('api/ai/', include('ai_agent.urls')),
     path('api/payments/', include('payments.urls')),
+    path('api/schedule/day/', DayScheduleView.as_view()),   # calendar: one day, all staff + rooms
 ]
 
 urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
