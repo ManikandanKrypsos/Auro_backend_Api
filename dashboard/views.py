@@ -245,7 +245,8 @@ class DashboardView(APIView):
     """
     GET /api/dashboard/
     Returns the correct dashboard based on logged-in user role:
-    - Admin     → full overview (revenue, leads, best services, staff performance)
+    - Admin     → everything the receptionist gets (same keys/shape) + revenue
+                  weekly/monthly, leads, best services, staff performance, rates
     - Reception → today's stats (with % change), occupancy, today's revenue,
                   revenue chart, tasks + next up appointments
     Query params: ?chart_range=week|month|year  (default: month)
@@ -503,7 +504,7 @@ class DashboardView(APIView):
         chart_range   = _get_chart_range(request)
         revenue_chart = _build_revenue_chart(chart_range, today)
 
-        return Response({
+        admin_data = {
             'role':     'admin',
             'greeting': _get_greeting(),
             'name':     request.user.username or request.user.email.split('@')[0],
@@ -552,6 +553,17 @@ class DashboardView(APIView):
             'staff_performance': staff_perf,
             'chart_range':       chart_range,
             'revenue_chart':     revenue_chart,
+        }
+
+        # Same base shape as the receptionist response, so one parser works for
+        # both roles: stats, today (tiles as {value, change_pct, trend} + occupancy),
+        # tasks, current_sessions, next_up. Admin-only blocks are added on top.
+        base = self._reception_dashboard(request).data
+        return Response({
+            **base,
+            **admin_data,
+            'role':  'admin',
+            'today': base['today'],
         })
 
 
