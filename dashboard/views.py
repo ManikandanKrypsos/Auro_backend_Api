@@ -10,6 +10,7 @@ from treatments.models import Treatment
 from leads.models import Lead
 from users.models import User, StaffWorkingHours, StaffBreakTime, StaffLeave
 from clinic.models import ClinicHours, PlannedClosure
+from payments.metrics import paid_total, billable, in_dates, month_bounds
 
 
 def _calc_trend(current, previous):
@@ -56,8 +57,8 @@ DAY_CODES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']   # date.weekday()
 
 
 def _revenue_total(qs):
-    """Revenue = sum of payment_amount for completed appointments (same rule as admin)."""
-    return float(qs.filter(status='completed').aggregate(t=Sum('payment_amount'))['t'] or 0)
+    """Revenue = paid payment_amount (shared rule with /api/payments/, see payments/metrics.py)."""
+    return paid_total(qs)
 
 
 def _get_chart_range(request):
@@ -75,7 +76,7 @@ def _build_revenue_chart(chart_range, today):
     week  → last 7 days, one point per day
     month → last 30 days, one point per day (previous fixed behaviour)
     year  → last 12 months, one point per month (date = first day of month)
-    revenue            = completed appointments' payment_amount
+    revenue            = paid payment_amount (same rule as /api/payments/ total_paid)
     appointments_count = all appointments except cancelled
     """
     if chart_range == 'year':
@@ -99,15 +100,16 @@ def _build_revenue_chart(chart_range, today):
         Appointment.objects
         .filter(date_time__gte=_day_start(buckets[0]),
                 date_time__lt=_day_start(today + datetime.timedelta(days=1)))
-        .exclude(status='cancelled')
-        .values_list('date_time', 'status', 'payment_amount')
+        .exclude(status='cancelled', payment_status='pending')
+        .values_list('date_time', 'status', 'payment_status', 'payment_amount')
     )
-    for dt, status, amount in rows:
+    for dt, status, pay_status, amount in rows:
         key = key_of(timezone.localtime(dt).date())
         if key not in points:
             continue
-        points[key]['appointments_count'] += 1
-        if status == 'completed' and amount:
+        if status != 'cancelled':
+            points[key]['appointments_count'] += 1
+        if pay_status == 'paid' and amount:
             points[key]['revenue'] += float(amount)
 
     return [
@@ -302,8 +304,7 @@ class DashboardView(APIView):
     def _reception_dashboard(self, request):
         today          = timezone.localdate()
         yesterday      = today - datetime.timedelta(days=1)
-        now            = timezone.now()
-        start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        start_of_month = _day_start(today.replace(day=1))
         chart_range    = _get_chart_range(request)
 
         todays_appts = Appointment.objects.filter(
@@ -363,29 +364,27 @@ class DashboardView(APIView):
     # ── Admin Dashboard ───────────────────────────────────────────────────────
     def _admin_dashboard(self, request):
         today            = timezone.localdate()
-        now              = timezone.now()
         yesterday        = today - datetime.timedelta(days=1)
-        start_of_today   = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        start_of_week    = now - datetime.timedelta(days=7)
-        start_of_month   = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        start_last_month = (start_of_month - datetime.timedelta(days=1)).replace(day=1)
+        start_of_today   = _day_start(today)
+        # Week  = last 7 days incl. today, vs the 7 days before
+        # Month = this calendar month,     vs the previous calendar month
+        #   → revenue.monthly matches GET /api/payments/?month=YYYY-MM stats.total_paid
+        week_start         = today - datetime.timedelta(days=6)
+        month_first, month_last = month_bounds(today)
+        last_first, last_last   = month_bounds(month_first - datetime.timedelta(days=1))
+        start_of_month   = _day_start(month_first)
+        start_last_month = _day_start(last_first)
         end_last_month   = start_of_month
 
-        appts_today      = Appointment.objects.filter(date_time__date=today)
-        appts_yesterday  = Appointment.objects.filter(date_time__date=yesterday)
-        appts_week       = Appointment.objects.filter(date_time__gte=start_of_week)
-        appts_prev_week  = Appointment.objects.filter(
-            date_time__gte=start_of_week - datetime.timedelta(days=7),
-            date_time__lt=start_of_week
-        )
-        appts_month      = Appointment.objects.filter(date_time__gte=start_of_month)
-        appts_last_month = Appointment.objects.filter(
-            date_time__gte=start_last_month,
-            date_time__lt=end_last_month
-        )
+        all_appts        = Appointment.objects.all()
+        appts_today      = in_dates(all_appts, today, today)
+        appts_yesterday  = in_dates(all_appts, yesterday, yesterday)
+        appts_week       = in_dates(all_appts, week_start, today)
+        appts_prev_week  = in_dates(all_appts, week_start - datetime.timedelta(days=7), week_start - datetime.timedelta(days=1))
+        appts_month      = in_dates(all_appts, month_first, month_last)
+        appts_last_month = in_dates(all_appts, last_first, last_last)
 
-        def revenue(qs):
-            return float(qs.filter(status='completed').aggregate(t=Sum('payment_amount'))['t'] or 0)
+        revenue = paid_total
 
         rev_today      = revenue(appts_today)
         rev_yesterday  = revenue(appts_yesterday)
@@ -468,11 +467,11 @@ class DashboardView(APIView):
 
         # Best services — max 3
         best_services = list(
-            Appointment.objects.filter(date_time__gte=start_of_month)
+            appts_month
             .values('treatment__id', 'treatment__name', 'treatment__duration')
             .annotate(
                 bookings=Count('id'),
-                revenue=Sum('payment_amount', filter=Q(status='completed'))
+                revenue=Sum('payment_amount', filter=Q(payment_status='paid'))
             )
             .order_by('-bookings')[:3]
         )
@@ -480,7 +479,7 @@ class DashboardView(APIView):
         # Staff performance
         staff_perf = []
         for s in User.objects.filter(role='therapist'):
-            sa = Appointment.objects.filter(staff=s, date_time__gte=start_of_month)
+            sa = appts_month.filter(staff=s)
             staff_perf.append({
                 'staff_id':        s.id,
                 'name':            s.username or s.email.split('@')[0],
@@ -488,7 +487,7 @@ class DashboardView(APIView):
                 'specialist_area': s.specialist_area,
                 'total':           sa.count(),
                 'completed':       sa.filter(status='completed').count(),
-                'revenue':         float(sa.filter(status='completed').aggregate(t=Sum('payment_amount'))['t'] or 0),
+                'revenue':         paid_total(sa),
             })
         staff_perf.sort(key=lambda x: x['revenue'], reverse=True)
 

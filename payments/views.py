@@ -415,7 +415,8 @@ class PaymentListView(APIView):
                 qs = qs.filter(date_time__lt=day_start(end + datetime.timedelta(days=1)))
             return qs
 
-        base = Appointment.objects.exclude(status='cancelled', payment_status__in=['pending'])
+        from .metrics import billable
+        base = billable(Appointment.objects.all())
         if staff_id is not None:
             base = base.filter(staff_id=staff_id)
 
