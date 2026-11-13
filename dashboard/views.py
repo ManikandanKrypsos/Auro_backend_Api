@@ -534,7 +534,7 @@ class DashboardView(APIView):
             },
             'leads': {
                 'total':     Lead.objects.count(),
-                'active':    Lead.objects.filter(stage__in=['new_inquiries','engaged','consultation','winning']).count(),
+                'active':    Lead.objects.filter(stage__in=['new_inquiries','engaged','consultation']).count(),
                 'converted': Lead.objects.filter(stage='converted').count(),
                 'valuation': float(Lead.objects.aggregate(t=Sum('value'))['t'] or 0),
                 'by_marketing_source': lead_sources,

@@ -9,7 +9,7 @@ from .models import Lead, LeadActivity
 from .serializers import (
     LeadSerializer, LeadListSerializer, LeadWriteSerializer,
     LeadStageUpdateSerializer, LeadActivityWriteSerializer,
-    STAGE_MAP, SOURCE_MAP, scheduled_phones_for,
+    STAGE_MAP, STAGE_ID_MAP, SOURCE_MAP, scheduled_phones_for,
 )
 
 
@@ -28,18 +28,17 @@ class LeadMetaView(APIView):
                 {'id': 6, 'value': 'other',     'label': 'Other'},
             ],
             'stages': [
-                {'id': 1, 'value': 'new_inquiries', 'label': 'New Inquiries'},
-                {'id': 2, 'value': 'engaged',       'label': 'Engaged'},
+                {'id': 1, 'value': 'new_inquiries', 'label': 'New'},
+                {'id': 2, 'value': 'engaged',       'label': 'Contacted'},
                 {'id': 3, 'value': 'consultation',  'label': 'Consultation'},
-                {'id': 4, 'value': 'winning',       'label': 'Winning'},
-                {'id': 5, 'value': 'converted',     'label': 'Converted'},
+                {'id': 5, 'value': 'converted',     'label': 'Won'},
                 {'id': 6, 'value': 'lost',          'label': 'Lost'},
             ],
         })
 
 
-ACTIVE_STAGES = ['new_inquiries', 'engaged', 'consultation', 'winning']
-ALL_STAGES    = ['new_inquiries', 'engaged', 'consultation', 'winning', 'converted', 'lost']
+ACTIVE_STAGES = ['new_inquiries', 'engaged', 'consultation']           # still open
+ALL_STAGES    = ['new_inquiries', 'engaged', 'consultation', 'converted', 'lost']
 
 
 def _trend(current, previous):
@@ -108,7 +107,6 @@ class LeadStatsView(APIView):
             'new_inquiries': stages['new_inquiries']['count'],
             'engaged':       stages['engaged']['count'],
             'consultation':  stages['consultation']['count'],
-            'winning':       stages['winning']['count'],
             'lost':          stages['lost']['count'],
         })
 
@@ -120,19 +118,21 @@ class LeadPipelineView(APIView):
     """
     def get(self, request):
         pipeline_stages = [
-            ('new_inquiries', 'New Inquiries'),
-            ('engaged',       'Engaged'),
+            ('new_inquiries', 'New'),
+            ('engaged',       'Contacted'),
             ('consultation',  'Consultation'),
-            ('winning',       'Winning'),
+            ('converted',     'Won'),
+            ('lost',          'Lost'),
         ]
         result = []
         for stage, label in pipeline_stages:
-            leads = Lead.objects.filter(stage=stage).order_by('-created_at')
+            leads = Lead.objects.filter(stage=stage).select_related('assigned_to').order_by('-created_at')
             result.append({
                 'stage':       stage,
                 'stage_label': label,
                 'count':       leads.count(),
-                'leads':       LeadListSerializer(leads, many=True).data,
+                'stage_id':    STAGE_ID_MAP[stage],
+                'leads':       LeadListSerializer(leads, many=True, context={'scheduled_phones': scheduled_phones_for(list(leads))}).data,
             })
         return Response(result)
 

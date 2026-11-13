@@ -21,14 +21,16 @@ MARKETING_SOURCE_LABELS = {
 }
 
 STAGE_MAP = {
-    1: 'new_inquiries',
-    2: 'engaged',
-    3: 'consultation',
-    4: 'winning',
-    5: 'converted',
-    6: 'lost',
+    1: 'new_inquiries',   # New
+    2: 'engaged',         # Contacted
+    3: 'consultation',    # Consultation
+    5: 'converted',       # Won
+    6: 'lost',            # Lost
 }
 STAGE_ID_MAP = {v: k for k, v in STAGE_MAP.items()}
+# Old "Winning" id — accepted for older app versions and treated as Won.
+STAGE_MAP[4] = 'converted'
+STAGE_ID_HELP = "Invalid stage_id. Use 1=New, 2=Contacted, 3=Consultation, 5=Won, 6=Lost"
 
 
 def scheduled_phones_for(leads):
@@ -167,7 +169,7 @@ class LeadWriteSerializer(serializers.Serializer):
         "phone":         "+91 99887 76655",
         "email":         "isabella@email.com",
         "source_id":     1,     // 1=Instagram 2=Web 3=Walk-In 4=Referral 5=WhatsApp 6=Other
-        "stage_id":      1,     // 1=New Inquiries 2=Engaged 3=Consultation 4=Winning 5=Converted 6=Lost
+        "stage_id":      1,     // 1=New 2=Contacted 3=Consultation 5=Won 6=Lost
         "interest":      "Signature Glow",
         "notes":         "Prefers evening slots",
         "value":         1500.00,
@@ -217,9 +219,7 @@ class LeadWriteSerializer(serializers.Serializer):
 
     def validate_stage_id(self, value):
         if value not in STAGE_MAP:
-            raise serializers.ValidationError(
-                "Invalid stage_id. Use 1=New Inquiries, 2=Engaged, 3=Consultation, 4=Winning, 5=Converted, 6=Lost"
-            )
+            raise serializers.ValidationError(STAGE_ID_HELP)
         return value
 
     def _save(self, instance, validated_data):
@@ -261,9 +261,7 @@ class LeadStageUpdateSerializer(serializers.Serializer):
 
     def validate_stage_id(self, value):
         if value not in STAGE_MAP:
-            raise serializers.ValidationError(
-                "Invalid stage_id. Use 1=New Inquiries, 2=Engaged, 3=Consultation, 4=Winning, 5=Converted, 6=Lost"
-            )
+            raise serializers.ValidationError(STAGE_ID_HELP)
         return value
 
 

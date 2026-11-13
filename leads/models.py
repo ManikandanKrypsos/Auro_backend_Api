@@ -12,12 +12,12 @@ class Lead(models.Model):
         ('other',      'Other'),
     )
 
+    # 'winning' was merged into 'converted' (= Won) — see migration 0004.
     STAGE_CHOICES = (
-        ('new_inquiries', 'New Inquiries'),
-        ('engaged',       'Engaged'),
+        ('new_inquiries', 'New'),
+        ('engaged',       'Contacted'),
         ('consultation',  'Consultation'),
-        ('winning',       'Winning'),
-        ('converted',     'Converted'),
+        ('converted',     'Won'),
         ('lost',          'Lost'),
     )
 
