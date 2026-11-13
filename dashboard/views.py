@@ -71,35 +71,42 @@ def _day_start(day):
     return timezone.make_aware(datetime.datetime.combine(day, datetime.time.min))
 
 
+MAX_CHART_YEARS = 10
+
+
 def _build_revenue_chart(chart_range, today):
     """
-    week  → last 7 days, one point per day
-    month → last 30 days, one point per day (previous fixed behaviour)
-    year  → last 12 months, one point per month (date = first day of month)
+    week  → 7 points, Monday–Sunday of the current week (date = each day)
+    month → 12 points, January–December of the current year (date = 1st of each month)
+    year  → one point per calendar year, from the first year with data up to the
+            current year, at most the last 10 years (date = 1 January)
+    Future days/months in the window are included (they can hold prepaid appointments).
     revenue            = paid payment_amount (same rule as /api/payments/ total_paid)
     appointments_count = all appointments except cancelled
     """
     if chart_range == 'year':
-        first = today.replace(day=1)
-        months = []
-        y, m = first.year, first.month
-        for _ in range(12):
-            months.append(datetime.date(y, m, 1))
-            m -= 1
-            if m == 0:
-                y, m = y - 1, 12
-        buckets = sorted(months)
-        key_of = lambda d: d.replace(day=1)
-    else:
-        days = 7 if chart_range == 'week' else 30
-        buckets = [today - datetime.timedelta(days=i) for i in range(days - 1, -1, -1)]
-        key_of = lambda d: d
+        from django.db.models import Min
+        first_dt   = Appointment.objects.aggregate(m=Min('date_time'))['m']
+        first_year = timezone.localtime(first_dt).year if first_dt else today.year
+        first_year = max(first_year, today.year - MAX_CHART_YEARS + 1)
+        buckets = [datetime.date(y, 1, 1) for y in range(first_year, today.year + 1)]
+        key_of  = lambda d: d.replace(month=1, day=1)
+        end     = datetime.date(today.year + 1, 1, 1)
+    elif chart_range == 'month':
+        buckets = [datetime.date(today.year, m, 1) for m in range(1, 13)]
+        key_of  = lambda d: d.replace(day=1)
+        end     = datetime.date(today.year + 1, 1, 1)
+    else:  # week
+        monday  = today - datetime.timedelta(days=today.weekday())
+        buckets = [monday + datetime.timedelta(days=i) for i in range(7)]
+        key_of  = lambda d: d
+        end     = monday + datetime.timedelta(days=7)
 
     points = {b: {'revenue': 0.0, 'appointments_count': 0} for b in buckets}
     rows = (
         Appointment.objects
         .filter(date_time__gte=_day_start(buckets[0]),
-                date_time__lt=_day_start(today + datetime.timedelta(days=1)))
+                date_time__lt=_day_start(end))
         .exclude(status='cancelled', payment_status='pending')
         .values_list('date_time', 'status', 'payment_status', 'payment_amount')
     )
@@ -242,6 +249,7 @@ class DashboardView(APIView):
     - Reception → today's stats (with % change), occupancy, today's revenue,
                   revenue chart, tasks + next up appointments
     Query params: ?chart_range=week|month|year  (default: month)
+      week = Mon–Sun this week (daily) · month = Jan–Dec this year (monthly) · year = per year, up to 10
     - Therapist → my schedule (today's sessions, current session, next up)
     """
     permission_classes = [IsAuthenticated]
@@ -491,7 +499,7 @@ class DashboardView(APIView):
             })
         staff_perf.sort(key=lambda x: x['revenue'], reverse=True)
 
-        # Revenue chart — ?chart_range=week|month|year (default month = last 30 days)
+        # Revenue chart — ?chart_range=week|month|year (default month = Jan–Dec this year)
         chart_range   = _get_chart_range(request)
         revenue_chart = _build_revenue_chart(chart_range, today)
 
