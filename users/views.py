@@ -9,9 +9,20 @@ from .models import User
 from django.db.models import Q
 from django.core.mail import send_mail
 from django.conf import settings
-import random
-import string
 import os
+import hmac
+import secrets
+from django.core import signing
+from django.core.cache import cache
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
+
+RESET_SALT        = 'aura-password-reset'
+RESET_MAX_AGE     = 15 * 60      # reset token valid 15 minutes
+OTP_TTL           = 10 * 60      # OTP valid 10 minutes
+OTP_MAX_ATTEMPTS  = 5
+OTP_RESEND_WAIT   = 60           # seconds between OTP emails to the same address
+GENERIC_OTP_MSG   = 'If this email is registered, an OTP has been sent.'
 
 
 ROLE_ID_MAP = {
@@ -59,9 +70,18 @@ class RolesListView(APIView):
 
 
 class RegisterView(APIView):
+    """
+    POST /api/users/register/
+    Only an admin can create accounts. The single exception is the very first
+    account on an empty system (initial setup).
+    """
     permission_classes = [permissions.AllowAny]
+    throttle_scope     = 'auth'
 
     def post(self, request):
+        is_admin = request.user.is_authenticated and getattr(request.user, 'role', '') == 'admin'
+        if User.objects.exists() and not is_admin:
+            return Response({'error': 'Only an admin can create accounts.'}, status=403)
         serializer = RegisterSerializer(data=request.data)
         if serializer.is_valid():
             user   = serializer.save()
@@ -84,6 +104,7 @@ class RegisterView(APIView):
 
 class LoginView(APIView):
     permission_classes = [permissions.AllowAny]
+    throttle_scope     = 'auth'
 
     def post(self, request):
         serializer = LoginSerializer(data=request.data)
@@ -144,6 +165,7 @@ class RefreshTokenView(APIView):
     Send refresh_token → get new access token
     Use this on app start to keep user logged in
     """
+    throttle_scope     = 'auth'
     permission_classes = [permissions.AllowAny]
 
     def post(self, request):
@@ -222,8 +244,9 @@ class MeView(APIView):
         if image_file:
             upload_dir = os.path.join(settings.MEDIA_ROOT, 'staff')
             os.makedirs(upload_dir, exist_ok=True)
-            ext      = os.path.splitext(image_file.name)[1].lower()
-            filename = f"staff_{user.id}{ext}"
+            from utils.upload_security import checked_ext, random_token
+            ext      = checked_ext(image_file, 'image')
+            filename = f"staff_{user.id}_{random_token()}{ext}"
             filepath = os.path.join(upload_dir, filename)
             with open(filepath, 'wb+') as f:
                 for chunk in image_file.chunks():
@@ -291,39 +314,24 @@ class ForgotPasswordView(APIView):
     """
     POST /api/users/forgot-password/
     Body: {"email": "user@aura.com"}
-    Sends OTP to email
+    Always answers the same way, so it can't be used to discover which emails exist.
     """
     permission_classes = [permissions.AllowAny]
+    throttle_scope     = 'otp_request'
 
     def post(self, request):
-        email = request.data.get('email', '').strip()
+        email = request.data.get('email', '').strip().lower()
         if not email:
             return Response({'error': 'Email is required'}, status=400)
 
-        try:
-            user = User.objects.get(email=email)
-        except User.DoesNotExist:
-            # Don't reveal if email exists — security best practice
-            return Response({
-                'message': 'If this email exists, an OTP has been sent.'
-            })
-
-        # Generate 6 digit OTP
-        otp = ''.join(random.choices(string.digits, k=6))
-
-        # Store OTP in user's password reset field (temp solution)
-        # In production use a separate OTPModel or cache
-        user.set_password(otp)  # temporarily store OTP as password
-        # Actually let's store it properly
-        from django.core.cache import cache
-        cache_key = f'password_reset_otp_{email}'
-        cache.set(cache_key, otp, timeout=600)  # 10 minutes
-
-        # Send email
-        try:
-            send_mail(
-                subject='Aura Clinic — Password Reset OTP',
-                message=f'''
+        user = User.objects.filter(email__iexact=email, is_active=True).first()
+        if user and cache.add(f'password_reset_wait_{email}', 1, timeout=OTP_RESEND_WAIT):
+            otp = f'{secrets.randbelow(1_000_000):06d}'
+            cache.set(f'password_reset_otp_{email}', {'otp': otp, 'attempts': 0}, timeout=OTP_TTL)
+            try:
+                send_mail(
+                    subject='Aura Clinic — Password Reset OTP',
+                    message=f'''
 Hi {user.username or user.email},
 
 Your OTP for password reset is: {otp}
@@ -334,80 +342,98 @@ If you did not request this, please ignore this email.
 
 — Aura Clinic Team
                 ''',
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                recipient_list=[email],
-                fail_silently=False,
-            )
-        except Exception as e:
-            print(f"Email error: {e}")
-            return Response({'error': 'Failed to send email. Try again.'}, status=500)
+                    from_email=settings.DEFAULT_FROM_EMAIL,
+                    recipient_list=[user.email],
+                    fail_silently=False,
+                )
+            except Exception:
+                import logging
+                logging.getLogger(__name__).exception('Password reset email failed')
 
-        return Response({
-            'message': 'OTP sent to your email successfully',
-            'email':   email
-        })
+        return Response({'message': GENERIC_OTP_MSG, 'email': email})
 
 
 class VerifyOTPView(APIView):
     """
     POST /api/users/verify-otp/
     Body: {"email": "user@aura.com", "otp": "123456"}
+    Returns a single-use reset_token (valid 15 minutes) — it cannot be used to call other APIs.
     """
     permission_classes = [permissions.AllowAny]
+    throttle_scope     = 'otp_verify'
 
     def post(self, request):
-        email = request.data.get('email', '').strip()
-        otp   = request.data.get('otp', '').strip()
+        email = request.data.get('email', '').strip().lower()
+        otp   = str(request.data.get('otp', '')).strip()
 
         if not email or not otp:
             return Response({'error': 'Email and OTP are required'}, status=400)
 
-        from django.core.cache import cache
-        cache_key = f'password_reset_otp_{email}'
-        stored_otp = cache.get(cache_key)
+        key   = f'password_reset_otp_{email}'
+        entry = cache.get(key)
+        if not entry:
+            return Response({'error': 'OTP expired or invalid. Please request a new one.'}, status=400)
 
-        if not stored_otp:
-            return Response({'error': 'OTP expired. Please request a new one.'}, status=400)
-
-        if stored_otp != otp:
+        if not hmac.compare_digest(entry['otp'], otp):
+            entry['attempts'] += 1
+            if entry['attempts'] >= OTP_MAX_ATTEMPTS:
+                cache.delete(key)
+                return Response({'error': 'Too many wrong attempts. Please request a new OTP.'}, status=400)
+            cache.set(key, entry, timeout=OTP_TTL)
             return Response({'error': 'Invalid OTP'}, status=400)
 
-        # OTP valid — generate reset token
-        try:
-            user = User.objects.get(email=email)
-            tokens = get_tokens_for_user(user)
-            # Clear OTP from cache
-            cache.delete(cache_key)
-            return Response({
-                'message':      'OTP verified successfully',
-                'reset_token':  tokens['access'],  # use as reset token
-            })
-        except User.DoesNotExist:
-            return Response({'error': 'User not found'}, status=404)
+        cache.delete(key)
+        user = User.objects.filter(email__iexact=email, is_active=True).first()
+        if not user:
+            return Response({'error': 'OTP expired or invalid. Please request a new one.'}, status=400)
+
+        # Tied to the current password hash → stops working once the password changes
+        reset_token = signing.dumps({'uid': user.pk, 'ph': user.password[-12:]}, salt=RESET_SALT)
+        return Response({'message': 'OTP verified successfully', 'reset_token': reset_token})
 
 
 class ResetPasswordView(APIView):
     """
     POST /api/users/reset-password/
-    Body: {"email": "user@aura.com", "new_password": "newpass123", "confirm_password": "newpass123"}
-    Header: Authorization: Bearer reset_token
+    Body: {"new_password": "...", "confirm_password": "..."}
+    Header: Authorization: Bearer <reset_token>   (or "reset_token" in the body)
     """
+    permission_classes     = [permissions.AllowAny]
+    authentication_classes = []          # reset_token is not a login token
+    throttle_scope         = 'otp_verify'
+
     def post(self, request):
+        header = request.META.get('HTTP_AUTHORIZATION', '')
+        token  = request.data.get('reset_token') or (header[7:].strip() if header.startswith('Bearer ') else '')
+        try:
+            data = signing.loads(token, salt=RESET_SALT, max_age=RESET_MAX_AGE)
+            user = User.objects.get(pk=data['uid'], is_active=True)
+            if user.password[-12:] != data['ph']:
+                raise ValueError('token already used')
+        except Exception:
+            return Response({'error': 'Reset link is invalid or has expired. Please start again.'}, status=400)
+
         new_password     = request.data.get('new_password', '')
         confirm_password = request.data.get('confirm_password', '')
-
         if not new_password or not confirm_password:
             return Response({'error': 'Both password fields are required'}, status=400)
-
         if new_password != confirm_password:
             return Response({'error': 'Passwords do not match'}, status=400)
+        try:
+            validate_password(new_password, user)
+        except DjangoValidationError as e:
+            return Response({'error': ' '.join(e.messages)}, status=400)
 
-        if len(new_password) < 6:
-            return Response({'error': 'Password must be at least 6 characters'}, status=400)
-
-        user = request.user
         user.set_password(new_password)
         user.save()
+
+        # Log out every existing session of this user
+        try:
+            from rest_framework_simplejwt.token_blacklist.models import OutstandingToken, BlacklistedToken
+            for t in OutstandingToken.objects.filter(user=user):
+                BlacklistedToken.objects.get_or_create(token=t)
+        except Exception:
+            pass
 
         return Response({'message': 'Password reset successfully. Please login again.'})
 
@@ -487,8 +513,9 @@ class StaffDetailView(APIView):
                 upload_dir = os.path.join(settings.MEDIA_ROOT, 'staff')
                 os.makedirs(upload_dir, exist_ok=True)
 
-                ext       = os.path.splitext(image_file.name)[1].lower()
-                filename  = f"staff_{updated_user.id}{ext}"
+                from utils.upload_security import checked_ext, random_token
+                ext       = checked_ext(image_file, 'image')
+                filename  = f"staff_{updated_user.id}_{random_token()}{ext}"
                 filepath  = os.path.join(upload_dir, filename)
 
                 with open(filepath, 'wb+') as f:

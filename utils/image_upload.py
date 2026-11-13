@@ -12,8 +12,9 @@ def save_uploaded_image(image_file, folder='uploads', filename_prefix='img', req
     upload_dir = os.path.join(settings.MEDIA_ROOT, folder)
     os.makedirs(upload_dir, exist_ok=True)
 
-    ext      = os.path.splitext(image_file.name)[1].lower() or '.jpg'
-    filename = f"{filename_prefix}_{int(time.time())}{ext}"
+    from utils.upload_security import checked_ext, random_token
+    ext      = checked_ext(image_file, 'image')
+    filename = f"{filename_prefix}_{int(time.time())}_{random_token()}{ext}"
     filepath = os.path.join(upload_dir, filename)
 
     with open(filepath, 'wb+') as f:

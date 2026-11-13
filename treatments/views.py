@@ -12,8 +12,9 @@ def _save_treatment_image(image_file, request):
     """Save uploaded image file and return URL."""
     upload_dir = os.path.join(settings.MEDIA_ROOT, 'treatments')
     os.makedirs(upload_dir, exist_ok=True)
-    ext      = os.path.splitext(image_file.name)[1].lower() or '.jpg'
-    filename = f"treatment_{int(time.time())}{ext}"
+    from utils.upload_security import checked_ext, random_token
+    ext      = checked_ext(image_file, 'image')
+    filename = f"treatment_{int(time.time())}_{random_token()}{ext}"
     filepath = os.path.join(upload_dir, filename)
     with open(filepath, 'wb+') as f:
         for chunk in image_file.chunks():

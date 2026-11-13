@@ -8,9 +8,20 @@ load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-SECRET_KEY = os.environ.get('SECRET_KEY', 'fallback-dev-key')
 DEBUG = os.environ.get('DEBUG', 'False') == 'True'
-ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', '*').split(',')
+
+# SECRET_KEY signs login tokens — never fall back to a known value in production.
+SECRET_KEY = os.environ.get('SECRET_KEY', '')
+if not SECRET_KEY:
+    if DEBUG:
+        SECRET_KEY = 'dev-only-insecure-key-do-not-use-in-production'
+    else:
+        from django.core.exceptions import ImproperlyConfigured
+        raise ImproperlyConfigured('SECRET_KEY environment variable is required when DEBUG is off.')
+
+# Comma-separated. Default covers Render + local dev; set ALLOWED_HOSTS to override.
+ALLOWED_HOSTS = [h.strip() for h in os.environ.get(
+    'ALLOWED_HOSTS', '.onrender.com,localhost,127.0.0.1').split(',') if h.strip()]
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -139,6 +150,14 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
     ],
+    # Rate limits for sensitive endpoints (applied per view via throttle_scope)
+    'DEFAULT_THROTTLE_CLASSES': ['rest_framework.throttling.ScopedRateThrottle'],
+    'DEFAULT_THROTTLE_RATES': {
+        'auth':        '10/min',    # login, register, token refresh
+        'otp_request': '5/hour',    # forgot-password
+        'otp_verify':  '10/hour',   # verify-otp, reset-password
+        'ai':          '30/min',    # AI chat
+    },
 }
 
 # JWT settings
@@ -155,7 +174,8 @@ SIMPLE_JWT = {
 # If it is not set, all origins are allowed (keeps current behaviour for local dev).
 CORS_ALLOWED_ORIGINS = [o.strip() for o in os.environ.get('CORS_ALLOWED_ORIGINS', '').split(',') if o.strip()]
 CORS_ALLOW_ALL_ORIGINS = not CORS_ALLOWED_ORIGINS
-CORS_ALLOW_CREDENTIALS = True
+# Auth uses the Authorization header, not cookies — only allow credentials for a fixed origin list.
+CORS_ALLOW_CREDENTIALS = bool(CORS_ALLOWED_ORIGINS)
 CORS_ALLOW_HEADERS = [
     'accept',
     'authorization',
@@ -194,8 +214,13 @@ DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'info@krypsos.tech')
 SENDGRID_SANDBOX_MODE_IN_DEBUG = False
 
 # ── Cache (for OTP storage) ────────────────────────────────
+# Used for OTPs and rate limiting. Set CACHE_REDIS_URL to share it across
+# several server processes; otherwise an in-process cache is used.
 CACHES = {
     'default': {
+        'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+        'LOCATION': os.environ['CACHE_REDIS_URL'],
+    } if os.environ.get('CACHE_REDIS_URL') else {
         'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
     }
 }
@@ -212,3 +237,17 @@ LOGIN_REDIRECT_URL   = '/api/patients/'
 #------for profiles--------------------------------------------
 MEDIA_URL  = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+
+# ── Production security headers ────────────────────────────
+if not DEBUG:
+    SECURE_PROXY_SSL_HEADER        = ('HTTP_X_FORWARDED_PROTO', 'https')  # Render terminates HTTPS
+    SESSION_COOKIE_SECURE          = True
+    CSRF_COOKIE_SECURE             = True
+    SECURE_HSTS_SECONDS            = int(os.environ.get('SECURE_HSTS_SECONDS', '86400'))
+    SECURE_CONTENT_TYPE_NOSNIFF    = True
+    SECURE_REFERRER_POLICY         = 'same-origin'
+    X_FRAME_OPTIONS                = 'DENY'
+
+# Uploads: reject anything bigger than 10 MB
+DATA_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024
+FILE_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024

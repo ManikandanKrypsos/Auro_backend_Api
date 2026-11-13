@@ -11,6 +11,37 @@ import os
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_MODEL   = "llama-3.1-8b-instant"
 
+# Which roles may run each AI action. Anything not listed is refused.
+ACTION_ROLES = {
+    'GET_SLOTS':           {'admin', 'reception', 'therapist'},
+    'GET_PATIENT_HISTORY': {'admin', 'reception'},
+    'BOOK_APPOINTMENT':    {'admin', 'reception'},
+    'CANCEL_APPOINTMENT':  {'admin', 'reception'},
+    'CREATE_PATIENT':      {'admin', 'reception'},
+    'UPDATE_PATIENT':      {'admin', 'reception'},
+    'DELETE_PATIENT':      {'admin'},
+}
+
+
+def _action_name(action_line):
+    return action_line[len('ACTION:'):].split(':', 1)[0].strip().upper()
+
+
+def _neutralise(value):
+    """
+    Clinic data (names, notes…) is pasted into the AI prompt. Strip the command
+    keywords so text stored in a record can never be read as an instruction.
+    """
+    if isinstance(value, str):
+        for kw in ('ACTION:', 'SHOW_OPTIONS:'):
+            value = value.replace(kw, kw.rstrip(':') + ' -').replace(kw.lower(), kw.lower().rstrip(':') + ' -')
+        return value
+    if isinstance(value, dict):
+        return {k: _neutralise(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_neutralise(v) for v in value]
+    return value
+
 
 def _get_clinic_context(user):
     from appointments.models import Appointment
@@ -27,34 +58,30 @@ def _get_clinic_context(user):
 
     context = {'role': role, 'name': name, 'today': str(today)}
 
-    # All roles get full access to all data
+    # Data minimisation: medical fields (allergies, contraindications, blood type,
+    # notes), email and date of birth are NOT sent to the external AI provider.
+    # Therapists only get their own patients.
+    patient_qs = Patient.objects.all()
+    if role == 'therapist':
+        patient_qs = patient_qs.filter(appointments__staff=user).distinct()
     context['patients'] = [
         {
             'db_id':      p.id,
             'patient_id': p.patient_id,
             'name':       p.name,
             'phone':      p.phone,
-            'email':      p.email or '',
             'gender':     p.gender or '',
-            'dob':        str(p.dob) if p.dob else '',
-            'blood_type': p.blood_type or '',
-            'allergies':  p.allergies or 'None',
             'skin_type':  p.skin_type or '',
             'city':       p.city or '',
-            'country':    p.country or '',
-            'contraindications': p.contraindications or '',
-            'notes':      p.notes or '',
             'category':   p.category or '',
         }
-        for p in Patient.objects.all().order_by('name')[:50]
+        for p in patient_qs.order_by('name')[:50]
     ]
     context['therapists'] = [
         {
             'id':              s.id,
             'name':            s.username or s.email.split('@')[0],
             'specialist_area': s.specialist_area,
-            'phone':           s.phone,
-            'email':           s.email,
         }
         for s in UserModel.objects.filter(role='therapist', is_active=True).order_by('username')
     ]
@@ -206,7 +233,7 @@ def _get_clinic_context(user):
         for l in StaffLeave.objects.filter(to_date__gte=local_today).select_related('staff').order_by('from_date')[:20]
     ]
 
-    return context
+    return _neutralise(context)
 
 
 def _build_system_prompt(user, context):
@@ -214,11 +241,11 @@ def _build_system_prompt(user, context):
     role = context.get('role', '')
 
     patients_list   = '\n'.join([
-        f"{i+1}. {p['name']} [db_id:{p['db_id']}] | Phone: {p['phone']} | Skin: {p.get('skin_type','N/A')} | Allergies: {p.get('allergies','None')} | Gender: {p.get('gender','N/A')} | City: {p.get('city','N/A')} | Blood: {p.get('blood_type','N/A')}"
+        f"{i+1}. {p['name']} [db_id:{p['db_id']}] | Phone: {p['phone']} | Skin: {p.get('skin_type','N/A')} | Gender: {p.get('gender','N/A')} | City: {p.get('city','N/A')}"
         for i, p in enumerate(context.get('patients', []))
     ])
     therapists_list = '\n'.join([
-        f"{i+1}. {t['name']} - {t.get('specialist_area','')} | Phone: {t.get('phone','N/A')} | Email: {t.get('email','N/A')}"
+        f"{i+1}. {t['name']} - {t.get('specialist_area','')}"
         for i, t in enumerate(context.get('therapists', []))
     ])
     treatments_list = '\n'.join([f"{i+1}. {t['name']} ({t['duration']} min)" for i, t in enumerate(context.get('treatments', []))])
@@ -559,7 +586,7 @@ def _execute_action(action_line, token):
                 return {'action': 'GET_SLOTS', 'status': 200, 'data': available_dates}
 
             except Exception as e:
-                return {'action': 'GET_SLOTS', 'status': 500, 'data': {'error': str(e)}}
+                return {'action': 'GET_SLOTS', 'status': 500, 'data': {'error': 'Could not load slots.'}}
 
         elif action_line.startswith("ACTION:BOOK_APPOINTMENT:"):
             try:
@@ -601,7 +628,7 @@ def _execute_action(action_line, token):
                 return {'action': 'BOOK_APPOINTMENT', 'success': True,
                         'message': f"✅ Appointment booked! ID: {appt.id} — {patient.name} on {date_str} at {time_str} with {staff.username}."}
             except Exception as e:
-                return {'action': 'BOOK_APPOINTMENT', 'success': False, 'message': f"❌ Booking failed: {str(e)}"}
+                return {'action': 'BOOK_APPOINTMENT', 'success': False, 'message': "❌ Booking failed. Please try again."}
 
         elif action_line.startswith("ACTION:CANCEL_APPOINTMENT:"):
             try:
@@ -620,7 +647,7 @@ def _execute_action(action_line, token):
                 appt.save()
                 return {'action': 'CANCEL_APPOINTMENT', 'success': True, 'message': f"✅ Appointment #{appt_id} cancelled."}
             except Exception as e:
-                return {'action': 'CANCEL_APPOINTMENT', 'success': False, 'message': f"❌ Cancel failed: {str(e)}"}
+                return {'action': 'CANCEL_APPOINTMENT', 'success': False, 'message': "❌ Cancel failed. Please try again."}
 
         elif action_line.startswith("ACTION:CREATE_PATIENT:"):
             try:
@@ -663,7 +690,7 @@ def _execute_action(action_line, token):
                         'message': f"✅ Patient created! ID: {patient.patient_id} — {patient.name}",
                         'data': {'id': patient.id, 'patient_id': patient.patient_id, 'name': patient.name}}
             except Exception as e:
-                return {'action': 'CREATE_PATIENT', 'success': False, 'message': f"❌ Failed to create patient: {str(e)}"}
+                return {'action': 'CREATE_PATIENT', 'success': False, 'message': "❌ Failed to create patient. Please try again."}
 
         elif action_line.startswith("ACTION:UPDATE_PATIENT:"):
             try:
@@ -686,7 +713,7 @@ def _execute_action(action_line, token):
                 return {'action': 'UPDATE_PATIENT', 'success': True,
                         'message': f"✅ {patient.name}'s {body['field']} updated to '{body['value']}'."}
             except Exception as e:
-                return {'action': 'UPDATE_PATIENT', 'success': False, 'message': f"❌ Update failed: {str(e)}"}
+                return {'action': 'UPDATE_PATIENT', 'success': False, 'message': "❌ Update failed. Please try again."}
 
         elif action_line.startswith("ACTION:DELETE_PATIENT:"):
             try:
@@ -703,7 +730,7 @@ def _execute_action(action_line, token):
                 patient.delete()
                 return {'action': 'DELETE_PATIENT', 'success': True, 'message': f"✅ Patient {name} deleted successfully."}
             except Exception as e:
-                return {'action': 'DELETE_PATIENT', 'success': False, 'message': f"❌ Delete failed: {str(e)}"}
+                return {'action': 'DELETE_PATIENT', 'success': False, 'message': "❌ Delete failed. Please try again."}
 
         elif action_line.startswith("ACTION:GET_PATIENT_HISTORY:"):
             try:
@@ -744,10 +771,10 @@ def _execute_action(action_line, token):
                     'message': f"Found {len(history)} appointments for {patient.name}"
                 }
             except Exception as e:
-                return {'action': 'GET_PATIENT_HISTORY', 'success': False, 'message': f"❌ Error: {str(e)}"}
+                return {'action': 'GET_PATIENT_HISTORY', 'success': False, 'message': "❌ Error. Please try again."}
 
     except Exception as e:
-        return {'action': 'ERROR', 'message': str(e)}
+        return {'action': 'ERROR', 'message': 'Something went wrong. Please try again.'}
 
     return None
 
@@ -756,9 +783,10 @@ class AIChatView(APIView):
     """
     POST /api/ai/chat/
     Body: { "message": "...", "conversation_history": [] }
-    All roles — admin, therapist, reception — get full access.
+    Actions are limited per role (see ACTION_ROLES); therapists only see their own patients.
     """
     permission_classes = [IsAuthenticated]
+    throttle_scope     = 'ai'
 
     def post(self, request):
         from users.models import User as UserModel
@@ -787,7 +815,9 @@ class AIChatView(APIView):
         system_prompt = _build_system_prompt(user, context)
 
         groq_messages = [{'role': 'system', 'content': system_prompt}]
-        for h in history:
+        for h in (history if isinstance(history, list) else [])[-20:]:
+            if not isinstance(h, dict) or not isinstance(h.get('content'), str):
+                continue
             if h.get('role') == 'user':
                 groq_messages.append({'role': 'user', 'content': h['content']})
             elif h.get('role') == 'assistant':
@@ -851,7 +881,17 @@ class AIChatView(APIView):
 
             # ── Execute action — no token required ───────────────────────────
             if action_line:
-                action_result = _execute_action(action_line, token)
+                action_name = _action_name(action_line)
+                if getattr(user, 'role', '') not in ACTION_ROLES.get(action_name, set()):
+                    action_result = {
+                        'action':  action_name,
+                        'success': False,
+                        'message': "❌ You don't have permission to do that from the assistant.",
+                    }
+                    clean_reply = action_result['message']
+                    action_line = None
+                else:
+                    action_result = _execute_action(action_line, token)
 
                 if action_result and action_result.get('action') == 'GET_SLOTS':
                     slot_data = action_result.get('data', {})
@@ -924,4 +964,6 @@ If empty say "No appointments found for {patient_name}."
         except requests.Timeout:
             return Response({'error': 'AI response timed out.'}, status=504)
         except Exception as e:
-            return Response({'error': f'AI service error: {str(e)}'}, status=503)
+            import logging
+            logging.getLogger(__name__).exception('AI chat failed')
+            return Response({'error': 'AI service error. Please try again.'}, status=503)

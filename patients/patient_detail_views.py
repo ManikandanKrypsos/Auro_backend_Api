@@ -9,14 +9,20 @@ from django.db.models import Count, Q
 import datetime
 
 
-def _get_patient(pk):
+def _get_patient(pk, user=None):
+    """Patient by DB id or Aura id — None if missing or not visible to this therapist."""
     from patients.models import Patient
+    from patients.access import can_access_patient
     try:
         if str(pk).isdigit():
-            return Patient.objects.get(id=int(pk))
-        return Patient.objects.get(patient_id__iexact=pk)
+            patient = Patient.objects.get(id=int(pk))
+        else:
+            patient = Patient.objects.get(patient_id__iexact=pk)
     except Patient.DoesNotExist:
         return None
+    if user is not None and not can_access_patient(user, patient):
+        return None
+    return patient
 
 
 class PatientOverviewView(APIView):
@@ -31,7 +37,7 @@ class PatientOverviewView(APIView):
         from appointments.models import Appointment
         from appointments.serializers import AppointmentSerializer
 
-        patient = _get_patient(pk)
+        patient = _get_patient(pk, request.user)
         if not patient:
             return Response({'error': 'Patient not found.'}, status=404)
 
@@ -173,7 +179,7 @@ class PatientHistoryView(APIView):
 
     def get(self, request, pk):
         from appointments.models import Appointment
-        patient = _get_patient(pk)
+        patient = _get_patient(pk, request.user)
         if not patient:
             return Response({'error': 'Patient not found.'}, status=404)
 
@@ -234,7 +240,7 @@ class PatientNotesView(APIView):
 
     def get(self, request, pk):
         from patients.models import SessionNote
-        patient = _get_patient(pk)
+        patient = _get_patient(pk, request.user)
         if not patient:
             return Response({'error': 'Patient not found.'}, status=404)
 
@@ -280,7 +286,7 @@ class PatientNotesView(APIView):
     def post(self, request, pk):
         from patients.models import SessionNote
         from appointments.models import Appointment
-        patient = _get_patient(pk)
+        patient = _get_patient(pk, request.user)
         if not patient:
             return Response({'error': 'Patient not found.'}, status=404)
 
@@ -331,7 +337,7 @@ class PatientNoteDetailView(APIView):
 
     def _get_note(self, pk, note_id):
         from patients.models import SessionNote
-        patient = _get_patient(pk)
+        patient = _get_patient(pk, request.user)
         if not patient:
             return None, None
         try:
@@ -379,7 +385,7 @@ class PatientPhotosView(APIView):
 
     def get(self, request, pk):
         from patients.models import SessionNote
-        patient = _get_patient(pk)
+        patient = _get_patient(pk, request.user)
         if not patient:
             return Response({'error': 'Patient not found.'}, status=404)
 
@@ -422,7 +428,7 @@ class PatientConsentView(APIView):
 
     def get(self, request, pk):
         from patients.models import ConsentRecord
-        patient = _get_patient(pk)
+        patient = _get_patient(pk, request.user)
         if not patient:
             return Response({'error': 'Patient not found.'}, status=404)
 
@@ -450,7 +456,7 @@ class PatientConsentView(APIView):
 
     def post(self, request, pk):
         from patients.models import ConsentRecord
-        patient = _get_patient(pk)
+        patient = _get_patient(pk, request.user)
         if not patient:
             return Response({'error': 'Patient not found.'}, status=404)
 
@@ -484,7 +490,7 @@ class PatientConsentDetailView(APIView):
 
     def _get(self, pk, record_id):
         from patients.models import ConsentRecord
-        patient = _get_patient(pk)
+        patient = _get_patient(pk, request.user)
         if not patient:
             return None, None
         try:

@@ -408,7 +408,7 @@ class AppointmentDetailView(APIView):
 
     def get(self, request, pk):
         appt = self._get(pk)
-        if not appt:
+        if not appt or (getattr(request.user, 'role', '') == 'therapist' and appt.staff_id != request.user.pk):
             return Response({'error': 'Appointment not found.'}, status=404)
         return Response(AppointmentSerializer(appt).data)
 
@@ -486,7 +486,7 @@ class AppointmentStatusView(APIView):
     PATCH /api/appointments/<id>/status/
     Body: { "status": "in_session" }
     Status options: upcoming | in_session | completed | cancelled
-    Any authenticated user can update status.
+    Admin / reception: any appointment. Therapists: only their own.
     """
     permission_classes = [IsAuthenticated]
 
@@ -494,6 +494,8 @@ class AppointmentStatusView(APIView):
         try:
             appt = Appointment.objects.get(pk=pk)
         except Appointment.DoesNotExist:
+            return Response({'error': 'Appointment not found.'}, status=404)
+        if getattr(request.user, 'role', '') == 'therapist' and appt.staff_id != request.user.pk:
             return Response({'error': 'Appointment not found.'}, status=404)
 
         status = request.data.get('status')
@@ -597,8 +599,9 @@ class AppointmentConsentView(APIView):
             from django.conf import settings
             upload_dir = os.path.join(settings.MEDIA_ROOT, 'consent_forms')
             os.makedirs(upload_dir, exist_ok=True)
-            ext      = os.path.splitext(consent_file.name)[1].lower() or '.pdf'
-            filename = f"consent_{appt.id}_{int(time.time())}{ext}"
+            from utils.upload_security import checked_ext, random_token
+            ext      = checked_ext(consent_file, 'document', '.pdf')
+            filename = f"consent_{appt.id}_{int(time.time())}_{random_token()}{ext}"
             filepath = os.path.join(upload_dir, filename)
             with open(filepath, 'wb+') as f:
                 for chunk in consent_file.chunks():

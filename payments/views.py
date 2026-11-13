@@ -3,6 +3,10 @@ import os
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
+from users.permissions import IsAdminOrReception
+import logging
+
+logger = logging.getLogger(__name__)
 from django.views.decorators.csrf import csrf_exempt
 from django.http import HttpResponse
 from django.utils.decorators import method_decorator
@@ -22,7 +26,7 @@ class CreateCheckoutSessionView(APIView):
         "session_id": "cs_test_xxx"
     }
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdminOrReception]
 
     def post(self, request):
         from appointments.models import Appointment
@@ -93,7 +97,8 @@ class CreateCheckoutSessionView(APIView):
             })
 
         except stripe.error.StripeError as e:
-            return Response({'error': str(e)}, status=400)
+            logger.warning('Stripe error: %s', e)
+            return Response({'error': getattr(e, 'user_message', None) or 'Payment provider error. Please try again.'}, status=400)
 
 
 class CreatePaymentIntentView(APIView):
@@ -102,7 +107,7 @@ class CreatePaymentIntentView(APIView):
     Body: { "appointment_id": 42 }
     Returns client_secret for Flutter Stripe SDK
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdminOrReception]
 
     def post(self, request):
         from appointments.models import Appointment
@@ -163,7 +168,8 @@ class CreatePaymentIntentView(APIView):
             })
 
         except stripe.error.StripeError as e:
-            return Response({'error': str(e)}, status=400)
+            logger.warning('Stripe error: %s', e)
+            return Response({'error': getattr(e, 'user_message', None) or 'Payment provider error. Please try again.'}, status=400)
 
 
 class ConfirmPaymentView(APIView):
@@ -171,7 +177,7 @@ class ConfirmPaymentView(APIView):
     POST /api/payments/confirm/
     Body: { "appointment_id": 42, "payment_intent_id": "pi_xxx" }
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdminOrReception]
 
     def post(self, request):
         from appointments.models import Appointment
@@ -204,7 +210,8 @@ class ConfirmPaymentView(APIView):
                 return Response({'success': False, 'message': f"Payment not completed. Status: {intent.status}"}, status=400)
 
         except stripe.error.StripeError as e:
-            return Response({'error': str(e)}, status=400)
+            logger.warning('Stripe error: %s', e)
+            return Response({'error': getattr(e, 'user_message', None) or 'Payment provider error. Please try again.'}, status=400)
 
 
 class RefundPaymentView(APIView):
@@ -212,7 +219,7 @@ class RefundPaymentView(APIView):
     POST /api/payments/refund/
     Body: { "appointment_id": 42 }
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdminOrReception]
 
     def post(self, request):
         from appointments.models import Appointment
@@ -275,7 +282,8 @@ class RefundPaymentView(APIView):
                 return Response({'error': f"Refund failed: {refund.status}"}, status=400)
 
         except stripe.error.StripeError as e:
-            return Response({'error': str(e)}, status=400)
+            logger.warning('Stripe error: %s', e)
+            return Response({'error': getattr(e, 'user_message', None) or 'Payment provider error. Please try again.'}, status=400)
 
 
 class PaymentStatusView(APIView):
@@ -360,7 +368,7 @@ class PaymentListView(APIView):
     same length (previous month, previous N days, yesterday). With no period,
     stats are all-time compared with everything before the 1st of this month.
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdminOrReception]
 
     def get(self, request):
         import datetime
@@ -524,6 +532,12 @@ class InvoiceDetailView(APIView):
     """
     permission_classes = [IsAuthenticated]
 
+    def get_permissions(self):
+        # Viewing: any staff. Editing an invoice: admin / reception only.
+        if self.request.method in ('PATCH', 'PUT'):
+            return [IsAdminOrReception()]
+        return [IsAuthenticated()]
+
     def get(self, request, appointment_id):
         from appointments.models import Appointment
         try:
@@ -607,7 +621,7 @@ class MarkAsPaidView(APIView):
     Body: { "appointment_id": 42 }
     Manually mark appointment as paid (cash payment)
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdminOrReception]
 
     def post(self, request):
         from appointments.models import Appointment

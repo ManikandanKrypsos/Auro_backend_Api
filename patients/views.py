@@ -106,6 +106,7 @@ class PatientViewSet(viewsets.ModelViewSet):
         if pk and not pk.isdigit():
             try:
                 obj = Patient.objects.get(patient_id__iexact=pk)
+                self._check_therapist_access(obj, pk)
                 self.check_object_permissions(self.request, obj)
                 return obj
             except Patient.DoesNotExist:
@@ -113,9 +114,15 @@ class PatientViewSet(viewsets.ModelViewSet):
 
         try:
             obj = Patient.objects.get(id=int(pk))
+            self._check_therapist_access(obj, pk)
             self.check_object_permissions(self.request, obj)
             return obj
         except (Patient.DoesNotExist, ValueError, TypeError):
+            raise NotFound(f"Patient '{pk}' not found")
+
+    def _check_therapist_access(self, obj, pk):
+        from .access import can_access_patient
+        if not can_access_patient(self.request.user, obj):
             raise NotFound(f"Patient '{pk}' not found")
 
     def get_permissions(self):
@@ -131,8 +138,9 @@ class PatientViewSet(viewsets.ModelViewSet):
             from django.conf import settings
             upload_dir = os.path.join(settings.MEDIA_ROOT, 'patients')
             os.makedirs(upload_dir, exist_ok=True)
-            ext      = os.path.splitext(image_file.name)[1].lower()
-            filename = f"patient_{patient.id}{ext}"
+            from utils.upload_security import checked_ext, random_token
+            ext      = checked_ext(image_file, 'image')
+            filename = f"patient_{patient.id}_{random_token()}{ext}"
             filepath = os.path.join(upload_dir, filename)
             with open(filepath, 'wb+') as f:
                 for chunk in image_file.chunks():
