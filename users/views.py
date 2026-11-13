@@ -72,15 +72,18 @@ class RolesListView(APIView):
 class RegisterView(APIView):
     """
     POST /api/users/register/
-    Only an admin can create accounts. The single exception is the very first
-    account on an empty system (initial setup).
+    Open signup by default (OPEN_SIGNUP=True). With OPEN_SIGNUP=False only an admin
+    can create accounts, except the very first account on an empty system.
     """
     permission_classes = [permissions.AllowAny]
     throttle_scope     = 'auth'
 
     def post(self, request):
-        is_admin = request.user.is_authenticated and getattr(request.user, 'role', '') == 'admin'
-        if User.objects.exists() and not is_admin:
+        # OPEN_SIGNUP=True (default): anyone can register with any role, like before.
+        # Set OPEN_SIGNUP=False on the server to allow only admins to create accounts.
+        open_signup = os.environ.get('OPEN_SIGNUP', 'True') == 'True'
+        is_admin    = request.user.is_authenticated and getattr(request.user, 'role', '') == 'admin'
+        if not open_signup and User.objects.exists() and not is_admin:
             return Response({'error': 'Only an admin can create accounts.'}, status=403)
         serializer = RegisterSerializer(data=request.data)
         if serializer.is_valid():
