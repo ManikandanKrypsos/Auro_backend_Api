@@ -1,4 +1,21 @@
+from django.conf import settings
 from django.db import models
+
+
+class Supplier(models.Model):
+    name       = models.CharField(max_length=150)
+    phone      = models.CharField(max_length=30, blank=True)
+    email      = models.EmailField(blank=True)
+    notes      = models.TextField(blank=True)
+    is_active  = models.BooleanField(default=True)   # DELETE deactivates, so history keeps the name
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['name']
+
+    def __str__(self):
+        return self.name
 
 
 class InventoryItem(models.Model):
@@ -32,6 +49,7 @@ class InventoryItem(models.Model):
     # Supplier Info (optional)
     supplier_name        = models.CharField(max_length=150, blank=True)
     supplier_phone       = models.CharField(max_length=30, blank=True)
+    supplier             = models.ForeignKey(Supplier, on_delete=models.SET_NULL, null=True, blank=True, related_name='items')
     cost_per_unit        = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
 
     created_at           = models.DateTimeField(auto_now_add=True)
@@ -54,12 +72,18 @@ class StockMovement(models.Model):
         ('used',        'Used in Treatment'),
         ('adjusted',    'Manual Adjustment'),
         ('ordered',     'Order More'),
+        ('received',    'Received'),
+        ('wastage',     'Wastage'),
+        ('correction',  'Count Correction'),
     ]
 
     item       = models.ForeignKey(InventoryItem, on_delete=models.CASCADE, related_name='movements')
     type       = models.CharField(max_length=20, choices=MOVEMENT_TYPE_CHOICES)
     quantity   = models.IntegerField()  # positive = added, negative = used
     note       = models.CharField(max_length=255, blank=True)
+    unit_cost  = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    supplier   = models.ForeignKey(Supplier, on_delete=models.SET_NULL, null=True, blank=True, related_name='movements')
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='stock_movements')
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

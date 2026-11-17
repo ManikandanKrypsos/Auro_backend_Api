@@ -1,12 +1,16 @@
 import datetime
+from decimal import Decimal, InvalidOperation
+
+from django.db import transaction
+from django.utils import timezone
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from users.permissions import IsAdmin
-from .models import InventoryItem, StockMovement
+from .models import InventoryItem, StockMovement, Supplier
 from .serializers import (
     InventoryItemSerializer, InventoryItemListSerializer,
     InventoryItemWriteSerializer, StockMovementSerializer,
-    StockMovementWriteSerializer,
+    StockMovementWriteSerializer, serialize_supplier,
 )
 
 
@@ -37,6 +41,13 @@ class InventoryMetaView(APIView):
                 {'value': 'used',     'label': 'Used in Treatment'},
                 {'value': 'adjusted', 'label': 'Manual Adjustment'},
                 {'value': 'ordered',  'label': 'Order More'},
+                {'value': 'received', 'label': 'Received'},
+                {'value': 'wastage',  'label': 'Wastage'},
+                {'value': 'correction', 'label': 'Count Correction'},
+            ],
+            'adjust_reasons': [
+                {'value': 'wastage',          'label': 'Wastage (lost / damaged / expired)'},
+                {'value': 'count_correction', 'label': 'Count correction'},
             ],
         })
 
@@ -74,7 +85,7 @@ class InventoryListView(APIView):
         return Response(InventoryItemListSerializer(items, many=True).data)
 
     def post(self, request):
-        serializer = InventoryItemWriteSerializer(data=request.data)
+        serializer = InventoryItemWriteSerializer(data=request.data, context={'user': request.user})
         if serializer.is_valid():
             item = serializer.save()
             return Response(InventoryItemSerializer(item).data, status=201)
@@ -105,7 +116,7 @@ class InventoryDetailView(APIView):
         item = self._get_item(pk)
         if not item:
             return Response({'error': 'Item not found.'}, status=404)
-        serializer = InventoryItemWriteSerializer(item, data=request.data, partial=True)
+        serializer = InventoryItemWriteSerializer(item, data=request.data, partial=True, context={'user': request.user})
         if serializer.is_valid():
             item = serializer.save()
             return Response(InventoryItemSerializer(item).data)
@@ -199,8 +210,14 @@ class StockMovementListView(APIView):
         item = self._get_item(pk)
         if not item:
             return Response({'error': 'Item not found.'}, status=404)
-        movements = StockMovement.objects.filter(item=item)
-        return Response(StockMovementSerializer(movements, many=True).data)
+        movements = list(StockMovement.objects.filter(item=item).select_related('supplier', 'created_by'))
+        data = StockMovementSerializer(movements, many=True).data
+        # Stock level right after each movement (newest first), worked back from the current stock
+        balance = item.current_stock
+        for row, m in zip(data, movements):
+            row['balance_after'] = balance
+            balance -= m.quantity
+        return Response(data)
 
     def post(self, request, pk):
         item = self._get_item(pk)
@@ -226,7 +243,7 @@ class StockMovementListView(APIView):
 
         # Save movement
         movement = StockMovement.objects.create(
-            item=item, type=mtype, quantity=quantity, note=note
+            item=item, type=mtype, quantity=quantity, note=note, created_by=request.user
         )
 
         # Update item stock
@@ -240,3 +257,206 @@ class StockMovementListView(APIView):
             'current_stock': item.current_stock,
             'movement':      StockMovementSerializer(movement).data,
         }, status=201)
+
+
+# ── Receive / adjust stock (every change is logged as a movement) ─────────────
+
+def _locked_item(pk):
+    return InventoryItem.objects.select_for_update().filter(pk=pk).first()
+
+
+def _movement_response(item, movement, message, status=201):
+    return Response({
+        'message':       message,
+        'item_id':       item.id,
+        'current_stock': item.current_stock,
+        'is_low_stock':  item.is_low_stock,
+        'movement':      StockMovementSerializer(movement).data,
+    }, status=status)
+
+
+class ReceiveStockView(APIView):
+    """
+    POST /api/inventory/<id>/receive/
+    Body: {"quantity": 10, "unit_cost": 12.50, "supplier_id": 3, "note": "Invoice 4411"}
+    quantity is required (whole number > 0); the rest is optional.
+    Adds stock, sets last_restock_date, updates the item's cost_per_unit when unit_cost is sent,
+    and logs a 'received' movement.
+    """
+    permission_classes = [IsAdmin]
+
+    def post(self, request, pk):
+        errors = {}
+        try:
+            quantity = int(request.data.get('quantity'))
+            if quantity <= 0:
+                raise ValueError
+        except (TypeError, ValueError):
+            errors['quantity'] = 'A whole number greater than 0 is required.'
+            quantity = None
+        unit_cost = request.data.get('unit_cost')
+        if unit_cost not in (None, ''):
+            try:
+                unit_cost = Decimal(str(unit_cost)).quantize(Decimal('0.01'))
+                if unit_cost < 0:
+                    raise InvalidOperation
+            except (InvalidOperation, ValueError):
+                errors['unit_cost'] = 'Must be a number of 0 or more.'
+        else:
+            unit_cost = None
+        supplier = None
+        if request.data.get('supplier_id') not in (None, ''):
+            supplier = Supplier.objects.filter(pk=request.data['supplier_id'], is_active=True).first()
+            if not supplier:
+                errors['supplier_id'] = 'Supplier not found.'
+        if errors:
+            return Response(errors, status=400)
+
+        with transaction.atomic():
+            item = _locked_item(pk)
+            if not item:
+                return Response({'error': 'Item not found.'}, status=404)
+            item.current_stock += quantity
+            item.last_restock_date = timezone.localdate()
+            if unit_cost is not None:
+                item.cost_per_unit = unit_cost
+            item.save()
+            movement = StockMovement.objects.create(
+                item=item, type='received', quantity=quantity, unit_cost=unit_cost,
+                supplier=supplier or item.supplier, note=str(request.data.get('note', ''))[:255],
+                created_by=request.user,
+            )
+        return _movement_response(item, movement, f'Received {quantity} {item.unit}.')
+
+
+class AdjustStockView(APIView):
+    """
+    POST /api/inventory/<id>/adjust/
+    Body: {"quantity_delta": -2, "reason": "wastage" | "count_correction", "note": "Broken vial"}
+    quantity_delta is a non-zero whole number (negative removes stock, positive adds).
+    Wastage must be negative. Stock can't go below zero.
+    """
+    permission_classes = [IsAdmin]
+    REASON_TO_TYPE = {'wastage': 'wastage', 'count_correction': 'correction'}
+
+    def post(self, request, pk):
+        errors = {}
+        try:
+            delta = int(request.data.get('quantity_delta'))
+            if delta == 0:
+                raise ValueError
+        except (TypeError, ValueError):
+            errors['quantity_delta'] = 'A non-zero whole number is required (negative removes stock).'
+            delta = None
+        reason = request.data.get('reason')
+        if reason not in self.REASON_TO_TYPE:
+            errors['reason'] = 'Use "wastage" or "count_correction".'
+        elif reason == 'wastage' and delta is not None and delta > 0:
+            errors['quantity_delta'] = 'Wastage removes stock, so quantity_delta must be negative.'
+        if errors:
+            return Response(errors, status=400)
+
+        with transaction.atomic():
+            item = _locked_item(pk)
+            if not item:
+                return Response({'error': 'Item not found.'}, status=404)
+            if item.current_stock + delta < 0:
+                return Response({'quantity_delta': f'Only {item.current_stock} {item.unit} in stock.'}, status=400)
+            item.current_stock += delta
+            item.save()
+            movement = StockMovement.objects.create(
+                item=item, type=self.REASON_TO_TYPE[reason], quantity=delta,
+                note=str(request.data.get('note', ''))[:255], created_by=request.user,
+            )
+        return _movement_response(item, movement, 'Stock adjusted.')
+
+
+# ── Suppliers ─────────────────────────────────────────────────────────────────
+
+SUPPLIER_FIELDS = ('name', 'phone', 'email', 'notes')
+
+
+def _validate_supplier(data, partial=False):
+    errors = {}
+    if not partial or 'name' in data:
+        if not str(data.get('name', '') or '').strip():
+            errors['name'] = 'This field is required.'
+    if data.get('email'):
+        from django.core.validators import validate_email
+        from django.core.exceptions import ValidationError as DjangoValidationError
+        try:
+            validate_email(data['email'])
+        except DjangoValidationError:
+            errors['email'] = 'Enter a valid email address.'
+    return errors
+
+
+class SupplierListView(APIView):
+    """
+    GET  /api/suppliers/?search=&include_inactive=true
+    POST /api/suppliers/   {name, phone?, email?, notes?}
+    """
+    permission_classes = [IsAdmin]
+
+    def get(self, request):
+        qs = Supplier.objects.all()
+        if request.query_params.get('include_inactive', '').lower() not in ('1', 'true'):
+            qs = qs.filter(is_active=True)
+        search = request.query_params.get('search', '').strip()
+        if search:
+            qs = qs.filter(name__icontains=search)
+        from django.db.models import Count
+        qs = qs.annotate(item_count=Count('items'))
+        return Response([{**serialize_supplier(s), 'item_count': s.item_count} for s in qs])
+
+    def post(self, request):
+        errors = _validate_supplier(request.data)
+        if errors:
+            return Response(errors, status=400)
+        s = Supplier.objects.create(**{f: (request.data.get(f) or '') for f in SUPPLIER_FIELDS})
+        return Response(serialize_supplier(s), status=201)
+
+
+class SupplierDetailView(APIView):
+    """
+    GET    /api/suppliers/<id>/   — supplier + the items it supplies
+    PATCH  /api/suppliers/<id>/   {name?, phone?, email?, notes?, is_active?}
+    DELETE /api/suppliers/<id>/   — deactivates it (kept for stock history; linked items are unlinked)
+    """
+    permission_classes = [IsAdmin]
+
+    def get(self, request, pk):
+        s = Supplier.objects.filter(pk=pk).first()
+        if not s:
+            return Response({'error': 'Supplier not found.'}, status=404)
+        return Response({**serialize_supplier(s), 'items': [
+            {'id': i.id, 'name': i.name, 'current_stock': i.current_stock, 'unit': i.unit,
+             'cost_per_unit': float(i.cost_per_unit)} for i in s.items.all()
+        ]})
+
+    def patch(self, request, pk):
+        s = Supplier.objects.filter(pk=pk).first()
+        if not s:
+            return Response({'error': 'Supplier not found.'}, status=404)
+        errors = _validate_supplier(request.data, partial=True)
+        if errors:
+            return Response(errors, status=400)
+        for f in SUPPLIER_FIELDS:
+            if f in request.data:
+                setattr(s, f, request.data[f] or '')
+        if 'is_active' in request.data:
+            s.is_active = bool(request.data['is_active'])
+        s.save()
+        # keep the legacy text on linked items in step
+        s.items.update(supplier_name=s.name, supplier_phone=s.phone)
+        return Response(serialize_supplier(s))
+
+    def delete(self, request, pk):
+        s = Supplier.objects.filter(pk=pk).first()
+        if not s:
+            return Response({'error': 'Supplier not found.'}, status=404)
+        with transaction.atomic():
+            unlinked = s.items.update(supplier=None)
+            s.is_active = False
+            s.save(update_fields=['is_active', 'updated_at'])
+        return Response({'message': 'Supplier deleted.', 'items_unlinked': unlinked})
