@@ -1,5 +1,7 @@
 from rest_framework import serializers
-from .models import InventoryItem, StockMovement, Supplier
+from django.utils import timezone
+
+from .models import InventoryItem, StockMovement, Supplier, Lot
 
 CATEGORY_MAP = {
     1: 'consumable',
@@ -27,6 +29,25 @@ def serialize_supplier(s):
     }
 
 
+def serialize_lot(lot, today=None):
+    today = today or timezone.localdate()
+    return {
+        'id':                 lot.id,
+        'inventory_item_id':  lot.item_id,
+        'item_name':          lot.item.name,
+        'lot_number':         lot.lot_number,
+        'expiry_date':        lot.expiry_date,
+        'days_to_expiry':     (lot.expiry_date - today).days if lot.expiry_date else None,
+        'is_expired':         bool(lot.expiry_date and lot.expiry_date < today),
+        'quantity_received':  lot.quantity_received,
+        'quantity_remaining': lot.quantity_remaining,
+        'unit_cost':          float(lot.unit_cost) if lot.unit_cost is not None else None,
+        'supplier_id':        lot.supplier_id,
+        'supplier_name':      lot.supplier.name if lot.supplier_id else None,
+        'received_at':        lot.received_at,
+    }
+
+
 class StockMovementSerializer(serializers.ModelSerializer):
     type_label      = serializers.CharField(source='get_type_display', read_only=True)
     unit_cost       = serializers.FloatField(read_only=True, allow_null=True)
@@ -36,11 +57,21 @@ class StockMovementSerializer(serializers.ModelSerializer):
     class Meta:
         model  = StockMovement
         fields = ['id', 'type', 'type_label', 'quantity', 'unit_cost', 'supplier_id', 'supplier_name',
+                  'lot_id', 'lot_number', 'purchase_order_id', 'purchase_order_number',
                   'note', 'created_by_id', 'created_by_name', 'created_at']
         read_only_fields = ['created_at']
 
+    lot_number            = serializers.SerializerMethodField()
+    purchase_order_number = serializers.SerializerMethodField()
+
     def get_supplier_name(self, obj):
         return obj.supplier.name if obj.supplier_id else None
+
+    def get_lot_number(self, obj):
+        return obj.lot.lot_number if obj.lot_id else None
+
+    def get_purchase_order_number(self, obj):
+        return obj.purchase_order.number if obj.purchase_order_id else None
 
     def get_created_by_name(self, obj):
         u = obj.created_by
@@ -49,6 +80,22 @@ class StockMovementSerializer(serializers.ModelSerializer):
 
 class SupplierFieldsMixin:
     """cost_per_unit as a number + the linked supplier."""
+
+    def get_stock_value(self, obj):
+        return round(obj.current_stock * float(obj.cost_per_unit or 0), 2)
+
+    def get_stock_status(self, obj):
+        if obj.current_stock <= 0:
+            return 'out_of_stock'
+        return 'low_stock' if obj.current_stock <= obj.minimum_stock_alert else 'in_stock'
+
+    def get_next_expiry_date(self, obj):
+        if not obj.track_lots:
+            return None
+        if hasattr(obj, 'next_expiry'):          # annotated by the list view
+            return obj.next_expiry
+        lot = obj.lots.filter(quantity_remaining__gt=0, expiry_date__isnull=False).order_by('expiry_date').first()
+        return lot.expiry_date if lot else None
 
     def get_supplier(self, obj):
         s = obj.supplier
@@ -62,15 +109,19 @@ class InventoryItemSerializer(SupplierFieldsMixin, serializers.ModelSerializer):
     is_low_stock = serializers.SerializerMethodField()
     cost_per_unit = serializers.FloatField(read_only=True)
     supplier     = serializers.SerializerMethodField()
+    stock_value  = serializers.SerializerMethodField()
+    stock_status = serializers.SerializerMethodField()
+    next_expiry_date = serializers.SerializerMethodField()
     movements    = StockMovementSerializer(many=True, read_only=True)
 
     class Meta:
         model  = InventoryItem
         fields = [
-            'id', 'name', 'description',
+            'id', 'name', 'description', 'sku', 'brand',
             'category', 'category_id',
             'unit', 'unit_id',
-            'current_stock', 'minimum_stock_alert', 'is_low_stock',
+            'current_stock', 'minimum_stock_alert', 'is_low_stock', 'stock_status', 'stock_value',
+            'track_lots', 'next_expiry_date',
             'last_restock_date',
             'supplier_id', 'supplier', 'supplier_name', 'supplier_phone', 'cost_per_unit',
             'created_at', 'updated_at',
@@ -94,14 +145,18 @@ class InventoryItemListSerializer(SupplierFieldsMixin, serializers.ModelSerializ
     is_low_stock = serializers.SerializerMethodField()
     cost_per_unit = serializers.FloatField(read_only=True)
     supplier     = serializers.SerializerMethodField()
+    stock_value  = serializers.SerializerMethodField()
+    stock_status = serializers.SerializerMethodField()
+    next_expiry_date = serializers.SerializerMethodField()
 
     class Meta:
         model  = InventoryItem
         fields = [
-            'id', 'name', 'description',
+            'id', 'name', 'description', 'sku', 'brand',
             'category', 'category_id',
             'unit', 'unit_id',
-            'current_stock', 'minimum_stock_alert', 'is_low_stock',
+            'current_stock', 'minimum_stock_alert', 'is_low_stock', 'stock_status', 'stock_value',
+            'track_lots', 'next_expiry_date',
             'last_restock_date',
             'supplier_id', 'supplier', 'supplier_name', 'supplier_phone', 'cost_per_unit',
             'created_at', 'updated_at',
@@ -132,12 +187,18 @@ class InventoryItemWriteSerializer(serializers.Serializer):
         "supplier_id":          3,        // linked supplier (null to unlink)
         "supplier_name":        "AURA Luxe Lab",       // legacy free text, still accepted
         "supplier_phone":       "+1 (800) 555-0192",
-        "cost_per_unit":        25.00
+        "cost_per_unit":        25.00,
+        "sku":                  "RST-30G-001",   // optional
+        "brand":                "Restylane",     // optional
+        "track_lots":           true             // stock split into lots with expiry dates
     }
     category can be sent as category_id (1-4) or category ("consumable"…).
     """
     name                 = serializers.CharField(max_length=150, required=False)
     description          = serializers.CharField(required=False, allow_blank=True, allow_null=True, default='')
+    sku                  = serializers.CharField(max_length=60, required=False, allow_blank=True, allow_null=True)
+    brand                = serializers.CharField(max_length=100, required=False, allow_blank=True, allow_null=True)
+    track_lots           = serializers.BooleanField(required=False)
     category_id          = serializers.IntegerField(required=False)
     category             = serializers.ChoiceField(choices=list(CATEGORY_ID_MAP.keys()), required=False)
     supplier_id          = serializers.IntegerField(required=False, allow_null=True)
@@ -209,7 +270,7 @@ class InventoryItemWriteSerializer(serializers.Serializer):
         validated_data.setdefault('supplier_phone', '')
 
         # Replace None with empty string for these fields
-        for field in ['description', 'supplier_name', 'supplier_phone']:
+        for field in ['description', 'supplier_name', 'supplier_phone', 'sku', 'brand']:
             if validated_data.get(field) is None:
                 validated_data[field] = ''
 
@@ -244,7 +305,7 @@ class InventoryItemWriteSerializer(serializers.Serializer):
             setattr(instance, attr, value)
 
         # Fix null values for NOT NULL fields
-        for field in ['description', 'supplier_name', 'supplier_phone']:
+        for field in ['description', 'supplier_name', 'supplier_phone', 'sku', 'brand']:
             if getattr(instance, field, None) is None:
                 setattr(instance, field, '')
 

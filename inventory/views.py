@@ -3,14 +3,16 @@ from decimal import Decimal, InvalidOperation
 
 from django.db import transaction
 from django.utils import timezone
+from rest_framework.exceptions import ValidationError
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from users.permissions import IsAdmin
-from .models import InventoryItem, StockMovement, Supplier
+from .models import InventoryItem, StockMovement, Supplier, Lot
+from . import services
 from .serializers import (
     InventoryItemSerializer, InventoryItemListSerializer,
     InventoryItemWriteSerializer, StockMovementSerializer,
-    StockMovementWriteSerializer, serialize_supplier,
+    StockMovementWriteSerializer, serialize_supplier, serialize_lot,
 )
 
 
@@ -54,10 +56,15 @@ class InventoryMetaView(APIView):
 
 class InventoryListView(APIView):
     """
-    GET  /api/inventory/           — list all items
-         ?search=                  filter by name
-         ?category=consumable      filter by category
-         ?low_stock=true           show only low stock items
+    GET  /api/inventory/           — list items
+         ?search=                  name, SKU, brand or supplier
+         ?category=consumable      (or ?category_id=1)
+         ?brand=Restylane
+         ?supplier_id=3
+         ?status=in_stock|low_stock|out_of_stock
+         ?low_stock=true           same as status=low_stock (kept for older screens)
+         ?track_lots=true|false
+         ?page=1&page_size=20      optional pagination (max 100) → {count, page, page_size, total_pages, results}
 
     POST /api/inventory/           — add new item (admin only)
     """
@@ -68,20 +75,51 @@ class InventoryListView(APIView):
         return [IsAuthenticated()]
 
     def get(self, request):
-        items     = InventoryItem.objects.all()
-        search    = request.query_params.get('search', '').strip()
-        category  = request.query_params.get('category', '').strip()
-        low_stock = request.query_params.get('low_stock', '').strip()
+        from django.db.models import F, Q, Min
+        from .serializers import CATEGORY_MAP
+        p = request.query_params
+        items = InventoryItem.objects.select_related('supplier').annotate(
+            next_expiry=Min('lots__expiry_date', filter=Q(lots__quantity_remaining__gt=0))).order_by('name', 'id')
 
+        search = p.get('search', '').strip()
         if search:
-            items = items.filter(name__icontains=search)
-        if category:
-            items = items.filter(category=category)
-        if low_stock == 'true':
-            # Filter items where current_stock <= minimum_stock_alert
-            from django.db.models import F
+            items = items.filter(Q(name__icontains=search) | Q(sku__icontains=search) |
+                                 Q(brand__icontains=search) | Q(supplier__name__icontains=search) |
+                                 Q(supplier_name__icontains=search))
+        if p.get('category'):
+            items = items.filter(category=p['category'].strip())
+        if p.get('category_id', '').isdigit():
+            items = items.filter(category=CATEGORY_MAP.get(int(p['category_id']), ''))
+        if p.get('brand'):
+            items = items.filter(brand__iexact=p['brand'].strip())
+        if p.get('supplier_id', '').isdigit():
+            items = items.filter(supplier_id=int(p['supplier_id']))
+        status = p.get('status', '').strip()
+        if not status and p.get('low_stock') == 'true':      # older screens: low or zero, as before
             items = items.filter(current_stock__lte=F('minimum_stock_alert'))
+        if status == 'out_of_stock':
+            items = items.filter(current_stock__lte=0)
+        elif status == 'low_stock':
+            items = items.filter(current_stock__gt=0, current_stock__lte=F('minimum_stock_alert'))
+        elif status == 'in_stock':
+            items = items.filter(current_stock__gt=F('minimum_stock_alert'))
+        if p.get('track_lots') in ('true', 'false'):
+            items = items.filter(track_lots=p['track_lots'] == 'true')
 
+        if 'page' in p or 'page_size' in p:
+            from django.core.paginator import Paginator
+            try:
+                page_size = max(1, min(int(p.get('page_size') or 20), 100))
+                page_num = int(p.get('page') or 1)
+            except ValueError:
+                return Response({'page': 'page and page_size must be whole numbers.'}, status=400)
+            paginator = Paginator(items, page_size)
+            page = paginator.get_page(page_num)
+            return Response({
+                'count': paginator.count, 'page': page.number, 'page_size': page_size,
+                'total_pages': paginator.num_pages,
+                'results': InventoryItemListSerializer(page.object_list, many=True).data,
+            })
         return Response(InventoryItemListSerializer(items, many=True).data)
 
     def post(self, request):
@@ -233,24 +271,19 @@ class StockMovementListView(APIView):
         mtype    = v['type']
         note     = v.get('note', '')
 
-        # Prevent stock going negative
-        new_stock = item.current_stock + quantity
-        if new_stock < 0:
-            return Response(
-                {'error': f'Insufficient stock. Current stock is {item.current_stock}.'},
-                status=400
-            )
-
-        # Save movement
-        movement = StockMovement.objects.create(
-            item=item, type=mtype, quantity=quantity, note=note, created_by=request.user
-        )
-
-        # Update item stock
-        item.current_stock = new_stock
-        if mtype in ['added', 'ordered']:
-            item.last_restock_date = datetime.date.today()
-        item.save()
+        with transaction.atomic():
+            item = _locked_item(pk)
+            if item.current_stock + quantity < 0:
+                return Response({'error': f'Insufficient stock. Current stock is {item.current_stock}.'}, status=400)
+            if quantity < 0:
+                movement = services.remove_from_item(item, -quantity, mtype, user=request.user, note=note)
+            else:
+                item.current_stock += quantity
+                if mtype in ['added', 'ordered']:
+                    item.last_restock_date = datetime.date.today()
+                item.save()
+                movement = StockMovement.objects.create(item=item, type=mtype, quantity=quantity, note=note,
+                                                        created_by=request.user)
 
         return Response({
             'message':       'Stock updated successfully.',
@@ -278,8 +311,11 @@ def _movement_response(item, movement, message, status=201):
 class ReceiveStockView(APIView):
     """
     POST /api/inventory/<id>/receive/
-    Body: {"quantity": 10, "unit_cost": 12.50, "supplier_id": 3, "note": "Invoice 4411"}
+    Body: {"quantity": 10, "unit_cost": 12.50, "supplier_id": 3, "note": "Invoice 4411",
+           "lot_number": "L2611-A", "expiry_date": "2027-06-30"}
     quantity is required (whole number > 0); the rest is optional.
+    lot_number / expiry_date: only for items with track_lots — the quantity goes into that lot
+    (an existing lot with the same number is topped up, otherwise a new lot is created).
     Adds stock, sets last_restock_date, updates the item's cost_per_unit when unit_cost is sent,
     and logs a 'received' movement.
     """
@@ -294,47 +330,45 @@ class ReceiveStockView(APIView):
         except (TypeError, ValueError):
             errors['quantity'] = 'A whole number greater than 0 is required.'
             quantity = None
-        unit_cost = request.data.get('unit_cost')
-        if unit_cost not in (None, ''):
-            try:
-                unit_cost = Decimal(str(unit_cost)).quantize(Decimal('0.01'))
-                if unit_cost < 0:
-                    raise InvalidOperation
-            except (InvalidOperation, ValueError):
-                errors['unit_cost'] = 'Must be a number of 0 or more.'
-        else:
-            unit_cost = None
+        unit_cost = expiry_date = None
+        try:
+            unit_cost = services.parse_cost(request.data.get('unit_cost'))
+        except ValidationError as e:
+            errors.update({k: v for k, v in e.detail.items()})
+        try:
+            expiry_date = services.parse_date(request.data.get('expiry_date'), 'expiry_date')
+        except ValidationError as e:
+            errors.update({k: v for k, v in e.detail.items()})
         supplier = None
         if request.data.get('supplier_id') not in (None, ''):
             supplier = Supplier.objects.filter(pk=request.data['supplier_id'], is_active=True).first()
             if not supplier:
                 errors['supplier_id'] = 'Supplier not found.'
         if errors:
-            return Response(errors, status=400)
+            return Response({k: (str(v[0]) if isinstance(v, list) else str(v)) for k, v in errors.items()}, status=400)
 
         with transaction.atomic():
             item = _locked_item(pk)
             if not item:
                 return Response({'error': 'Item not found.'}, status=404)
-            item.current_stock += quantity
-            item.last_restock_date = timezone.localdate()
-            if unit_cost is not None:
-                item.cost_per_unit = unit_cost
-            item.save()
-            movement = StockMovement.objects.create(
-                item=item, type='received', quantity=quantity, unit_cost=unit_cost,
-                supplier=supplier or item.supplier, note=str(request.data.get('note', ''))[:255],
-                created_by=request.user,
+            movement, lot = services.receive_into_item(
+                item, quantity, user=request.user, unit_cost=unit_cost, supplier=supplier,
+                note=str(request.data.get('note', '')), lot_number=str(request.data.get('lot_number', '') or ''),
+                expiry_date=expiry_date,
             )
-        return _movement_response(item, movement, f'Received {quantity} {item.unit}.')
+        response = _movement_response(item, movement, f'Received {quantity} {item.unit}.')
+        response.data['lot'] = serialize_lot(lot) if lot else None
+        return response
 
 
 class AdjustStockView(APIView):
     """
     POST /api/inventory/<id>/adjust/
-    Body: {"quantity_delta": -2, "reason": "wastage" | "count_correction", "note": "Broken vial"}
+    Body: {"quantity_delta": -2, "reason": "wastage" | "count_correction", "note": "Broken vial", "lot_id": 7}
     quantity_delta is a non-zero whole number (negative removes stock, positive adds).
     Wastage must be negative. Stock can't go below zero.
+    lot_id (optional, lot-tracked items): which lot it applies to. Without it, removals use the
+    earliest-expiring lots first and additions stay unassigned to a lot.
     """
     permission_classes = [IsAdmin]
     REASON_TO_TYPE = {'wastage': 'wastage', 'count_correction': 'correction'}
@@ -362,12 +396,17 @@ class AdjustStockView(APIView):
                 return Response({'error': 'Item not found.'}, status=404)
             if item.current_stock + delta < 0:
                 return Response({'quantity_delta': f'Only {item.current_stock} {item.unit} in stock.'}, status=400)
-            item.current_stock += delta
-            item.save()
-            movement = StockMovement.objects.create(
-                item=item, type=self.REASON_TO_TYPE[reason], quantity=delta,
-                note=str(request.data.get('note', ''))[:255], created_by=request.user,
-            )
+            lot = None
+            if request.data.get('lot_id') not in (None, ''):
+                lot = Lot.objects.select_for_update().filter(pk=request.data['lot_id'], item=item).first()
+                if not lot:
+                    return Response({'lot_id': 'Lot not found for this item.'}, status=400)
+            note = str(request.data.get('note', ''))
+            if delta < 0:
+                movement = services.remove_from_item(item, -delta, self.REASON_TO_TYPE[reason],
+                                                     user=request.user, note=note, lot=lot)
+            else:
+                movement = services.add_correction(item, delta, user=request.user, note=note, lot=lot)
         return _movement_response(item, movement, 'Stock adjusted.')
 
 
