@@ -48,6 +48,7 @@ class InventoryMetaView(APIView):
                 {'value': 'correction', 'label': 'Count Correction'},
             ],
             'adjust_reasons': [
+                {'value': 'used',             'label': 'Used in treatment'},
                 {'value': 'wastage',          'label': 'Wastage (lost / damaged / expired)'},
                 {'value': 'count_correction', 'label': 'Count correction'},
             ],
@@ -248,7 +249,7 @@ class StockMovementListView(APIView):
         item = self._get_item(pk)
         if not item:
             return Response({'error': 'Item not found.'}, status=404)
-        movements = list(StockMovement.objects.filter(item=item).select_related('supplier', 'created_by'))
+        movements = list(StockMovement.objects.filter(item=item).select_related('supplier', 'created_by', 'lot', 'purchase_order', 'appointment__patient', 'appointment__treatment', 'appointment__staff'))
         data = StockMovementSerializer(movements, many=True).data
         # Stock level right after each movement (newest first), worked back from the current stock
         balance = item.current_stock
@@ -364,14 +365,17 @@ class ReceiveStockView(APIView):
 class AdjustStockView(APIView):
     """
     POST /api/inventory/<id>/adjust/
-    Body: {"quantity_delta": -2, "reason": "wastage" | "count_correction", "note": "Broken vial", "lot_id": 7}
+    Body: {"quantity_delta": -2, "reason": "used" | "wastage" | "count_correction",
+           "note": "Broken vial", "lot_id": 7, "appointment_id": 501}
     quantity_delta is a non-zero whole number (negative removes stock, positive adds).
-    Wastage must be negative. Stock can't go below zero.
+    "used" (product used in a treatment) and "wastage" must be negative. Stock can't go below zero.
+    appointment_id (optional, any reason): links the movement to the appointment it came from.
     lot_id (optional, lot-tracked items): which lot it applies to. Without it, removals use the
     earliest-expiring lots first and additions stay unassigned to a lot.
     """
     permission_classes = [IsAdmin]
-    REASON_TO_TYPE = {'wastage': 'wastage', 'count_correction': 'correction'}
+    REASON_TO_TYPE = {'used': 'used', 'wastage': 'wastage', 'count_correction': 'correction'}
+    MUST_BE_NEGATIVE = {'used': 'Product usage', 'wastage': 'Wastage'}
 
     def post(self, request, pk):
         errors = {}
@@ -384,9 +388,18 @@ class AdjustStockView(APIView):
             delta = None
         reason = request.data.get('reason')
         if reason not in self.REASON_TO_TYPE:
-            errors['reason'] = 'Use "wastage" or "count_correction".'
-        elif reason == 'wastage' and delta is not None and delta > 0:
-            errors['quantity_delta'] = 'Wastage removes stock, so quantity_delta must be negative.'
+            errors['reason'] = 'Use "used", "wastage" or "count_correction".'
+        elif reason in self.MUST_BE_NEGATIVE and delta is not None and delta > 0:
+            errors['quantity_delta'] = f'{self.MUST_BE_NEGATIVE[reason]} removes stock, so quantity_delta must be negative.'
+        appointment = None
+        if request.data.get('appointment_id') not in (None, ''):
+            from appointments.models import Appointment
+            appointment = Appointment.objects.filter(pk=str(request.data['appointment_id'])).first() \
+                if str(request.data['appointment_id']).isdigit() else None
+            if not appointment:
+                errors['appointment_id'] = 'Appointment not found.'
+            elif appointment.status == 'cancelled':
+                errors['appointment_id'] = 'This appointment is cancelled.'
         if errors:
             return Response(errors, status=400)
 
@@ -404,10 +417,63 @@ class AdjustStockView(APIView):
             note = str(request.data.get('note', ''))
             if delta < 0:
                 movement = services.remove_from_item(item, -delta, self.REASON_TO_TYPE[reason],
-                                                     user=request.user, note=note, lot=lot)
+                                                     user=request.user, note=note, lot=lot, appointment=appointment)
             else:
-                movement = services.add_correction(item, delta, user=request.user, note=note, lot=lot)
+                movement = services.add_correction(item, delta, user=request.user, note=note, lot=lot,
+                                                   appointment=appointment)
         return _movement_response(item, movement, 'Stock adjusted.')
+
+
+class MovementSearchView(APIView):
+    """
+    GET /api/inventory/movements/?appointment_id=501&item_id=&type=used&date_from=2026-11-01&date_to=2026-11-30
+    Stock movements across all items, newest first — e.g. everything used in one appointment.
+    Optional pagination with page / page_size (max 100).
+    """
+    permission_classes = [IsAdmin]
+
+    def get(self, request):
+        import datetime as dt
+        p = request.query_params
+        qs = StockMovement.objects.select_related('item', 'supplier', 'created_by', 'lot', 'purchase_order', 'appointment__patient', 'appointment__treatment', 'appointment__staff')
+        for field in ('appointment_id', 'item_id'):
+            if p.get(field):
+                if not str(p[field]).isdigit():
+                    return Response({field: 'Must be a whole number.'}, status=400)
+                qs = qs.filter(**{field: int(p[field])})
+        if p.get('type'):
+            qs = qs.filter(type__in=[t.strip() for t in p['type'].split(',') if t.strip()])
+        for field, lookup in (('date_from', 'gte'), ('date_to', 'lt')):
+            if p.get(field):
+                try:
+                    d = dt.date.fromisoformat(p[field])
+                except ValueError:
+                    return Response({field: 'Use YYYY-MM-DD.'}, status=400)
+                if field == 'date_to':
+                    d += dt.timedelta(days=1)
+                qs = qs.filter(**{f'created_at__{lookup}': timezone.make_aware(dt.datetime.combine(d, dt.time.min))})
+
+        def rows(movs):
+            out = []
+            for m in movs:
+                row = StockMovementSerializer(m).data
+                row.update({'item_id': m.item_id, 'item_name': m.item.name, 'unit': m.item.unit,
+                            'cost': round(abs(m.quantity) * float(m.unit_cost if m.unit_cost is not None else m.item.cost_per_unit or 0), 2)})
+                out.append(row)
+            return out
+
+        if 'page' in p or 'page_size' in p:
+            from django.core.paginator import Paginator
+            try:
+                size = max(1, min(int(p.get('page_size') or 20), 100))
+                num = int(p.get('page') or 1)
+            except ValueError:
+                return Response({'page': 'page and page_size must be whole numbers.'}, status=400)
+            page = Paginator(qs, size).get_page(num)
+            return Response({'count': page.paginator.count, 'page': page.number, 'page_size': size,
+                             'total_pages': page.paginator.num_pages, 'results': rows(page.object_list)})
+        data = rows(qs)
+        return Response({'count': len(data), 'total_cost': round(sum(r['cost'] for r in data), 2), 'results': data})
 
 
 # ── Suppliers ─────────────────────────────────────────────────────────────────

@@ -80,7 +80,7 @@ def receive_into_item(item, quantity, *, user=None, unit_cost=None, supplier=Non
     return movement, lot
 
 
-def remove_from_item(item, quantity, movement_type, *, user=None, note='', lot=None):
+def remove_from_item(item, quantity, movement_type, *, user=None, note='', lot=None, appointment=None):
     """
     Take stock out of an item. For items with track_lots, lots are used first-expiring-first
     (or the given lot first). Raises 400 if there isn't enough stock. Returns the movement.
@@ -112,11 +112,11 @@ def remove_from_item(item, quantity, movement_type, *, user=None, note='', lot=N
         note = (note + ' ' if note else '') + '[' + ', '.join(f'{l.lot_number or "lot " + str(l.id)}: {t}' for l, t in used) + ']'
     return StockMovement.objects.create(
         item=item, type=movement_type, quantity=-quantity, note=note[:255], created_by=user,
-        lot=used[0][0] if len(used) == 1 else None,
+        lot=used[0][0] if len(used) == 1 else None, appointment=appointment,
     )
 
 
-def add_correction(item, quantity, *, user=None, note='', lot=None):
+def add_correction(item, quantity, *, user=None, note='', lot=None, appointment=None):
     """Positive count correction. On lot items it goes into the given lot (or stays unassigned)."""
     if lot is not None:
         lot.quantity_remaining += quantity
@@ -124,4 +124,4 @@ def add_correction(item, quantity, *, user=None, note='', lot=None):
     item.current_stock += quantity
     item.save()
     return StockMovement.objects.create(item=item, type='correction', quantity=quantity, note=note[:255],
-                                        created_by=user, lot=lot)
+                                        created_by=user, lot=lot, appointment=appointment)

@@ -58,11 +58,26 @@ class StockMovementSerializer(serializers.ModelSerializer):
         model  = StockMovement
         fields = ['id', 'type', 'type_label', 'quantity', 'unit_cost', 'supplier_id', 'supplier_name',
                   'lot_id', 'lot_number', 'purchase_order_id', 'purchase_order_number',
+                  'appointment_id', 'appointment',
                   'note', 'created_by_id', 'created_by_name', 'created_at']
         read_only_fields = ['created_at']
 
     lot_number            = serializers.SerializerMethodField()
     purchase_order_number = serializers.SerializerMethodField()
+    appointment           = serializers.SerializerMethodField()
+
+    def get_appointment(self, obj):
+        a = obj.appointment if obj.appointment_id else None
+        if not a:
+            return None
+        return {
+            'id':           a.id,
+            'date_time':    timezone.localtime(a.date_time) if a.date_time else None,
+            'patient_id':   a.patient.patient_id if a.patient_id else None,
+            'patient_name': a.patient.name if a.patient_id else None,
+            'treatment':    a.treatment.name if a.treatment_id else None,
+            'staff_name':   (a.staff.username or a.staff.email.split('@')[0]) if a.staff_id else None,
+        }
 
     def get_supplier_name(self, obj):
         return obj.supplier.name if obj.supplier_id else None

@@ -88,6 +88,7 @@ class StockMovement(models.Model):
     supplier   = models.ForeignKey(Supplier, on_delete=models.SET_NULL, null=True, blank=True, related_name='movements')
     lot        = models.ForeignKey('Lot', on_delete=models.SET_NULL, null=True, blank=True, related_name='movements')
     purchase_order = models.ForeignKey('PurchaseOrder', on_delete=models.SET_NULL, null=True, blank=True, related_name='movements')
+    appointment = models.ForeignKey('appointments.Appointment', on_delete=models.SET_NULL, null=True, blank=True, related_name='stock_movements')
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='stock_movements')
     created_at = models.DateTimeField(auto_now_add=True)
 
