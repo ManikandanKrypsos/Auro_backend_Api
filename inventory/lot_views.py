@@ -6,6 +6,7 @@ from django.utils import timezone
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from rest_framework.permissions import IsAuthenticated
 from users.permissions import IsAdmin
 from .models import InventoryItem, Lot, PurchaseOrder, StockMovement
 from .serializers import CATEGORY_MAP, CATEGORY_ID_MAP, serialize_lot
@@ -27,8 +28,9 @@ class ItemLotsView(APIView):
     GET /api/inventory/<id>/lots/?include_empty=true
     Lots of one item, earliest expiry first. `unassigned_quantity` is stock that isn't in any lot
     (e.g. stock that existed before track_lots was switched on).
+    Any logged-in staff member — therapists need it to pick a lot when logging usage.
     """
-    permission_classes = [IsAdmin]
+    permission_classes = [IsAuthenticated]
 
     def get(self, request, pk):
         item = InventoryItem.objects.filter(pk=pk).first()

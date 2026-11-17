@@ -6,6 +6,7 @@ from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 from rest_framework.views import APIView
 from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
 from users.permissions import IsAdmin
 from .models import InventoryItem, StockMovement, Supplier, Lot
 from . import services
@@ -370,14 +371,28 @@ class AdjustStockView(APIView):
     quantity_delta is a non-zero whole number (negative removes stock, positive adds).
     "used" (product used in a treatment) and "wastage" must be negative. Stock can't go below zero.
     appointment_id (optional, any reason): links the movement to the appointment it came from.
+
+    Who can call it:
+      reason "used"                       — admin, reception, therapist
+                                            (therapists: appointment_id is required and must be their own)
+      reason "wastage" / "count_correction" — admin only
+    The movement's created_by is whoever made the call, so usage is attributed to the therapist.
     lot_id (optional, lot-tracked items): which lot it applies to. Without it, removals use the
     earliest-expiring lots first and additions stay unassigned to a lot.
     """
-    permission_classes = [IsAdmin]
+    permission_classes = [IsAuthenticated]
+    STAFF_ROLES = ('admin', 'reception', 'therapist')
     REASON_TO_TYPE = {'used': 'used', 'wastage': 'wastage', 'count_correction': 'correction'}
     MUST_BE_NEGATIVE = {'used': 'Product usage', 'wastage': 'Wastage'}
 
     def post(self, request, pk):
+        role = getattr(request.user, 'role', '') or ''
+        reason = request.data.get('reason')
+        if role not in self.STAFF_ROLES:
+            return Response({'error': 'You do not have permission to adjust stock.'}, status=403)
+        if role != 'admin' and reason != 'used':
+            return Response({'error': 'Only an admin can record wastage or count corrections.'}, status=403)
+
         errors = {}
         try:
             delta = int(request.data.get('quantity_delta'))
@@ -386,7 +401,6 @@ class AdjustStockView(APIView):
         except (TypeError, ValueError):
             errors['quantity_delta'] = 'A non-zero whole number is required (negative removes stock).'
             delta = None
-        reason = request.data.get('reason')
         if reason not in self.REASON_TO_TYPE:
             errors['reason'] = 'Use "used", "wastage" or "count_correction".'
         elif reason in self.MUST_BE_NEGATIVE and delta is not None and delta > 0:
@@ -400,6 +414,11 @@ class AdjustStockView(APIView):
                 errors['appointment_id'] = 'Appointment not found.'
             elif appointment.status == 'cancelled':
                 errors['appointment_id'] = 'This appointment is cancelled.'
+        if role == 'therapist':
+            if 'appointment_id' not in errors and not appointment:
+                errors['appointment_id'] = 'Therapists must link product usage to their appointment.'
+            elif appointment and appointment.staff_id != request.user.pk:
+                return Response({'error': 'You can only record usage on your own appointments.'}, status=403)
         if errors:
             return Response(errors, status=400)
 
@@ -426,17 +445,25 @@ class AdjustStockView(APIView):
 
 class MovementSearchView(APIView):
     """
-    GET /api/inventory/movements/?appointment_id=501&item_id=&type=used&date_from=2026-11-01&date_to=2026-11-30
-    Stock movements across all items, newest first — e.g. everything used in one appointment.
-    Optional pagination with page / page_size (max 100).
+    GET /api/inventory/movements/?appointment_id=501&item_id=&type=used&created_by_id=8&date_from=2026-11-01&date_to=2026-11-30
+    Stock movements across all items, newest first — e.g. everything used in one appointment,
+    or one therapist's usage history. Optional pagination with page / page_size (max 100).
+    Admin / reception: all movements. Therapists: only movements they made themselves.
     """
-    permission_classes = [IsAdmin]
+    permission_classes = [IsAuthenticated]
 
     def get(self, request):
         import datetime as dt
         p = request.query_params
         qs = StockMovement.objects.select_related('item', 'supplier', 'created_by', 'lot', 'purchase_order', 'appointment__patient', 'appointment__treatment', 'appointment__staff')
-        for field in ('appointment_id', 'item_id'):
+        role = getattr(request.user, 'role', '') or ''
+        if role not in ('admin', 'reception', 'therapist'):
+            return Response({'error': 'You do not have permission to view stock movements.'}, status=403)
+        if role == 'therapist':
+            if p.get('created_by_id') and str(p['created_by_id']) != str(request.user.pk):
+                return Response({'error': 'Therapists can only see their own movements.'}, status=403)
+            qs = qs.filter(created_by=request.user)
+        for field in ('appointment_id', 'item_id', 'created_by_id'):
             if p.get(field):
                 if not str(p[field]).isdigit():
                     return Response({field: 'Must be a whole number.'}, status=400)
