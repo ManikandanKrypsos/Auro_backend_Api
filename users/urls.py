@@ -4,7 +4,7 @@ from .views import (
     MeView, UserListView, RolesListView,
     RefreshTokenView, ForgotPasswordView,
     VerifyOTPView, ResetPasswordView,
-    StaffDetailView, ChangePasswordView, StaffResetPasswordView,
+    StaffDetailView, StaffTreatmentsView, ChangePasswordView, StaffResetPasswordView,
     WorkingHoursListView, WorkingHoursDetailView,
     BreakTimeListView, BreakTimeDetailView,
     LeaveListView, LeaveDetailView,
@@ -25,6 +25,7 @@ urlpatterns = [
     # Staff CRUD — image upload via multipart/form-data in PATCH
     path('staff/',                      UserListView.as_view()),
     path('staff/<int:pk>/',             StaffDetailView.as_view()),  # GET, PATCH, DELETE
+    path('staff/<int:pk>/treatments/',  StaffTreatmentsView.as_view()),  # GET, PATCH {treatment_ids}
     path('staff/<int:pk>/reset-password/', StaffResetPasswordView.as_view()),  # POST new temp password
     path('change-password/',            ChangePasswordView.as_view()),  # POST set own password
 

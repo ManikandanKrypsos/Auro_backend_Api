@@ -612,7 +612,9 @@ class StaffDetailView(APIView):
         user = self._get_staff_or_404(pk)
         if user is None:
             return Response({'error': 'Staff member not found.'}, status=404)
-        return Response(_format_staff(user))
+        data = _format_staff(user)
+        data.update(_staff_treatments(user))
+        return Response(data)
 
     def _update(self, request, pk):
         user = self._get_staff_or_404(pk)
@@ -663,6 +665,55 @@ class StaffDetailView(APIView):
         user.is_active = False
         user.save()
         return Response({'message': f'{user.username or user.email} has been deactivated and can no longer login.'})
+
+def _staff_treatments(user):
+    """Treatments assigned to this staff member (own clinic only), by name."""
+    treatments = list(user.treatments.order_by('name').values('id', 'name'))
+    return {'treatments': treatments, 'treatment_ids': [t['id'] for t in treatments]}
+
+
+class StaffTreatmentsView(APIView):
+    """
+    GET   /api/users/staff/<id>/treatments/  → {staff_id, treatments: [{id, name}], treatment_ids}
+    PATCH /api/users/staff/<id>/treatments/  {"treatment_ids": [3, 7, 12]}
+          Replaces this staff member's full set of treatments (same as editing staff_ids on each
+          treatment). [] removes all. Returns the updated staff record.
+    """
+    permission_classes = [IsAdmin]
+
+    def get(self, request, pk):
+        user = _get_staff_member(pk)
+        if user is None:
+            return Response({'error': 'Staff member not found.'}, status=404)
+        return Response({'staff_id': user.id, **_staff_treatments(user)})
+
+    def patch(self, request, pk):
+        from django.db import transaction
+        from treatments.models import Treatment
+
+        user = _get_staff_member(pk)
+        if user is None:
+            return Response({'error': 'Staff member not found.'}, status=404)
+        raw = request.data.get('treatment_ids') if hasattr(request.data, 'get') else None
+        if raw is None:
+            return Response({'treatment_ids': 'This field is required (use [] to remove all).'}, status=400)
+        if not isinstance(raw, list) or any(isinstance(v, bool) or not str(v).strip().isdigit() for v in raw):
+            return Response({'treatment_ids': 'Must be a list of treatment IDs.'}, status=400)
+        ids = sorted({int(v) for v in raw})
+        found = set(Treatment.objects.filter(id__in=ids).values_list('id', flat=True))
+        missing = [i for i in ids if i not in found]
+        if missing:
+            return Response({'treatment_ids': f'Treatment(s) not found: {missing}.', 'invalid_ids': missing}, status=400)
+        with transaction.atomic():
+            user.treatments.set(ids)
+        data = _format_staff(user)
+        data.update(_staff_treatments(user))
+        data['message'] = 'Treatments updated.'
+        return Response(data)
+
+    def put(self, request, pk):
+        return self.patch(request, pk)
+
 
 # ─── Staff Schedule Views ─────────────────────────────────────────────────────
 
