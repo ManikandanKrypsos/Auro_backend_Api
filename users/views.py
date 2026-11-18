@@ -113,7 +113,15 @@ def auth_payload(user, tokens=None):
     }
     if tokens.get('refresh'):
         data['refresh_token'] = tokens['refresh']
+    data['billing'] = _billing(clinic)
     return data
+
+
+def _billing(clinic):
+    if clinic is None:
+        return None
+    from tenants.billing import billing_payload, refresh_trial_status
+    return billing_payload(refresh_trial_status(clinic))
 
 
 def _login_block(user):
@@ -234,6 +242,7 @@ class MeView(APIView):
             'clinic_id':           u.clinic_id,
             'clinic_name':         u.clinic.name if u.clinic_id else None,
             'must_change_password': u.must_change_password,
+            'billing':             _billing(u.clinic) if u.clinic_id else None,
         })
 
     def patch(self, request):

@@ -26,6 +26,24 @@ PASSWORD_CHANGE_ALLOWED = (
 )
 
 
+# Paths a clinic blocked for billing (trial ended / unpaid / canceled) may still call
+BILLING_ALLOWED = (
+    '/api/billing/',
+    '/api/users/me/',
+    '/api/users/logout/',
+    '/api/users/change-password/',
+)
+
+
+class BillingBlocked(exceptions.APIException):
+    status_code = 403
+    default_code = 'billing_blocked'
+
+    def __init__(self, code):
+        from .billing import BLOCK_MESSAGES
+        super().__init__({'error': BLOCK_MESSAGES[code], 'code': code}, code)
+
+
 class ClinicSuspended(exceptions.APIException):
     status_code = 403
     default_code = 'clinic_suspended'
@@ -53,6 +71,14 @@ def check_clinic_user(user, path=None):
         raise ClinicSuspended()
     if path is not None and getattr(user, 'must_change_password', False) and not path.startswith(PASSWORD_CHANGE_ALLOWED):
         raise PasswordChangeRequired()
+    if path is not None:
+        # Billing is enforced per request, not at login: a blocked clinic can still log in
+        # and reach the billing screen to add a card.
+        from .billing import billing_state, refresh_trial_status
+        refresh_trial_status(clinic)
+        _, block, _ = billing_state(clinic)
+        if block and not path.startswith(BILLING_ALLOWED):
+            raise BillingBlocked(block)
     return clinic
 
 

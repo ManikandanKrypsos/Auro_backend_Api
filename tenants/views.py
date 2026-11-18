@@ -9,7 +9,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .auth import IsPlatformAdmin, PlatformAdminAuthentication, make_platform_token
-from .models import Clinic, PlatformAdmin
+from . import billing as b
+from .models import Clinic, Plan, PlatformAdmin
 
 
 # ── Clinic registration (public) ──────────────────────────────────────────────
@@ -17,8 +18,8 @@ from .models import Clinic, PlatformAdmin
 class ClinicRegisterView(APIView):
     """
     POST /api/clinics/register/
-    {clinic_name, admin_name, admin_email, admin_password, admin_phone?}
-    Creates a new clinic and its first admin in one step, and logs the admin in.
+    {clinic_name, admin_name, admin_email, admin_password, admin_phone?, plan_id?}
+    Creates a new clinic (on a free trial, no card needed) and its first admin, and logs the admin in.
     """
     permission_classes = [AllowAny]
     authentication_classes = []
@@ -51,11 +52,18 @@ class ClinicRegisterView(APIView):
                 validate_password(password, User(email=email, username=admin_name))
             except DjangoValidationError as e:
                 errors['admin_password'] = ' '.join(e.messages)
+        plan = b.default_plan()
+        raw_plan = d.get('plan_id')
+        if raw_plan not in (None, ''):
+            plan = Plan.objects.filter(pk=raw_plan, is_active=True).first() if str(raw_plan).isdigit() else None
+            if plan is None:
+                errors['plan_id'] = 'Plan not found.'
         if errors:
             return Response(errors, status=400)
 
         with transaction.atomic():
-            clinic = Clinic.objects.create(name=clinic_name[:150])
+            clinic = Clinic.objects.create(name=clinic_name[:150], plan=plan,
+                                           subscription_status='trialing', trial_end=b.new_trial_end())
             user = User.all_objects.create_user(
                 email=email, password=password, username=admin_name[:150], role='admin',
                 clinic=clinic, phone=str(d.get('admin_phone', '') or '')[:30],
@@ -80,6 +88,18 @@ def serialize_clinic(clinic, admin=None, counts=None):
             'phone': admin.phone,
         } if admin else None,
     }
+    status, block, warning = b.billing_state(clinic)
+    data.update({
+        'plan':                   b.serialize_plan(clinic.plan),
+        'subscription_status':    status,
+        'trial_end':              clinic.trial_end,
+        'current_period_end':     clinic.current_period_end,
+        'grace_until':            clinic.grace_until if status == 'past_due' else None,
+        'access_blocked':         block is not None or clinic.status != 'active',
+        'has_payment_method':     bool(clinic.card_last4),
+        'stripe_customer_id':     clinic.stripe_customer_id or None,
+        'stripe_subscription_id': clinic.stripe_subscription_id or None,
+    })
     if counts:
         data.update(counts)
     return data
@@ -124,21 +144,27 @@ class PlatformMeView(APIView):
 
 
 class PlatformClinicListView(APIView):
-    """GET /api/platform/clinics/?status=active|suspended&search=  — every clinic on the platform."""
+    """GET /api/platform/clinics/?status=active|suspended&subscription_status=&plan_id=&search=  — every clinic."""
     authentication_classes = [PlatformAdminAuthentication]
     permission_classes = [IsPlatformAdmin]
 
     def get(self, request):
-        qs = Clinic.objects.annotate(
+        qs = Clinic.objects.select_related('plan').annotate(
             staff_count=Count('users', filter=Q(users__is_active=True), distinct=True),
         )
         status = request.query_params.get('status', '').strip()
         if status:
             qs = qs.filter(status=status)
+        sub_status = request.query_params.get('subscription_status', '').strip()
+        plan_id = request.query_params.get('plan_id', '').strip()
+        if plan_id.isdigit():
+            qs = qs.filter(plan_id=int(plan_id))
         search = request.query_params.get('search', '').strip()
         if search:
             qs = qs.filter(Q(name__icontains=search) | Q(users__email__icontains=search, users__role='admin')).distinct()
-        clinics = list(qs)
+        clinics = [b.refresh_trial_status(c) for c in qs]
+        if sub_status:
+            clinics = [c for c in clinics if b.billing_state(c)[0] == sub_status]
         admins = _first_admins([c.id for c in clinics])
         return Response([serialize_clinic(c, admins.get(c.id), {'staff_count': c.staff_count}) for c in clinics])
 
@@ -151,9 +177,10 @@ class PlatformClinicDetailView(APIView):
     def get(self, request, pk):
         from users.models import User
         from patients.models import Patient
-        clinic = Clinic.objects.filter(pk=pk).first()
+        clinic = Clinic.objects.select_related('plan').filter(pk=pk).first()
         if not clinic:
             return Response({'error': 'Clinic not found.'}, status=404)
+        b.refresh_trial_status(clinic)
         users = User.all_objects.filter(clinic=clinic)
         counts = {
             'staff_count':   users.filter(is_active=True).count(),
@@ -187,3 +214,122 @@ class PlatformClinicStatusView(APIView):
             clinic.suspended_reason = ''
         clinic.save()
         return Response(serialize_clinic(clinic, _first_admins([clinic.id]).get(clinic.id)))
+
+
+class PlatformClinicBillingView(APIView):
+    """
+    PATCH /api/platform/clinics/<id>/billing/   {"plan_id": 2?, "trial_end": "2026-12-31"?, "subscription_status": "active"?}
+    Manual overrides for the Super Admin: change plan label, extend a trial, or mark a clinic active
+    (e.g. an invoiced customer). Does not touch Stripe — changes in Stripe still arrive via the webhook.
+    """
+    authentication_classes = [PlatformAdminAuthentication]
+    permission_classes = [IsPlatformAdmin]
+
+    def patch(self, request, pk):
+        import datetime
+        clinic = Clinic.objects.select_related('plan').filter(pk=pk).first()
+        if not clinic:
+            return Response({'error': 'Clinic not found.'}, status=404)
+        d = request.data
+        if d.get('plan_id') not in (None, ''):
+            plan = Plan.objects.filter(pk=d.get('plan_id')).first() if str(d.get('plan_id')).isdigit() else None
+            if plan is None:
+                return Response({'plan_id': 'Plan not found.'}, status=400)
+            clinic.plan = plan
+        if d.get('trial_end') not in (None, ''):
+            try:
+                day = datetime.date.fromisoformat(str(d.get('trial_end'))[:10])
+            except ValueError:
+                return Response({'trial_end': 'Use YYYY-MM-DD.'}, status=400)
+            clinic.trial_end = timezone.make_aware(datetime.datetime.combine(day, datetime.time(23, 59, 59)))
+            if clinic.subscription_status == 'trial_expired' and clinic.trial_end > timezone.now():
+                clinic.subscription_status = 'trialing'
+        if d.get('subscription_status') not in (None, ''):
+            new = d.get('subscription_status')
+            if new not in dict(Clinic.SUBSCRIPTION_CHOICES):
+                return Response({'subscription_status': 'Use trialing, active, past_due, canceled or trial_expired.'}, status=400)
+            if new == 'active':
+                b.set_active(clinic)
+            elif new == 'past_due':
+                b.set_past_due(clinic)
+            else:
+                clinic.subscription_status = new
+                if new == 'trialing' and not clinic.trial_end:
+                    clinic.trial_end = b.new_trial_end()
+        clinic.save()
+        return Response(serialize_clinic(clinic, _first_admins([clinic.id]).get(clinic.id)))
+
+
+# ── Plans (Super Admin) ───────────────────────────────────────────────────────
+
+def _plan_admin(plan):
+    data = b.serialize_plan(plan)
+    data.update({'stripe_price_id': plan.stripe_price_id, 'is_active': plan.is_active,
+                 'clinic_count': getattr(plan, 'clinic_count', None)})
+    return data
+
+
+def _apply_plan(plan, d, creating):
+    from decimal import Decimal, InvalidOperation
+    errors = {}
+    if creating or 'name' in d:
+        name = str(d.get('name', '') or '').strip()
+        if not name:
+            errors['name'] = 'This field is required.'
+        plan.name = name[:80]
+    if creating or 'price' in d:
+        try:
+            plan.price = Decimal(str(d.get('price'))).quantize(Decimal('0.01'))
+            if plan.price < 0:
+                raise InvalidOperation
+        except (InvalidOperation, ValueError, TypeError):
+            errors['price'] = 'Must be a number of 0 or more.'
+    if 'currency' in d:
+        plan.currency = str(d.get('currency') or 'eur').lower()[:3]
+    if 'interval' in d:
+        if d.get('interval') not in ('month', 'year'):
+            errors['interval'] = 'Use "month" or "year".'
+        plan.interval = d.get('interval')
+    if 'stripe_price_id' in d:
+        plan.stripe_price_id = str(d.get('stripe_price_id') or '').strip()[:100]
+    if 'limits' in d:
+        if not isinstance(d.get('limits'), dict):
+            errors['limits'] = 'Must be an object.'
+        plan.limits = d.get('limits') or {}
+    if 'is_active' in d:
+        plan.is_active = bool(d.get('is_active'))
+    return errors
+
+
+class PlatformPlanListView(APIView):
+    """GET /api/platform/plans/  ·  POST /api/platform/plans/ {name, price, currency?, interval?, stripe_price_id?, limits?}"""
+    authentication_classes = [PlatformAdminAuthentication]
+    permission_classes = [IsPlatformAdmin]
+
+    def get(self, request):
+        return Response([_plan_admin(p) for p in Plan.objects.annotate(clinic_count=Count('clinics')).order_by('price', 'id')])
+
+    def post(self, request):
+        plan = Plan()
+        errors = _apply_plan(plan, request.data, creating=True)
+        if errors:
+            return Response(errors, status=400)
+        plan.save()
+        plan.clinic_count = 0
+        return Response(_plan_admin(plan), status=201)
+
+
+class PlatformPlanDetailView(APIView):
+    """PATCH /api/platform/plans/<id>/  — any of the fields above."""
+    authentication_classes = [PlatformAdminAuthentication]
+    permission_classes = [IsPlatformAdmin]
+
+    def patch(self, request, pk):
+        plan = Plan.objects.annotate(clinic_count=Count('clinics')).filter(pk=pk).first()
+        if not plan:
+            return Response({'error': 'Plan not found.'}, status=404)
+        errors = _apply_plan(plan, request.data, creating=False)
+        if errors:
+            return Response(errors, status=400)
+        plan.save()
+        return Response(_plan_admin(plan))

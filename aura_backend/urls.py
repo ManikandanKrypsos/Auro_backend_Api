@@ -4,7 +4,7 @@ from django.http import JsonResponse
 from django.conf import settings
 from django.conf.urls.static import static
 from appointments.schedule_views import DayScheduleView
-from tenants.urls import clinic_urlpatterns, platform_urlpatterns
+from tenants.urls import billing_urlpatterns, clinic_urlpatterns, platform_urlpatterns
 
 
 def api_root(request):
@@ -39,6 +39,7 @@ urlpatterns = [
     path('api-auth/', include('rest_framework.urls')),
     path('api/clinics/',      include(clinic_urlpatterns)),     # clinic registration (public)
     path('api/platform/',     include(platform_urlpatterns)),   # Super Admin (separate login)
+    path('api/billing/',      include(billing_urlpatterns)),    # clinic subscription (Stripe)
     path('api/users/',        include('users.urls')),
     path('api/patients/',     include('patients.urls')),
     path('api/treatments/',   include('treatments.urls')),
