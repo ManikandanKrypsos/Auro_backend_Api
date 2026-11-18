@@ -443,6 +443,50 @@ class AdjustStockView(APIView):
         return _movement_response(item, movement, 'Stock adjusted.')
 
 
+def _filtered_movements(request, require_dates=False):
+    """
+    Shared by the movements list and its summary: role scoping + filters.
+    Returns (queryset, date_from, date_to, error_response).
+    Admin / reception: everyone (optional created_by_id). Therapists: only their own movements.
+    """
+    import datetime as dt
+    p = request.query_params
+    qs = StockMovement.objects.all()
+    role = getattr(request.user, 'role', '') or ''
+    if role not in ('admin', 'reception', 'therapist'):
+        return None, None, None, Response({'error': 'You do not have permission to view stock movements.'}, status=403)
+    if role == 'therapist':
+        if p.get('created_by_id') and str(p['created_by_id']) != str(request.user.pk):
+            return None, None, None, Response({'error': 'Therapists can only see their own movements.'}, status=403)
+        qs = qs.filter(created_by=request.user)
+    for field in ('appointment_id', 'item_id', 'created_by_id'):
+        if p.get(field):
+            if not str(p[field]).isdigit():
+                return None, None, None, Response({field: 'Must be a whole number.'}, status=400)
+            qs = qs.filter(**{field: int(p[field])})
+    if p.get('type'):
+        qs = qs.filter(type__in=[t.strip() for t in p['type'].split(',') if t.strip()])
+    dates = {}
+    for field in ('date_from', 'date_to'):
+        if not p.get(field):
+            if require_dates:
+                return None, None, None, Response({field: 'This parameter is required (YYYY-MM-DD).'}, status=400)
+            dates[field] = None
+            continue
+        try:
+            dates[field] = dt.date.fromisoformat(p[field])
+        except ValueError:
+            return None, None, None, Response({field: 'Use YYYY-MM-DD.'}, status=400)
+    if dates['date_from'] and dates['date_to'] and dates['date_from'] > dates['date_to']:
+        return None, None, None, Response({'date_to': 'date_to must be on or after date_from.'}, status=400)
+    if dates['date_from']:
+        qs = qs.filter(created_at__gte=timezone.make_aware(dt.datetime.combine(dates['date_from'], dt.time.min)))
+    if dates['date_to']:
+        qs = qs.filter(created_at__lt=timezone.make_aware(
+            dt.datetime.combine(dates['date_to'] + dt.timedelta(days=1), dt.time.min)))
+    return qs, dates['date_from'], dates['date_to'], None
+
+
 class MovementSearchView(APIView):
     """
     GET /api/inventory/movements/?appointment_id=501&item_id=&type=used&created_by_id=8&date_from=2026-11-01&date_to=2026-11-30
@@ -453,32 +497,12 @@ class MovementSearchView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        import datetime as dt
         p = request.query_params
-        qs = StockMovement.objects.select_related('item', 'supplier', 'created_by', 'lot', 'purchase_order', 'appointment__patient', 'appointment__treatment', 'appointment__staff')
-        role = getattr(request.user, 'role', '') or ''
-        if role not in ('admin', 'reception', 'therapist'):
-            return Response({'error': 'You do not have permission to view stock movements.'}, status=403)
-        if role == 'therapist':
-            if p.get('created_by_id') and str(p['created_by_id']) != str(request.user.pk):
-                return Response({'error': 'Therapists can only see their own movements.'}, status=403)
-            qs = qs.filter(created_by=request.user)
-        for field in ('appointment_id', 'item_id', 'created_by_id'):
-            if p.get(field):
-                if not str(p[field]).isdigit():
-                    return Response({field: 'Must be a whole number.'}, status=400)
-                qs = qs.filter(**{field: int(p[field])})
-        if p.get('type'):
-            qs = qs.filter(type__in=[t.strip() for t in p['type'].split(',') if t.strip()])
-        for field, lookup in (('date_from', 'gte'), ('date_to', 'lt')):
-            if p.get(field):
-                try:
-                    d = dt.date.fromisoformat(p[field])
-                except ValueError:
-                    return Response({field: 'Use YYYY-MM-DD.'}, status=400)
-                if field == 'date_to':
-                    d += dt.timedelta(days=1)
-                qs = qs.filter(**{f'created_at__{lookup}': timezone.make_aware(dt.datetime.combine(d, dt.time.min))})
+        qs, _, _, error = _filtered_movements(request)
+        if error:
+            return error
+        qs = qs.select_related('item', 'supplier', 'created_by', 'lot', 'purchase_order',
+                               'appointment__patient', 'appointment__treatment', 'appointment__staff')
 
         def rows(movs):
             out = []
@@ -501,6 +525,51 @@ class MovementSearchView(APIView):
                              'total_pages': page.paginator.num_pages, 'results': rows(page.object_list)})
         data = rows(qs)
         return Response({'count': len(data), 'total_cost': round(sum(r['cost'] for r in data), 2), 'results': data})
+
+
+class MovementSummaryView(APIView):
+    """
+    GET /api/inventory/movements/summary/?type=used&date_from=2026-11-01&date_to=2026-11-17
+        (+ optional appointment_id, item_id, created_by_id — same filters and scoping as /movements/)
+    Totals per item for the period. date_from and date_to are required.
+    total_quantity is the amount moved (always positive); net_quantity keeps the sign
+    (negative = stock went out).
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from django.db.models import Count, Sum, Max, Min, F, ExpressionWrapper, DecimalField, Case, When, IntegerField
+        qs, date_from, date_to, error = _filtered_movements(request, require_dates=True)
+        if error:
+            return error
+        rows = (qs.values('item_id', 'item__name', 'item__unit', 'item__cost_per_unit')
+                .annotate(use_count=Count('id'),
+                          net_quantity=Sum('quantity'),
+                          total_out=Sum(Case(When(quantity__lt=0, then=-F('quantity')), default=0, output_field=IntegerField())),
+                          total_in=Sum(Case(When(quantity__gt=0, then=F('quantity')), default=0, output_field=IntegerField())),
+                          last_used_at=Max('created_at'))
+                .order_by('-use_count', 'item__name'))
+        items = []
+        for r in rows:
+            total = (r['total_out'] or 0) + (r['total_in'] or 0)
+            items.append({
+                'item_id':        r['item_id'],
+                'item_name':      r['item__name'],
+                'unit':           r['item__unit'],
+                'total_quantity': total,
+                'net_quantity':   r['net_quantity'] or 0,
+                'use_count':      r['use_count'],
+                'total_cost':     round(total * float(r['item__cost_per_unit'] or 0), 2),
+                'last_used_at':   timezone.localtime(r['last_used_at']) if r['last_used_at'] else None,
+            })
+        return Response({
+            'date_from':      date_from,
+            'date_to':        date_to,
+            'item_count':     len(items),
+            'total_uses':     sum(i['use_count'] for i in items),
+            'total_cost':     round(sum(i['total_cost'] for i in items), 2),
+            'items':          items,
+        })
 
 
 # ── Suppliers ─────────────────────────────────────────────────────────────────

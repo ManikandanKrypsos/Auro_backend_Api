@@ -3,7 +3,7 @@ from .views import (
     InventoryMetaView, InventoryListView,
     InventoryDetailView, StockMovementListView,
     OutOfStockView, StockCountView,
-    ReceiveStockView, AdjustStockView, MovementSearchView,
+    ReceiveStockView, AdjustStockView, MovementSearchView, MovementSummaryView,
 )
 from .lot_views import ItemLotsView, NearExpiryView, InventorySummaryView
 
@@ -15,6 +15,7 @@ urlpatterns = [
     path('summary/',              InventorySummaryView.as_view()),     # GET dashboard KPIs
     path('near-expiry/',          NearExpiryView.as_view()),           # GET ?days=90
     path('movements/',            MovementSearchView.as_view()),       # GET all movements (?appointment_id=)
+    path('movements/summary/',    MovementSummaryView.as_view()),      # GET totals per item for a period
     path('<int:pk>/',             InventoryDetailView.as_view()),      # GET, PATCH, DELETE
     path('<int:pk>/movements/',   StockMovementListView.as_view()),    # GET, POST
     path('<int:pk>/receive/',     ReceiveStockView.as_view()),         # POST receive stock
