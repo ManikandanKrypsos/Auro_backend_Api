@@ -1,4 +1,6 @@
 from django.db import models
+
+from tenants.managers import TenantManager
 from users.models import User
 from patients.models import Patient
 from treatments.models import Treatment, PricePlan
@@ -6,6 +8,10 @@ from rooms.models import Room
 
 
 class Appointment(models.Model):
+    clinic = models.ForeignKey('tenants.Clinic', on_delete=models.PROTECT, null=True, blank=True,
+                               related_name='appointments')   # set automatically from the logged-in user
+    objects = TenantManager()                 # every query is scoped to the current clinic
+
     STATUS_CHOICES = (
         ('upcoming',   'Upcoming'),
         ('in_session', 'In Session'),

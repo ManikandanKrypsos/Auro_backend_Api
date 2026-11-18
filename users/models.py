@@ -1,5 +1,7 @@
-from django.contrib.auth.models import AbstractUser
+from django.contrib.auth.models import AbstractUser, UserManager
 from django.db import models
+
+from tenants.managers import TenantManager, TenantUserManager
 
 class User(AbstractUser):
     ROLE_CHOICES = (
@@ -11,6 +13,12 @@ class User(AbstractUser):
     email              = models.EmailField(unique=True)
     username           = models.CharField(max_length=150, blank=True)
     role               = models.CharField(max_length=20, choices=ROLE_CHOICES, blank=True)
+    clinic             = models.ForeignKey('tenants.Clinic', on_delete=models.PROTECT, null=True, blank=True,
+                                           related_name='users')
+    must_change_password = models.BooleanField(default=False)   # set for staff created with a temp password
+
+    objects     = TenantUserManager()   # scoped to the logged-in user's clinic
+    all_objects = UserManager()         # unscoped: login, email uniqueness, platform admin
 
     # Staff profile fields (used for reception & therapist)
     profile_image      = models.TextField(blank=True)  # stores URL or base64 image
@@ -23,7 +31,8 @@ class User(AbstractUser):
     REQUIRED_FIELDS = []         
 
     class Meta:
-        constraints = []         
+        constraints = []
+        default_manager_name = 'objects'
 
     def __str__(self):
         return self.email
@@ -31,6 +40,8 @@ class User(AbstractUser):
 # ─── Staff Schedule Models ────────────────────────────────────────────────────
 
 class StaffWorkingHours(models.Model):
+    objects = TenantManager.via('staff__clinic_id')()   # scoped to the current clinic via its parent
+
     DAY_CHOICES = [
         ('Mon', 'Monday'), ('Tue', 'Tuesday'), ('Wed', 'Wednesday'),
         ('Thu', 'Thursday'), ('Fri', 'Friday'), ('Sat', 'Saturday'), ('Sun', 'Sunday'),
@@ -50,6 +61,8 @@ class StaffWorkingHours(models.Model):
 
 
 class StaffBreakTime(models.Model):
+    objects = TenantManager.via('staff__clinic_id')()   # scoped to the current clinic via its parent
+
     staff      = models.ForeignKey(User, on_delete=models.CASCADE, related_name='break_times')
     start_time = models.TimeField()
     end_time   = models.TimeField()
@@ -63,6 +76,8 @@ class StaffBreakTime(models.Model):
 
 
 class StaffLeave(models.Model):
+    objects = TenantManager.via('staff__clinic_id')()   # scoped to the current clinic via its parent
+
     staff      = models.ForeignKey(User, on_delete=models.CASCADE, related_name='leaves')
     from_date  = models.DateField()
     to_date    = models.DateField()

@@ -1,4 +1,6 @@
 from django.db import models
+
+from tenants.managers import TenantManager
 from django.conf import settings
 
 MARKETING_SOURCE_CHOICES = (
@@ -11,6 +13,10 @@ MARKETING_SOURCE_CHOICES = (
 )
 
 class Patient(models.Model):
+    clinic = models.ForeignKey('tenants.Clinic', on_delete=models.PROTECT, null=True, blank=True,
+                               related_name='patients')   # set automatically from the logged-in user
+    objects = TenantManager()                 # every query is scoped to the current clinic
+
     CATEGORY_CHOICES = (
         ('New', 'New'),
         ('Returning', 'Returning'),
@@ -84,6 +90,8 @@ class Patient(models.Model):
 # ── Session Notes ─────────────────────────────────────────────────────────────
 
 class SessionNote(models.Model):
+    objects = TenantManager.via('patient__clinic_id')()   # scoped to the current clinic via its parent
+
     patient                = models.ForeignKey(Patient, on_delete=models.CASCADE, related_name='session_notes')
     appointment            = models.OneToOneField(
                                 'appointments.Appointment',
@@ -118,6 +126,8 @@ class SessionNote(models.Model):
 # ── Consent Records ───────────────────────────────────────────────────────────
 
 class ConsentRecord(models.Model):
+    objects = TenantManager.via('patient__clinic_id')()   # scoped to the current clinic via its parent
+
     STATUS_CHOICES = (
         ('signed',  'Signed'),
         ('pending', 'Pending'),

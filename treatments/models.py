@@ -1,9 +1,15 @@
 from django.db import models
+
+from tenants.managers import TenantManager
 from users.models import User
 from rooms.models import Room
 
 
 class Treatment(models.Model):
+    clinic = models.ForeignKey('tenants.Clinic', on_delete=models.PROTECT, null=True, blank=True,
+                               related_name='treatments')   # set automatically from the logged-in user
+    objects = TenantManager()                 # every query is scoped to the current clinic
+
     CATEGORY_CHOICES = [
         ('face', 'Face'),
         ('body', 'Body'),
@@ -51,6 +57,8 @@ class Treatment(models.Model):
 
 
 class PricePlan(models.Model):
+    objects = TenantManager.via('treatment__clinic_id')()   # scoped to the current clinic via its parent
+
     treatment = models.ForeignKey(Treatment, on_delete=models.CASCADE, related_name='price_plans')
     sessions  = models.PositiveIntegerField()
     price     = models.DecimalField(max_digits=10, decimal_places=2)

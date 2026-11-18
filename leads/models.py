@@ -1,8 +1,14 @@
 from django.db import models
+
+from tenants.managers import TenantManager
 from users.models import User
 
 
 class Lead(models.Model):
+    clinic = models.ForeignKey('tenants.Clinic', on_delete=models.PROTECT, null=True, blank=True,
+                               related_name='leads')   # set automatically from the logged-in user
+    objects = TenantManager()                 # every query is scoped to the current clinic
+
     SOURCE_CHOICES = (
         ('instagram',  'Instagram'),
         ('web',        'Web'),
@@ -44,6 +50,8 @@ class Lead(models.Model):
 
 
 class LeadActivity(models.Model):
+    objects = TenantManager.via('lead__clinic_id')()   # scoped to the current clinic via its parent
+
     ACTION_CHOICES = (
         ('call',         'Call'),
         ('whatsapp',     'WhatsApp'),

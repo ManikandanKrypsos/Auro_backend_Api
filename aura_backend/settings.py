@@ -33,6 +33,7 @@ INSTALLED_APPS = [
     'corsheaders',
     'rest_framework',
     'django_celery_beat',
+    'tenants',
     'users',
     'patients',
     'appointments',
@@ -57,6 +58,7 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'tenants.middleware.TenantContextMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
@@ -144,8 +146,10 @@ AUTH_PASSWORD_VALIDATORS = [
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
-        'rest_framework_simplejwt.authentication.JWTAuthentication', 
-        'rest_framework.authentication.SessionAuthentication', 
+        # Same JWT / session auth as before, plus: sets the user's clinic for the request,
+        # blocks suspended clinics and users who must change their temporary password.
+        'tenants.auth.TenantJWTAuthentication',
+        'tenants.auth.TenantSessionAuthentication',
     ],
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',

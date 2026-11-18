@@ -1,9 +1,15 @@
 from django.db import models
+
+from tenants.managers import TenantManager
 from patients.models import Patient
 from treatments.models import Treatment, PricePlan
 
 
 class PatientPackage(models.Model):
+    clinic = models.ForeignKey('tenants.Clinic', on_delete=models.PROTECT, null=True, blank=True,
+                               related_name='patient_packages')   # set automatically from the logged-in user
+    objects = TenantManager()                 # every query is scoped to the current clinic
+
 
     STATUS_CHOICES = (
         ('active',    'Active'),

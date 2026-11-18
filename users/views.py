@@ -71,43 +71,66 @@ class RolesListView(APIView):
 
 class RegisterView(APIView):
     """
-    POST /api/users/register/
-    Open signup by default (OPEN_SIGNUP=True). With OPEN_SIGNUP=False only an admin
-    can create accounts, except the very first account on an empty system.
+    POST /api/users/register/  — retired.
+    Clinic admins register with POST /api/clinics/register/ (creates the clinic + its first admin).
+    Receptionists and therapists are created by their clinic admin with POST /api/users/staff/.
     """
-    permission_classes = [permissions.AllowAny]
-    throttle_scope     = 'auth'
+    permission_classes     = [permissions.AllowAny]
+    authentication_classes = []
+    throttle_scope         = 'auth'
 
     def post(self, request):
-        # OPEN_SIGNUP=True (default): anyone can register with any role, like before.
-        # Set OPEN_SIGNUP=False on the server to allow only admins to create accounts.
-        open_signup = os.environ.get('OPEN_SIGNUP', 'True') == 'True'
-        is_admin    = request.user.is_authenticated and getattr(request.user, 'role', '') == 'admin'
-        if not open_signup and User.objects.exists() and not is_admin:
-            return Response({'error': 'Only an admin can create accounts.'}, status=403)
-        serializer = RegisterSerializer(data=request.data)
-        if serializer.is_valid():
-            user   = serializer.save()
-            tokens = get_tokens_for_user(user)
-            return Response({
-                'token':         tokens['access'],
-                'refresh_token': tokens['refresh'],
-                'role_id':       ROLE_ID_MAP.get(user.role, 1),
-                'role':          user.role,
-                'user': {
-                    'id':       user.id,
-                    'username': user.username,
-                    'email':    user.email,
-                    'role':     user.role,
-                    'role_id':  ROLE_ID_MAP.get(user.role, 1),
-                }
-            }, status=201)
-        return Response(serializer.errors, status=400)
+        role_id = str(request.data.get('role_id', ''))
+        if role_id in ('2', '3'):
+            return Response({'error': 'Receptionist and therapist accounts are created by your clinic admin.',
+                             'code': 'signup_disabled'}, status=403)
+        return Response({'error': 'To create a new clinic account, use clinic registration.',
+                         'code': 'use_clinic_registration', 'endpoint': '/api/clinics/register/'}, status=403)
+
+
+def auth_payload(user, tokens=None):
+    """Login / registration / refresh response: tokens + user + clinic + password flag."""
+    tokens = tokens or get_tokens_for_user(user)
+    clinic = user.clinic
+    data = {
+        'token':         tokens['access'],
+        'role_id':       ROLE_ID_MAP.get(user.role, 1),
+        'role':          user.role,
+        'clinic_id':     clinic.id if clinic else None,
+        'clinic_name':   clinic.name if clinic else None,
+        'must_change_password': user.must_change_password,
+        'user': {
+            'id':            user.id,
+            'username':      user.username,
+            'email':         user.email,
+            'role':          user.role,
+            'role_id':       ROLE_ID_MAP.get(user.role, 1),
+            'profile_image': _safe_image(user.profile_image),
+            'clinic_id':     clinic.id if clinic else None,
+            'clinic_name':   clinic.name if clinic else None,
+            'must_change_password': user.must_change_password,
+        },
+    }
+    if tokens.get('refresh'):
+        data['refresh_token'] = tokens['refresh']
+    return data
+
+
+def _login_block(user):
+    """Response blocking a login/refresh for this user (suspended clinic / no clinic), or None."""
+    from tenants.auth import check_clinic_user
+    from rest_framework.exceptions import APIException
+    try:
+        check_clinic_user(user)
+    except APIException as e:
+        return Response(e.detail, status=e.status_code)
+    return None
 
 
 class LoginView(APIView):
-    permission_classes = [permissions.AllowAny]
-    throttle_scope     = 'auth'
+    permission_classes     = [permissions.AllowAny]
+    authentication_classes = []
+    throttle_scope         = 'auth'
 
     def post(self, request):
         serializer = LoginSerializer(data=request.data)
@@ -116,7 +139,7 @@ class LoginView(APIView):
 
             # Block reception/therapist if they are not in the active staff list
             if user.role in ['reception', 'therapist']:
-                if not User.objects.filter(
+                if not User.all_objects.filter(
                     id=user.id,
                     role__in=['reception', 'therapist']
                 ).exists():
@@ -131,21 +154,12 @@ class LoginView(APIView):
                         status=403
                     )
 
-            tokens = get_tokens_for_user(user)
-            return Response({
-                'token':         tokens['access'],
-                'refresh_token': tokens['refresh'],
-                'role_id':       ROLE_ID_MAP.get(user.role, 1),
-                'role':          user.role,
-                'user': {
-                    'id':            user.id,
-                    'username':      user.username,
-                    'email':         user.email,
-                    'role':          user.role,
-                    'role_id':       ROLE_ID_MAP.get(user.role, 1),
-                    'profile_image': _safe_image(user.profile_image),
-                }
-            })
+            if not user.is_active:
+                return Response({'error': 'Your account has been deactivated. Please contact your admin.'}, status=403)
+            blocked = _login_block(user)
+            if blocked:
+                return blocked
+            return Response(auth_payload(user))
         return Response(serializer.errors, status=400)
 
 
@@ -168,8 +182,9 @@ class RefreshTokenView(APIView):
     Send refresh_token → get new access token
     Use this on app start to keep user logged in
     """
-    throttle_scope     = 'auth'
-    permission_classes = [permissions.AllowAny]
+    throttle_scope         = 'auth'
+    permission_classes     = [permissions.AllowAny]
+    authentication_classes = []
 
     def post(self, request):
         try:
@@ -180,24 +195,13 @@ class RefreshTokenView(APIView):
             refresh = RefreshToken(refresh_token)
             new_access = str(refresh.access_token)
 
-            # Get user info
-            user_id = refresh.payload.get('user_id')
-            try:
-                user = User.objects.get(id=user_id)
-                return Response({
-                    'token':   new_access,
-                    'role_id': ROLE_ID_MAP.get(user.role, 1),
-                    'role':    user.role,
-                    'user': {
-                        'id':       user.id,
-                        'username': user.username,
-                        'email':    user.email,
-                        'role':     user.role,
-                        'role_id':  ROLE_ID_MAP.get(user.role, 1),
-                    }
-                })
-            except User.DoesNotExist:
-                return Response({'token': new_access})
+            user = User.all_objects.filter(id=refresh.payload.get('user_id'), is_active=True).first()
+            if not user:
+                return Response({'error': 'Account not found or deactivated. Please login again.'}, status=401)
+            blocked = _login_block(user)
+            if blocked:
+                return blocked
+            return Response(auth_payload(user, {'access': new_access}))
 
         except TokenError:
             return Response(
@@ -227,6 +231,9 @@ class MeView(APIView):
             'specialist_area':     u.specialist_area if hasattr(u, 'specialist_area') else None,
             'years_of_experience': u.years_of_experience if hasattr(u, 'years_of_experience') else None,
             'joining_date':        str(u.joining_date) if hasattr(u, 'joining_date') and u.joining_date else None,
+            'clinic_id':           u.clinic_id,
+            'clinic_name':         u.clinic.name if u.clinic_id else None,
+            'must_change_password': u.must_change_password,
         })
 
     def patch(self, request):
@@ -275,6 +282,9 @@ class MeView(APIView):
             'specialist_area':     user.specialist_area if hasattr(user, 'specialist_area') else None,
             'years_of_experience': user.years_of_experience if hasattr(user, 'years_of_experience') else None,
             'joining_date':        str(user.joining_date) if hasattr(user, 'joining_date') and user.joining_date else None,
+            'clinic_id':           user.clinic_id,
+            'clinic_name':         user.clinic.name if user.clinic_id else None,
+            'must_change_password': user.must_change_password,
         })
 
 
@@ -313,6 +323,108 @@ class UserListView(APIView):
         return Response(result)
 
 
+    def post(self, request):
+        """
+        POST /api/users/staff/  — admin only. Creates a receptionist or therapist in the admin's
+        own clinic with a temporary password (returned once, in this response).
+        Body: {"username": "Ebin", "email": "ebin@clinic.com", "role": "therapist" | "reception",
+               "phone"?: "...", "specialist_area"?: "..."}      (role_id 2 / 3 also accepted)
+        """
+        if getattr(request.user, 'role', '') != 'admin':
+            return Response({'error': 'Only a clinic admin can create staff accounts.'}, status=403)
+        d = request.data
+        role = str(d.get('role', '') or '').strip().lower()
+        role = {'2': 'reception', '3': 'therapist', 'receptionist': 'reception'}.get(str(d.get('role_id', '')), role) or role
+        role = 'reception' if role == 'receptionist' else role
+        name = str(d.get('username', '') or d.get('name', '') or '').strip()
+        email = str(d.get('email', '') or '').strip().lower()
+        errors = {}
+        if role not in ('reception', 'therapist'):
+            errors['role'] = 'Use "therapist" or "reception". Admins are created through clinic registration.'
+        if not name:
+            errors['username'] = 'This field is required.'
+        from django.core.validators import validate_email
+        try:
+            validate_email(email)
+            if User.all_objects.filter(email__iexact=email).exists():
+                errors['email'] = 'An account with this email already exists.'
+        except DjangoValidationError:
+            errors['email'] = 'Enter a valid email address.'
+        if errors:
+            return Response(errors, status=400)
+
+        temp_password = _temp_password()
+        user = User.objects.create_user(
+            email=email, password=temp_password, username=name[:150], role=role,
+            clinic_id=request.user.clinic_id, must_change_password=True,
+            phone=str(d.get('phone', '') or '')[:30],
+            specialist_area=str(d.get('specialist_area', '') or '')[:100],
+        )
+        data = _format_staff(user, request)
+        data.update({'must_change_password': True, 'temp_password': temp_password})
+        return Response(data, status=201)
+
+
+def _temp_password():
+    """12 characters, easy to read out loud (no 0/O/1/l/I), always passes the password rules."""
+    alphabet = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+    while True:
+        pwd = ''.join(secrets.choice(alphabet) for _ in range(12))
+        if any(c.isdigit() for c in pwd) and any(c.isupper() for c in pwd) and any(c.islower() for c in pwd):
+            return pwd
+
+
+class ChangePasswordView(APIView):
+    """
+    POST /api/users/change-password/
+    Body: {"new_password": "...", "confirm_password": "...", "current_password": "..."}
+    current_password is not needed while must_change_password is true (first login with a temp
+    password). Clears must_change_password. Available to every logged-in clinic user.
+    """
+    throttle_scope = 'otp_verify'
+
+    def post(self, request):
+        user = User.all_objects.get(pk=request.user.pk)
+        new_password = request.data.get('new_password', '') or ''
+        confirm = request.data.get('confirm_password', '') or ''
+        if not user.must_change_password:
+            if not user.check_password(request.data.get('current_password', '') or ''):
+                return Response({'current_password': 'Current password is incorrect.'}, status=400)
+        if not new_password or not confirm:
+            return Response({'error': 'Both password fields are required.'}, status=400)
+        if new_password != confirm:
+            return Response({'confirm_password': 'Passwords do not match.'}, status=400)
+        if user.check_password(new_password):
+            return Response({'new_password': 'Choose a password different from the current one.'}, status=400)
+        try:
+            validate_password(new_password, user)
+        except DjangoValidationError as e:
+            return Response({'new_password': ' '.join(e.messages)}, status=400)
+        user.set_password(new_password)
+        user.must_change_password = False
+        user.save(update_fields=['password', 'must_change_password'])
+        return Response({'message': 'Password updated.', 'must_change_password': False})
+
+
+class StaffResetPasswordView(APIView):
+    """
+    POST /api/users/staff/<id>/reset-password/  — admin only, own clinic.
+    Issues a new temporary password (returned once) and sets must_change_password again.
+    """
+    permission_classes = [IsAdmin]
+
+    def post(self, request, pk):
+        user = User.objects.filter(pk=pk, role__in=['reception', 'therapist']).first()
+        if not user:
+            return Response({'error': 'Staff member not found.'}, status=404)
+        temp_password = _temp_password()
+        user.set_password(temp_password)
+        user.must_change_password = True
+        user.save(update_fields=['password', 'must_change_password'])
+        return Response({'id': user.id, 'email': user.email, 'temp_password': temp_password,
+                         'must_change_password': True})
+
+
 class ForgotPasswordView(APIView):
     """
     POST /api/users/forgot-password/
@@ -320,6 +432,7 @@ class ForgotPasswordView(APIView):
     Always answers the same way, so it can't be used to discover which emails exist.
     """
     permission_classes = [permissions.AllowAny]
+    authentication_classes = []
     throttle_scope     = 'otp_request'
 
     def post(self, request):
@@ -327,7 +440,7 @@ class ForgotPasswordView(APIView):
         if not email:
             return Response({'error': 'Email is required'}, status=400)
 
-        user = User.objects.filter(email__iexact=email, is_active=True).first()
+        user = User.all_objects.filter(email__iexact=email, is_active=True).first()
         if user and cache.add(f'password_reset_wait_{email}', 1, timeout=OTP_RESEND_WAIT):
             otp = f'{secrets.randbelow(1_000_000):06d}'
             cache.set(f'password_reset_otp_{email}', {'otp': otp, 'attempts': 0}, timeout=OTP_TTL)
@@ -363,6 +476,7 @@ class VerifyOTPView(APIView):
     Returns a single-use reset_token (valid 15 minutes) — it cannot be used to call other APIs.
     """
     permission_classes = [permissions.AllowAny]
+    authentication_classes = []
     throttle_scope     = 'otp_verify'
 
     def post(self, request):
@@ -386,7 +500,7 @@ class VerifyOTPView(APIView):
             return Response({'error': 'Invalid OTP'}, status=400)
 
         cache.delete(key)
-        user = User.objects.filter(email__iexact=email, is_active=True).first()
+        user = User.all_objects.filter(email__iexact=email, is_active=True).first()
         if not user:
             return Response({'error': 'OTP expired or invalid. Please request a new one.'}, status=400)
 
@@ -410,7 +524,7 @@ class ResetPasswordView(APIView):
         token  = request.data.get('reset_token') or (header[7:].strip() if header.startswith('Bearer ') else '')
         try:
             data = signing.loads(token, salt=RESET_SALT, max_age=RESET_MAX_AGE)
-            user = User.objects.get(pk=data['uid'], is_active=True)
+            user = User.all_objects.get(pk=data['uid'], is_active=True)
             if user.password[-12:] != data['ph']:
                 raise ValueError('token already used')
         except Exception:

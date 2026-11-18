@@ -1,8 +1,14 @@
 from django.conf import settings
 from django.db import models
 
+from tenants.managers import TenantManager
+
 
 class Supplier(models.Model):
+    clinic = models.ForeignKey('tenants.Clinic', on_delete=models.PROTECT, null=True, blank=True,
+                               related_name='suppliers')   # set automatically from the logged-in user
+    objects = TenantManager()                 # every query is scoped to the current clinic
+
     name       = models.CharField(max_length=150)
     phone      = models.CharField(max_length=30, blank=True)
     email      = models.EmailField(blank=True)
@@ -19,6 +25,10 @@ class Supplier(models.Model):
 
 
 class InventoryItem(models.Model):
+    clinic = models.ForeignKey('tenants.Clinic', on_delete=models.PROTECT, null=True, blank=True,
+                               related_name='inventory_items')   # set automatically from the logged-in user
+    objects = TenantManager()                 # every query is scoped to the current clinic
+
     CATEGORY_CHOICES = [
         ('consumable',  'Consumable'),
         ('equipment',   'Equipment'),
@@ -70,6 +80,10 @@ class InventoryItem(models.Model):
 
 
 class StockMovement(models.Model):
+    clinic = models.ForeignKey('tenants.Clinic', on_delete=models.PROTECT, null=True, blank=True,
+                               related_name='stock_movements')   # set automatically from the logged-in user
+    objects = TenantManager()                 # every query is scoped to the current clinic
+
     MOVEMENT_TYPE_CHOICES = [
         ('added',       'Added to Inventory'),
         ('used',        'Used in Treatment'),
@@ -100,6 +114,10 @@ class StockMovement(models.Model):
 
 
 class Lot(models.Model):
+    clinic = models.ForeignKey('tenants.Clinic', on_delete=models.PROTECT, null=True, blank=True,
+                               related_name='lots')   # set automatically from the logged-in user
+    objects = TenantManager()                 # every query is scoped to the current clinic
+
     """A batch of an item with its own expiry date (only for items with track_lots=True)."""
     item               = models.ForeignKey(InventoryItem, on_delete=models.CASCADE, related_name='lots')
     lot_number         = models.CharField(max_length=80, blank=True)
@@ -116,11 +134,15 @@ class Lot(models.Model):
 
 
 class PurchaseOrder(models.Model):
+    clinic = models.ForeignKey('tenants.Clinic', on_delete=models.PROTECT, null=True, blank=True,
+                               related_name='purchase_orders')   # set automatically from the logged-in user
+    objects = TenantManager()                 # every query is scoped to the current clinic
+
     STATUS_CHOICES = (
         ('draft', 'Draft'), ('sent', 'Sent'), ('partially_received', 'Partially received'),
         ('received', 'Received'), ('cancelled', 'Cancelled'),
     )
-    number        = models.CharField(max_length=20, unique=True)
+    number        = models.CharField(max_length=20)
     supplier      = models.ForeignKey(Supplier, on_delete=models.PROTECT, related_name='purchase_orders')
     status        = models.CharField(max_length=20, choices=STATUS_CHOICES, default='draft', db_index=True)
     expected_date = models.DateField(null=True, blank=True)
@@ -133,12 +155,15 @@ class PurchaseOrder(models.Model):
 
     class Meta:
         ordering = ['-created_at']
+        constraints = [models.UniqueConstraint(fields=['clinic', 'number'], name='po_number_unique_per_clinic')]
 
     def __str__(self):
         return self.number
 
 
 class PurchaseOrderLine(models.Model):
+    objects = TenantManager.via('order__clinic_id')()   # scoped to the current clinic via its parent
+
     order             = models.ForeignKey(PurchaseOrder, on_delete=models.CASCADE, related_name='lines')
     item              = models.ForeignKey(InventoryItem, on_delete=models.PROTECT, related_name='purchase_lines')
     quantity_ordered  = models.PositiveIntegerField()
