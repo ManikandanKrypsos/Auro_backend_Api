@@ -205,7 +205,9 @@ class InventoryItemWriteSerializer(serializers.Serializer):
         "cost_per_unit":        25.00,
         "sku":                  "RST-30G-001",   // optional
         "brand":                "Restylane",     // optional
-        "track_lots":           true             // stock split into lots with expiry dates
+        "track_lots":           true,            // stock split into lots with expiry dates
+        "lot_number":           "L-A",           // create only, optional: lot for initial_stock
+        "expiry_date":          "2026-12-01"     // create only, optional
     }
     category can be sent as category_id (1-4) or category ("consumable"…).
     """
@@ -214,6 +216,9 @@ class InventoryItemWriteSerializer(serializers.Serializer):
     sku                  = serializers.CharField(max_length=60, required=False, allow_blank=True, allow_null=True)
     brand                = serializers.CharField(max_length=100, required=False, allow_blank=True, allow_null=True)
     track_lots           = serializers.BooleanField(required=False)
+    # Create only: put initial_stock into a lot (items with track_lots)
+    lot_number           = serializers.CharField(max_length=80, required=False, allow_blank=True, allow_null=True)
+    expiry_date          = serializers.DateField(required=False, allow_null=True)
     category_id          = serializers.IntegerField(required=False)
     category             = serializers.ChoiceField(choices=list(CATEGORY_ID_MAP.keys()), required=False)
     supplier_id          = serializers.IntegerField(required=False, allow_null=True)
@@ -264,6 +269,18 @@ class InventoryItemWriteSerializer(serializers.Serializer):
                 if 'supplier_phone' not in validated_data:
                     put('supplier_phone', '')
 
+    def validate(self, data):
+        lot_number = (data.get('lot_number') or '').strip()
+        expiry_date = data.get('expiry_date')
+        if lot_number or expiry_date:
+            if self.instance is not None:
+                raise serializers.ValidationError({'lot_number': 'Lots are added with POST /api/inventory/<id>/receive/, not on update.'})
+            if not data.get('track_lots'):
+                raise serializers.ValidationError({'lot_number': 'Set track_lots: true to put the initial stock into a lot.'})
+            if not data.get('initial_stock'):
+                raise serializers.ValidationError({'initial_stock': 'initial_stock (greater than 0) is required with lot_number / expiry_date.'})
+        return data
+
     def validate_unit_id(self, value):
         if value not in UNIT_MAP:
             raise serializers.ValidationError(
@@ -274,6 +291,8 @@ class InventoryItemWriteSerializer(serializers.Serializer):
     def create(self, validated_data):
         initial_stock = validated_data.pop('initial_stock', 0)
         unit_id       = validated_data.pop('unit_id', None)
+        lot_number    = (validated_data.pop('lot_number', '') or '').strip()
+        expiry_date   = validated_data.pop('expiry_date', None)
 
         self._apply_category_and_supplier(validated_data, validated_data)
         if unit_id:
@@ -289,22 +308,32 @@ class InventoryItemWriteSerializer(serializers.Serializer):
             if validated_data.get(field) is None:
                 validated_data[field] = ''
 
-        validated_data['current_stock'] = initial_stock
-        item = InventoryItem.objects.create(**validated_data)
+        from django.db import transaction
+        with transaction.atomic():
+            validated_data['current_stock'] = initial_stock
+            item = InventoryItem.objects.create(**validated_data)
 
-        # Record initial stock movement
-        if initial_stock > 0:
-            import datetime
-            StockMovement.objects.create(
-                item=item, type='added',
-                quantity=initial_stock,
-                note='Initial stock',
-                unit_cost=item.cost_per_unit,
-                supplier=item.supplier,
-                created_by=self.context.get('user'),
-            )
-            item.last_restock_date = datetime.date.today()
-            item.save()
+            # Record initial stock movement (into a lot when lot_number / expiry_date are sent)
+            if initial_stock > 0:
+                import datetime
+                lot = None
+                if lot_number or expiry_date:
+                    lot = Lot.objects.create(
+                        item=item, lot_number=lot_number[:80], expiry_date=expiry_date,
+                        quantity_received=initial_stock, quantity_remaining=initial_stock,
+                        unit_cost=item.cost_per_unit, supplier=item.supplier,
+                    )
+                StockMovement.objects.create(
+                    item=item, type='added',
+                    quantity=initial_stock,
+                    note='Initial stock',
+                    unit_cost=item.cost_per_unit,
+                    supplier=item.supplier,
+                    lot=lot,
+                    created_by=self.context.get('user'),
+                )
+                item.last_restock_date = datetime.date.today()
+                item.save()
 
         return item
 

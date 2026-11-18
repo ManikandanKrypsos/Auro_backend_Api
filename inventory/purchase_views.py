@@ -117,8 +117,9 @@ def _get_po(pk):
 
 class PurchaseOrderListView(APIView):
     """
-    GET  /api/purchase-orders/?status=sent&supplier_id=3&search=PO-10&page=1&page_size=20
+    GET  /api/purchase-orders/?status=sent&supplier_id=3&search=PO-10&date_from=2026-01-01&date_to=2026-12-31&page=1&page_size=20
          status can be a comma list, e.g. status=sent,partially_received (open orders)
+         date_from / date_to filter by the order's creation date (both days included)
     POST /api/purchase-orders/
          {supplier_id, expected_date?, notes?, lines: [{inventory_item_id, quantity_ordered, unit_cost?}]}
          Creates a draft. unit_cost defaults to the item's cost_per_unit.
@@ -134,6 +135,17 @@ class PurchaseOrderListView(APIView):
             qs = qs.filter(supplier_id=int(p['supplier_id']))
         if p.get('search'):
             qs = qs.filter(Q(number__icontains=p['search']) | Q(supplier__name__icontains=p['search']))
+        import datetime as dt
+        for field in ('date_from', 'date_to'):
+            if p.get(field):
+                try:
+                    d = dt.date.fromisoformat(p[field])
+                except ValueError:
+                    return Response({field: 'Use YYYY-MM-DD.'}, status=400)
+                if field == 'date_to':
+                    d += dt.timedelta(days=1)
+                start = timezone.make_aware(dt.datetime.combine(d, dt.time.min))
+                qs = qs.filter(created_at__gte=start) if field == 'date_from' else qs.filter(created_at__lt=start)
         if 'page' in p or 'page_size' in p:
             from django.core.paginator import Paginator
             try:
