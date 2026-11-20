@@ -676,6 +676,10 @@ class AvailableSlotsView(APIView):
 
         if not staff_id or not service_id or not month:
             return Response({'error': 'staff_id, service_id and month are required.'}, status=400)
+        from .conflicts import own_schedule_only
+        denied = own_schedule_only(request, staff_id)
+        if denied:
+            return denied
 
         try:
             year, mon = map(int, month.split('-'))
@@ -968,8 +972,12 @@ class CalendarView(APIView):
         if hasattr(request.user, 'role') and request.user.role == 'therapist':
             qs = qs.filter(staff=request.user)
 
-        # Optional staff_id filter
+        # Optional staff_id filter (therapists: only their own id)
         staff_id = request.query_params.get('staff_id')
+        from .conflicts import own_schedule_only
+        denied = own_schedule_only(request, staff_id)
+        if denied:
+            return denied
         if staff_id:
             qs = qs.filter(staff__id=staff_id)
 

@@ -2,6 +2,9 @@
 GET /api/schedule/day/?date=2026-11-06[&grid_start=08:00&grid_end=21:00]
 
 One day, every therapist and every room, for the calendar booking grid.
+  ?staff_id=8            admin / reception: only that therapist's column
+Therapist callers always get only their own column (any staff_id is ignored), and room columns show
+other therapists' bookings only as anonymous "Booked" ranges (no patient, treatment or therapist).
 blocked_ranges types:
   closed  — outside clinic / staff hours, clinic closed, staff on leave or not scheduled
   break   — staff break
@@ -67,7 +70,17 @@ class DayScheduleView(APIView):
         )
 
         # ── Staff data (one query each) ───────────────────────────────────────
-        therapists = list(User.objects.filter(role='therapist', is_active=True).order_by('username', 'id'))
+        is_therapist = getattr(request.user, 'role', '') == 'therapist'
+        therapists = User.objects.filter(role='therapist', is_active=True).order_by('username', 'id')
+        if is_therapist:
+            therapists = therapists.filter(pk=request.user.pk)
+        else:
+            raw_staff = str(request.query_params.get('staff_id', '') or '').strip()
+            if raw_staff:
+                if not raw_staff.isdigit():
+                    return Response({'staff_id': 'Must be a staff id.'}, status=400)
+                therapists = therapists.filter(pk=int(raw_staff))
+        therapists = list(therapists)
         ids   = [t.id for t in therapists]
         hours = {h.staff_id: h for h in StaffWorkingHours.objects.filter(staff_id__in=ids, day=code)}
         on_leave = set(StaffLeave.objects.filter(staff_id__in=ids, from_date__lte=day, to_date__gte=day)
@@ -179,6 +192,10 @@ class DayScheduleView(APIView):
             appt_list = []
             for a in by_room.get(r.id, []):
                 s, e = times(a)
+                if is_therapist and a.staff_id != request.user.pk:
+                    # someone else's booking: the room is taken, but no details
+                    blocked.append({'start': s, 'end': e, 'type': 'booked', 'label': 'Booked'})
+                    continue
                 staff_name = _staff_name(a.staff)
                 blocked.append({'start': s, 'end': e, 'type': 'booked',
                                 'label': f"{staff_name} — {a.treatment.name if a.treatment else 'Appointment'}",

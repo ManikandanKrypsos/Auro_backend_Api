@@ -139,3 +139,16 @@ def find_conflict(start, duration, staff=None, room=None, exclude_id=None):
                             treatment=a.treatment.name if a.treatment else None,
                             blocked_until=_hm(timezone.localtime(a_end)))
     return None
+
+
+def own_schedule_only(request, staff_id):
+    """
+    Therapists may only look at their own schedule. Returns a 403 Response when a therapist asks
+    for someone else's staff_id, else None. Admin / reception: no restriction.
+    """
+    from rest_framework.response import Response
+    if getattr(request.user, 'role', '') != 'therapist' or staff_id in (None, ''):
+        return None
+    if str(staff_id).strip() != str(request.user.pk):
+        return Response({'error': 'Therapists can only view their own schedule.', 'code': 'not_own_schedule'}, status=403)
+    return None
