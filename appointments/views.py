@@ -212,6 +212,19 @@ def _update_patient_category(patient):
         patient.save()
 
 
+APPOINTMENT_ORDERINGS = ('date_time', '-date_time', 'created_at', '-created_at')
+
+
+def ordered_page(request, qs):
+    """?ordering= (date_time default) + optional ?page/?page_size — shared by the appointment list endpoints."""
+    from utils.pagination import paginate
+    ordering = request.query_params.get('ordering', '').strip()
+    if ordering and ordering not in APPOINTMENT_ORDERINGS:
+        return Response({'ordering': 'Use date_time, -date_time, created_at or -created_at.'}, status=400)
+    qs = qs.order_by(ordering or 'date_time', 'id')
+    return paginate(request, qs, lambda rows: AppointmentSerializer(rows, many=True).data)
+
+
 class AppointmentListView(APIView):
     """
     GET  /api/appointments/           — list all appointments
@@ -289,13 +302,7 @@ class AppointmentListView(APIView):
                 Q(treatment__name__icontains=search)
             )
 
-        ordering = request.query_params.get('ordering', '').strip()
-        if ordering and ordering not in ('date_time', '-date_time', 'created_at', '-created_at'):
-            return Response({'ordering': 'Use date_time, -date_time, created_at or -created_at.'}, status=400)
-        qs = qs.distinct().order_by(ordering or 'date_time', 'id')
-
-        from utils.pagination import paginate
-        return paginate(request, qs, lambda rows: AppointmentSerializer(rows, many=True).data)
+        return ordered_page(request, qs.distinct())
 
     def post(self, request):
         serializer = AppointmentWriteSerializer(data=request.data)

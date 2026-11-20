@@ -23,6 +23,8 @@ class TherapistAppointmentsView(APIView):
     ?status=upcoming|completed|cancelled
     ?search=patient_name
     ?date_from=2026-05-01&date_to=2026-05-31
+    ?ordering=-date_time            date_time (default) | -date_time | created_at | -created_at
+    ?page=1&page_size=20            optional pagination (max 100) → {count, page, page_size, total_pages, results}
     """
     permission_classes = [IsAuthenticated]
 
@@ -74,8 +76,8 @@ class TherapistAppointmentsView(APIView):
                 Q(treatment__name__icontains=search)
             )
 
-        qs = qs.order_by('date_time')
-        return Response(AppointmentSerializer(qs, many=True).data)
+        from appointments.views import ordered_page
+        return ordered_page(request, qs)
 
 
 class TherapistTodayView(APIView):
