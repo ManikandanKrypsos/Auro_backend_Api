@@ -230,7 +230,7 @@ def _get_clinic_context(user):
             'from_date': str(l.from_date),
             'to_date':   str(l.to_date),
         }
-        for l in StaffLeave.objects.filter(to_date__gte=local_today).select_related('staff').order_by('from_date')[:20]
+        for l in StaffLeave.objects.filter(status='approved', to_date__gte=local_today).select_related('staff').order_by('from_date')[:20]
     ]
 
     return _neutralise(context)
@@ -497,7 +497,7 @@ def _execute_action(action_line, token):
                         working_hours[day] = FakeWH()
 
                 DAY_MAP     = {0:'Mon',1:'Tue',2:'Wed',3:'Thu',4:'Fri',5:'Sat',6:'Sun'}
-                leaves      = StaffLeave.objects.filter(staff_id=staff_id)
+                leaves      = StaffLeave.objects.filter(staff_id=staff_id, status='approved')
                 leave_dates = set()
                 for leave in leaves:
                     d = leave.from_date

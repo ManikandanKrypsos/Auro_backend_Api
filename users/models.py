@@ -1,5 +1,6 @@
 from django.contrib.auth.models import AbstractUser, UserManager
 from django.db import models
+from django.utils import timezone
 
 from tenants.managers import TenantManager, TenantUserManager
 
@@ -78,10 +79,20 @@ class StaffBreakTime(models.Model):
 class StaffLeave(models.Model):
     objects = TenantManager.via('staff__clinic_id')()   # scoped to the current clinic via its parent
 
+    STATUS_CHOICES = (('pending', 'Pending'), ('approved', 'Approved'), ('rejected', 'Rejected'))
+
     staff      = models.ForeignKey(User, on_delete=models.CASCADE, related_name='leaves')
     from_date  = models.DateField()
     to_date    = models.DateField()
     reason     = models.TextField(blank=True)
+    # Only approved leave blocks the schedule. Admin-added leave is approved straight away;
+    # a therapist's own request starts as pending until an admin approves or rejects it.
+    status      = models.CharField(max_length=10, choices=STATUS_CHOICES, default='approved', db_index=True)
+    created_by  = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='leaves_created')
+    reviewed_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='leaves_reviewed')
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    review_note = models.CharField(max_length=255, blank=True)
+    created_at  = models.DateTimeField(default=timezone.now)
 
     class Meta:
         ordering = ['staff', 'from_date']

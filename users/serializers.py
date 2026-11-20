@@ -137,9 +137,27 @@ class BreakTimeSerializer(serializers.ModelSerializer):
 
 
 class LeaveSerializer(serializers.ModelSerializer):
+    staff_id         = serializers.IntegerField(source='staff.id', read_only=True)
+    staff_name       = serializers.SerializerMethodField()
+    created_by_id    = serializers.IntegerField(read_only=True, allow_null=True)
+    reviewed_by_id   = serializers.IntegerField(read_only=True, allow_null=True)
+    reviewed_by_name = serializers.SerializerMethodField()
+
     class Meta:
         model  = StaffLeave
-        fields = ['id', 'from_date', 'to_date', 'reason']
+        fields = ['id', 'staff_id', 'staff_name', 'from_date', 'to_date', 'reason', 'status',
+                  'created_by_id', 'created_at', 'reviewed_by_id', 'reviewed_by_name', 'reviewed_at', 'review_note']
+        read_only_fields = ['status', 'created_at', 'reviewed_at', 'review_note']
+
+    @staticmethod
+    def _name(u):
+        return (u.username or u.email.split('@')[0]) if u else None
+
+    def get_staff_name(self, obj):
+        return self._name(obj.staff)
+
+    def get_reviewed_by_name(self, obj):
+        return self._name(obj.reviewed_by)
 
     def validate(self, data):
         if data.get('from_date') and data.get('to_date'):

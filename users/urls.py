@@ -7,7 +7,7 @@ from .views import (
     StaffDetailView, StaffTreatmentsView, ChangePasswordView, StaffResetPasswordView,
     WorkingHoursListView, WorkingHoursDetailView,
     BreakTimeListView, BreakTimeDetailView,
-    LeaveListView, LeaveDetailView,
+    LeaveListView, LeaveDetailView, LeaveReviewListView,
 )
 
 urlpatterns = [
@@ -38,6 +38,7 @@ urlpatterns = [
     path('staff/<int:staff_id>/break-times/<int:pk>/',   BreakTimeDetailView.as_view()),
 
     # Leaves
+    path('leaves/',                                      LeaveReviewListView.as_view()),  # admin review inbox
     path('staff/<int:staff_id>/leaves/',                 LeaveListView.as_view()),
     path('staff/<int:staff_id>/leaves/<int:pk>/',        LeaveDetailView.as_view()),
 ]

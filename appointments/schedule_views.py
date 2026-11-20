@@ -83,7 +83,7 @@ class DayScheduleView(APIView):
         therapists = list(therapists)
         ids   = [t.id for t in therapists]
         hours = {h.staff_id: h for h in StaffWorkingHours.objects.filter(staff_id__in=ids, day=code)}
-        on_leave = set(StaffLeave.objects.filter(staff_id__in=ids, from_date__lte=day, to_date__gte=day)
+        on_leave = set(StaffLeave.objects.filter(staff_id__in=ids, status='approved', from_date__lte=day, to_date__gte=day)
                        .values_list('staff_id', flat=True))
         breaks = {}
         for b in StaffBreakTime.objects.filter(staff_id__in=ids).order_by('start_time'):

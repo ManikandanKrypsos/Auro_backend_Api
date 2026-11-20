@@ -3,10 +3,11 @@ from rest_framework.response import Response
 from rest_framework import permissions
 from rest_framework.permissions import IsAuthenticated
 from rest_framework_simplejwt.tokens import RefreshToken, TokenError
-from users.permissions import IsAdmin
+from users.permissions import IsAdmin, IsClinicStaff
 from .serializers import RegisterSerializer, LoginSerializer, UserSerializer, StaffUpdateSerializer
 from .models import User
 from django.db.models import Q
+from django.utils import timezone
 from django.core.mail import send_mail
 from django.conf import settings
 import os
@@ -1065,67 +1066,211 @@ class BreakTimeDetailView(APIView):
 
 # ── Leaves ────────────────────────────────────────────────────────────────────
 
+LEAVE_STATUSES = ('pending', 'approved', 'rejected')
+
+
+def _leave_staff(request, staff_id):
+    """
+    Who may manage whose leave: admin → any therapist/receptionist; therapist → only their own.
+    Returns (staff, error_response).
+    """
+    role = getattr(request.user, 'role', '') or ''
+    if role == 'therapist':
+        if str(staff_id) != str(request.user.pk):
+            return None, Response({'error': 'You can only view or request your own leave.',
+                                   'code': 'not_own_records'}, status=403)
+    elif role != 'admin':
+        return None, Response({'error': 'Only a clinic admin can manage staff leave.', 'code': 'admin_only'}, status=403)
+    staff = _get_staff_member(staff_id)
+    if not staff:
+        return None, Response({'error': 'Staff member not found.'}, status=404)
+    return staff, None
+
+
+def _status_filter(request, qs):
+    raw = str(request.query_params.get('status', '') or '').strip()
+    if not raw:
+        return qs, None
+    wanted = [v.strip() for v in raw.split(',') if v.strip()]
+    if not wanted or any(v not in LEAVE_STATUSES for v in wanted):
+        return None, Response({'status': 'Use pending, approved or rejected (comma-separate for several).'}, status=400)
+    return qs.filter(status__in=wanted), None
+
+
+def _overlap_error(staff, from_date, to_date, exclude_pk=None):
+    clash = (StaffLeave.objects.filter(staff=staff, status__in=['pending', 'approved'],
+                                       from_date__lte=to_date, to_date__gte=from_date)
+             .exclude(pk=exclude_pk).order_by('from_date').first())
+    if clash:
+        return Response({'from_date': f'Overlaps an existing {clash.status} leave '
+                                      f'({clash.from_date} to {clash.to_date}, id {clash.id}).',
+                         'code': 'leave_overlap', 'overlapping_leave_id': clash.id}, status=400)
+    return None
+
+
+def _appointments_during(leave):
+    """Booked (not cancelled) appointments inside an approved leave, so the admin can rebook them."""
+    from appointments.models import Appointment
+    rows = (Appointment.objects.filter(staff=leave.staff, date_time__date__gte=leave.from_date,
+                                       date_time__date__lte=leave.to_date)
+            .exclude(status='cancelled').select_related('patient').order_by('date_time'))
+    return [{'appointment_id': a.id, 'date_time': a.date_time,
+             'patient_name': a.patient.name if a.patient else None, 'status': a.status} for a in rows]
+
+
+def _leave_response(leave, status_code=200):
+    data = LeaveSerializer(leave).data
+    if leave.status == 'approved':
+        data['appointments_during_leave'] = _appointments_during(leave)
+    return Response(data, status=status_code)
+
+
+def _apply_review(leave, new_status, user, note=None):
+    leave.status = new_status
+    if new_status == 'pending':
+        leave.reviewed_by, leave.reviewed_at, leave.review_note = None, None, ''
+    else:
+        leave.reviewed_by, leave.reviewed_at = user, timezone.now()
+        if note is not None:
+            leave.review_note = str(note)[:255]
+
+
 class LeaveListView(APIView):
     """
-    GET  /api/users/staff/<staff_id>/leaves/
-         Returns all leave records for the staff member.
+    GET  /api/users/staff/<staff_id>/leaves/?status=pending      (admin: any staff · therapist: own)
+         status filter optional, comma-separate for several.
 
     POST /api/users/staff/<staff_id>/leaves/
-         Add a leave.
          Body: { "from_date": "2026-04-23", "to_date": "2026-04-24", "reason": "Sick" }
-         reason is optional.
+         admin     → approved straight away (or send "status": "pending" | "rejected")
+         therapist → own staff_id only, always created as "pending" for an admin to review
+    Only approved leave blocks the schedule / booking.
     """
-    permission_classes = [IsAdmin]
+    permission_classes = [IsClinicStaff]
 
     def get(self, request, staff_id):
-        staff = _get_staff_member(staff_id)
-        if not staff:
-            return Response({'error': 'Staff member not found.'}, status=404)
-
-        leaves = StaffLeave.objects.filter(staff=staff)
+        staff, error = _leave_staff(request, staff_id)
+        if error:
+            return error
+        leaves, error = _status_filter(request, StaffLeave.objects.filter(staff=staff)
+                                       .select_related('staff', 'reviewed_by').order_by('-from_date', '-id'))
+        if error:
+            return error
         return Response(LeaveSerializer(leaves, many=True).data)
 
     def post(self, request, staff_id):
-        staff = _get_staff_member(staff_id)
-        if not staff:
-            return Response({'error': 'Staff member not found.'}, status=404)
-
+        staff, error = _leave_staff(request, staff_id)
+        if error:
+            return error
         serializer = LeaveSerializer(data=request.data)
-        if serializer.is_valid():
-            serializer.save(staff=staff)
-            return Response(serializer.data, status=201)
-        return Response(serializer.errors, status=400)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=400)
+        is_admin = request.user.role == 'admin'
+        new_status = 'pending'
+        if is_admin:
+            new_status = request.data.get('status') or 'approved'
+            if new_status not in LEAVE_STATUSES:
+                return Response({'status': 'Use pending, approved or rejected.'}, status=400)
+        d = serializer.validated_data
+        if new_status != 'rejected':
+            overlap = _overlap_error(staff, d['from_date'], d['to_date'])
+            if overlap:
+                return overlap
+        leave = StaffLeave(staff=staff, created_by=request.user, **d)
+        _apply_review(leave, new_status, request.user, request.data.get('review_note') if is_admin else None)
+        leave.save()
+        return _leave_response(leave, 201)
+
+
+class LeaveReviewListView(APIView):
+    """
+    GET /api/users/leaves/?status=pending&staff_id=8&page=1&page_size=20   (admin)
+    Leave across all staff: the admin's review inbox. Pending requests first, then by start date.
+    """
+    permission_classes = [IsAdmin]
+
+    def get(self, request):
+        from django.db.models import Case, IntegerField, Value, When
+        qs = StaffLeave.objects.select_related('staff', 'reviewed_by').filter(
+            staff__role__in=['reception', 'therapist'])
+        raw_staff = str(request.query_params.get('staff_id', '') or '').strip()
+        if raw_staff:
+            if not raw_staff.isdigit():
+                return Response({'staff_id': 'Must be a staff id.'}, status=400)
+            qs = qs.filter(staff_id=int(raw_staff))
+        qs, error = _status_filter(request, qs)
+        if error:
+            return error
+        qs = qs.annotate(_pending_first=Case(When(status='pending', then=Value(0)), default=Value(1),
+                                             output_field=IntegerField())).order_by('_pending_first', 'from_date', 'id')
+        from utils.pagination import paginate
+        return paginate(request, qs, lambda rows: LeaveSerializer(rows, many=True).data)
 
 
 class LeaveDetailView(APIView):
     """
-    PUT    /api/users/staff/<staff_id>/leaves/<id>/
-           Edit a leave record.
-           Body: { "from_date": "2026-04-25", "to_date": "2026-04-26", "reason": "Holiday" }
-
+    GET    /api/users/staff/<staff_id>/leaves/<id>/
+    PATCH  /api/users/staff/<staff_id>/leaves/<id>/     (PUT works the same)
+           admin:     any of from_date, to_date, reason, and "status": "approved" | "rejected" | "pending",
+                      "review_note": "…" (optional, shown to the therapist)
+           therapist: own *pending* request only (from_date, to_date, reason). Can't change status.
     DELETE /api/users/staff/<staff_id>/leaves/<id>/
-           Delete a leave record.
+           admin: any · therapist: withdraw own pending request
     """
-    permission_classes = [IsAdmin]
+    permission_classes = [IsClinicStaff]
 
-    def _get_entry(self, staff_id, pk):
-        try:
-            return StaffLeave.objects.get(pk=pk, staff_id=staff_id)
-        except StaffLeave.DoesNotExist:
-            return None
+    def _get_entry(self, request, staff_id, pk):
+        staff, error = _leave_staff(request, staff_id)
+        if error:
+            return None, error
+        entry = StaffLeave.objects.select_related('staff', 'reviewed_by').filter(pk=pk, staff=staff).first()
+        if not entry:
+            return None, Response({'error': 'Leave record not found.'}, status=404)
+        return entry, None
+
+    @staticmethod
+    def _therapist_locked(request, entry):
+        if request.user.role == 'therapist' and entry.status != 'pending':
+            return Response({'error': 'This leave has already been reviewed, so it can no longer be changed. '
+                                      'Ask your clinic admin.', 'code': 'leave_already_reviewed'}, status=403)
+        return None
+
+    def get(self, request, staff_id, pk):
+        entry, error = self._get_entry(request, staff_id, pk)
+        return error or _leave_response(entry)
 
     def _update(self, request, staff_id, pk):
-        if not _get_staff_member(staff_id):
-            return Response({'error': 'Staff member not found.'}, status=404)
-        entry = self._get_entry(staff_id, pk)
-        if not entry:
-            return Response({'error': 'Leave record not found.'}, status=404)
-
+        entry, error = self._get_entry(request, staff_id, pk)
+        if error:
+            return error
+        is_admin = request.user.role == 'admin'
+        if not is_admin and ('status' in request.data or 'review_note' in request.data):
+            return Response({'error': 'Only a clinic admin can approve or reject leave.', 'code': 'admin_only'}, status=403)
+        locked = self._therapist_locked(request, entry)
+        if locked:
+            return locked
         serializer = LeaveSerializer(entry, data=request.data, partial=True)
-        if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data)
-        return Response(serializer.errors, status=400)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=400)
+        new_status = request.data.get('status', entry.status) if is_admin else entry.status
+        if new_status not in LEAVE_STATUSES:
+            return Response({'status': 'Use pending, approved or rejected.'}, status=400)
+        d = serializer.validated_data
+        from_date, to_date = d.get('from_date', entry.from_date), d.get('to_date', entry.to_date)
+        if from_date > to_date:
+            return Response({'non_field_errors': ['from_date must be on or before to_date.']}, status=400)
+        if new_status != 'rejected':
+            overlap = _overlap_error(entry.staff, from_date, to_date, exclude_pk=entry.pk)
+            if overlap:
+                return overlap
+        for field, value in d.items():
+            setattr(entry, field, value)
+        if is_admin and 'status' in request.data and new_status != entry.status:
+            _apply_review(entry, new_status, request.user, request.data.get('review_note'))
+        elif is_admin and 'review_note' in request.data:
+            entry.review_note = str(request.data.get('review_note') or '')[:255]
+        entry.save()
+        return _leave_response(entry)
 
     def put(self, request, staff_id, pk):
         return self._update(request, staff_id, pk)
@@ -1134,11 +1279,11 @@ class LeaveDetailView(APIView):
         return self._update(request, staff_id, pk)
 
     def delete(self, request, staff_id, pk):
-        if not _get_staff_member(staff_id):
-            return Response({'error': 'Staff member not found.'}, status=404)
-        entry = self._get_entry(staff_id, pk)
-        if not entry:
-            return Response({'error': 'Leave record not found.'}, status=404)
-
+        entry, error = self._get_entry(request, staff_id, pk)
+        if error:
+            return error
+        locked = self._therapist_locked(request, entry)
+        if locked:
+            return locked
         entry.delete()
         return Response({'message': 'Leave deleted.'})

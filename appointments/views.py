@@ -63,7 +63,7 @@ def _build_month_availability(staff, treatment, month_str, room=None):
 
     # ── Staff leaves ──────────────────────────────────────────────────────────
     staff_leave_dates = set()
-    for leave in StaffLeave.objects.filter(staff=staff):
+    for leave in StaffLeave.objects.filter(staff=staff, status='approved'):
         d = leave.from_date
         while d <= leave.to_date:
             staff_leave_dates.add(d)
@@ -734,7 +734,7 @@ class AvailableSlotsView(APIView):
 
         # Staff leaves
         staff_leave_dates = set()
-        for leave in StaffLeave.objects.filter(staff=staff):
+        for leave in StaffLeave.objects.filter(staff=staff, status='approved'):
             d = leave.from_date
             while d <= leave.to_date:
                 staff_leave_dates.add(d)

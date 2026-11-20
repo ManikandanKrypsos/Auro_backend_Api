@@ -191,7 +191,7 @@ def _today_occupancy(today):
 
     staff_ids = [s.staff_id for s in shifts]
     on_leave = set(
-        StaffLeave.objects.filter(staff_id__in=staff_ids, from_date__lte=today, to_date__gte=today)
+        StaffLeave.objects.filter(staff_id__in=staff_ids, status='approved', from_date__lte=today, to_date__gte=today)
         .values_list('staff_id', flat=True)
     )
     breaks = {}

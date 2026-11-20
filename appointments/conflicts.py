@@ -94,7 +94,7 @@ def find_conflict(start, duration, staff=None, room=None, exclude_id=None):
     # ── Staff ─────────────────────────────────────────────────────────────────
     if staff:
         name  = _staff_name(staff)
-        leave = StaffLeave.objects.filter(staff=staff, from_date__lte=day, to_date__gte=day).first()
+        leave = StaffLeave.objects.filter(staff=staff, status='approved', from_date__lte=day, to_date__gte=day).first()
         if leave:
             return conflict('staff_on_leave',
                             f"{name} is on leave from {leave.from_date} to {leave.to_date}.",
