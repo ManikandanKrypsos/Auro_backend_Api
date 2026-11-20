@@ -192,6 +192,38 @@ class PatientViewSet(viewsets.ModelViewSet):
             'deleted_patient':  patient_name,
         }, status=200)
 
+    @action(detail=False, methods=['get'], url_path='lookup',
+            permission_classes=[IsClinicStaff])
+    def lookup(self, request):
+        """
+        GET /api/patients/lookup/?search=ana   (any staff — used by booking)
+        Finds any patient in the clinic by name, phone, email or Aura id, but returns only what's
+        needed to pick one: no medical details. Max 20 results, at least 2 characters.
+        `can_view_record` says whether this user may open the full patient record.
+        """
+        search = str(request.query_params.get('search', '') or '').strip()
+        if len(search) < 2:
+            return Response({'search': 'Type at least 2 characters.'}, status=400)
+        qs = Patient.objects.filter(
+            Q(name__icontains=search) | Q(phone__icontains=search) |
+            Q(email__istartswith=search) | Q(patient_id__iexact=search)
+        ).order_by('name', 'id')[:20]
+        rows = list(qs)
+        visible = None
+        if getattr(request.user, 'role', '') == 'therapist':
+            from appointments.models import Appointment
+            treated = set(Appointment.objects.filter(staff_id=request.user.pk, patient__in=rows)
+                          .values_list('patient_id', flat=True))
+            visible = {p.id for p in rows if p.id in treated or p.created_by_id == request.user.pk}
+        return Response([{
+            'id':              p.patient_id,
+            'db_id':           p.id,
+            'name':            p.name,
+            'phone':           p.phone,
+            'is_vip':          p.category == 'VIP',
+            'can_view_record': visible is None or p.id in visible,
+        } for p in rows])
+
     @action(detail=False, methods=['get'], url_path='stats',
             permission_classes=[IsAuthenticated])
     def stats(self, request):
