@@ -303,6 +303,7 @@ class UserListView(APIView):
     GET /api/users/staff/?role=therapist
     GET /api/users/staff/?role=reception
     GET /api/users/staff/?search=john
+    GET /api/users/staff/?page=1&page_size=20   optional pagination (max 100) → {count, page, page_size, total_pages, results}
     Excludes admin — only active reception and therapist
     """
     permission_classes = [IsAuthenticated]
@@ -326,10 +327,8 @@ class UserListView(APIView):
                 Q(email__istartswith=search)
             )
 
-        result = []
-        for u in users:
-            result.append(_format_staff(u))
-        return Response(result)
+        from utils.pagination import paginate
+        return paginate(request, users.order_by('id'), lambda rows: [_format_staff(u) for u in rows])
 
 
     def post(self, request):

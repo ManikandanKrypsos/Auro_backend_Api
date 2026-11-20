@@ -11,6 +11,7 @@ class Plan(models.Model):
     currency        = models.CharField(max_length=3, default='eur')
     interval        = models.CharField(max_length=10, choices=INTERVAL_CHOICES, default='month')
     stripe_price_id = models.CharField(max_length=100, blank=True)
+    stripe_product_id = models.CharField(max_length=100, blank=True)
     limits          = models.JSONField(default=dict, blank=True)   # not enforced yet
     is_active       = models.BooleanField(default=True)            # offered to new clinics
     created_at      = models.DateTimeField(auto_now_add=True)
@@ -52,6 +53,7 @@ class Clinic(models.Model):
     card_last4             = models.CharField(max_length=4, blank=True)
     card_exp_month         = models.PositiveSmallIntegerField(null=True, blank=True)
     card_exp_year          = models.PositiveSmallIntegerField(null=True, blank=True)
+    cancel_at_period_end   = models.BooleanField(default=False)            # canceled in the portal, ends at current_period_end
     last_billing_event_at  = models.DateTimeField(null=True, blank=True)   # ignores out-of-order webhooks
 
     created_at       = models.DateTimeField(auto_now_add=True)

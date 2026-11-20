@@ -141,6 +141,7 @@ class LeadListView(APIView):
     """
     GET  /api/leads/           — list leads
          ?search=name/phone/email
+         ?stage_id=2  (or 2,3)       1=New 2=Contacted 3=Consultation 5=Won 6=Lost (4 = Won, old id)
          ?stage=engaged              ?source=instagram
          ?service_id=7               ?marketing_source_id=3
          ?assigned_staff_id=4
@@ -179,7 +180,7 @@ class LeadListView(APIView):
     def get(self, request):
         params = request.query_params
         errors = {}
-        leads  = Lead.objects.select_related('assigned_to')
+        leads  = Lead.objects.select_related('assigned_to').order_by('-created_at', '-id')
         search = params.get('search', '').strip()
         stage  = params.get('stage', '').strip()
         source = params.get('source', '').strip()
@@ -189,6 +190,14 @@ class LeadListView(APIView):
         assigned_staff_id   = self._int_param(params, 'assigned_staff_id', errors)
         date_from           = self._date_param(params, 'date_from', errors)
         date_to             = self._date_param(params, 'date_to', errors)
+        stage_keys = None
+        raw_stage_ids = params.get('stage_id', '').strip()
+        if raw_stage_ids:
+            parts = [p.strip() for p in raw_stage_ids.split(',') if p.strip()]
+            if not parts or any(not p.isdigit() or int(p) not in STAGE_MAP for p in parts):
+                errors['stage_id'] = 'Use 1=New, 2=Contacted, 3=Consultation, 5=Won, 6=Lost (comma-separate for several).'
+            else:
+                stage_keys = {STAGE_MAP[int(p)] for p in parts}
         if marketing_source_id is not None and marketing_source_id not in SOURCE_MAP:
             errors['marketing_source_id'] = 'Use 1=Instagram, 2=Web, 3=Walk-In, 4=Referral, 5=WhatsApp, 6=Other.'
         if errors:
@@ -201,7 +210,9 @@ class LeadListView(APIView):
                 Q(email__icontains=search)
             )
         if stage:
-            leads = leads.filter(stage=stage)
+            leads = leads.filter(stage__in=[x.strip() for x in stage.split(',') if x.strip()])
+        if stage_keys is not None:
+            leads = leads.filter(stage__in=stage_keys)
         if source:
             leads = leads.filter(source=source)
         if service_id is not None:

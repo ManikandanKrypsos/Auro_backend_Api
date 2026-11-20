@@ -264,7 +264,8 @@ class PlatformClinicBillingView(APIView):
 
 def _plan_admin(plan):
     data = b.serialize_plan(plan)
-    data.update({'stripe_price_id': plan.stripe_price_id, 'is_active': plan.is_active,
+    data.update({'stripe_price_id': plan.stripe_price_id, 'stripe_product_id': plan.stripe_product_id or None,
+                 'billable': bool(plan.stripe_price_id), 'is_active': plan.is_active,
                  'clinic_count': getattr(plan, 'clinic_count', None)})
     return data
 
@@ -333,3 +334,60 @@ class PlatformPlanDetailView(APIView):
             return Response(errors, status=400)
         plan.save()
         return Response(_plan_admin(plan))
+
+
+class PlatformPlanStripeSyncView(APIView):
+    """
+    POST /api/platform/plans/<id>/stripe-sync/
+    Creates the plan's Product + recurring Price in Stripe (using the server's STRIPE_SECRET_KEY, so it
+    lands in the same test/live mode the backend uses) and saves stripe_price_id. If the plan's
+    price / currency / interval changed since the last sync, a new Stripe Price is created and the old
+    one archived (Stripe prices can't be edited). Existing subscriptions keep their old price.
+    """
+    authentication_classes = [PlatformAdminAuthentication]
+    permission_classes = [IsPlatformAdmin]
+
+    def post(self, request, pk):
+        stripe = b.stripe_client()
+        if stripe is None:
+            return Response({'error': 'Billing is not configured on the server (STRIPE_SECRET_KEY).',
+                             'code': 'billing_not_configured'}, status=503)
+        plan = Plan.objects.annotate(clinic_count=Count('clinics')).filter(pk=pk).first()
+        if not plan:
+            return Response({'error': 'Plan not found.'}, status=404)
+        if plan.price <= 0:
+            return Response({'price': 'Set a price above 0 first (PATCH /api/platform/plans/<id>/).'}, status=400)
+        amount = int((plan.price * 100).to_integral_value())
+        created_price = False
+        try:
+            if plan.stripe_product_id:
+                stripe.Product.modify(plan.stripe_product_id, name=plan.name, active=True)
+            else:
+                product = stripe.Product.create(name=plan.name, metadata={'aura_plan_id': str(plan.id)},
+                                                idempotency_key=f'aura-plan-{plan.id}-product')
+                plan.stripe_product_id = product['id']
+            current = None
+            if plan.stripe_price_id:
+                try:
+                    current = stripe.Price.retrieve(plan.stripe_price_id)
+                except stripe.error.InvalidRequestError:
+                    current = None
+            matches = current is not None and b._get(current, 'active', True) \
+                and b._get(current, 'unit_amount') == amount \
+                and str(b._get(current, 'currency', '')).lower() == plan.currency.lower() \
+                and b._get(b._get(current, 'recurring', {}) or {}, 'interval') == plan.interval \
+                and b._get(current, 'product') == plan.stripe_product_id
+            if not matches:
+                price = stripe.Price.create(product=plan.stripe_product_id, unit_amount=amount,
+                                            currency=plan.currency.lower(), recurring={'interval': plan.interval},
+                                            metadata={'aura_plan_id': str(plan.id)})
+                if current is not None and b._get(current, 'active', False):
+                    stripe.Price.modify(b._get(current, 'id'), active=False)
+                plan.stripe_price_id = price['id']
+                created_price = True
+        except stripe.error.StripeError as e:
+            return Response({'error': f'Stripe error: {getattr(e, "user_message", None) or str(e)}', 'code': 'stripe_error'}, status=502)
+        plan.save()
+        data = _plan_admin(plan)
+        data['created_new_price'] = created_price
+        return Response(data)

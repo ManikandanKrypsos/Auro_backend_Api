@@ -222,6 +222,8 @@ class AppointmentListView(APIView):
          ?status=upcoming             filter by status
          ?search=patient_name         search by patient name
          ?today=true                  today's appointments only
+         ?ordering=-date_time         date_time (default) | -date_time | created_at | -created_at
+         ?page=1&page_size=20         optional pagination (max 100) → {count, page, page_size, total_pages, results}
 
     POST /api/appointments/           — create appointment
     """
@@ -287,7 +289,13 @@ class AppointmentListView(APIView):
                 Q(treatment__name__icontains=search)
             )
 
-        return Response(AppointmentSerializer(qs.distinct(), many=True).data)
+        ordering = request.query_params.get('ordering', '').strip()
+        if ordering and ordering not in ('date_time', '-date_time', 'created_at', '-created_at'):
+            return Response({'ordering': 'Use date_time, -date_time, created_at or -created_at.'}, status=400)
+        qs = qs.distinct().order_by(ordering or 'date_time', 'id')
+
+        from utils.pagination import paginate
+        return paginate(request, qs, lambda rows: AppointmentSerializer(rows, many=True).data)
 
     def post(self, request):
         serializer = AppointmentWriteSerializer(data=request.data)

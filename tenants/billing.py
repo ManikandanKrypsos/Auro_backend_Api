@@ -105,6 +105,7 @@ def billing_payload(clinic, now=None):
             'exp_month': clinic.card_exp_month,
             'exp_year':  clinic.card_exp_year,
         } if clinic.card_last4 else None,
+        'cancel_at_period_end': bool(clinic.cancel_at_period_end) and status in ('active', 'trialing', 'past_due'),
         'access_blocked':      block is not None,
         'block_code':          block,
         'warning':             warning,
@@ -177,6 +178,7 @@ def apply_subscription(clinic, sub, now=None):
     """Copies a Stripe subscription's state onto the clinic (does not save)."""
     clinic.stripe_subscription_id = _get(sub, 'id', clinic.stripe_subscription_id)
     clinic.current_period_end = period_end_of(sub) or clinic.current_period_end
+    clinic.cancel_at_period_end = bool(_get(sub, 'cancel_at_period_end', False))
     mapped = STRIPE_STATUS_MAP.get(_get(sub, 'status'))
     if mapped == 'active':
         set_active(clinic)
@@ -197,3 +199,36 @@ def apply_card(clinic, payment_method):
     clinic.card_last4 = str(_get(card, 'last4', ''))[:4]
     clinic.card_exp_month = _get(card, 'exp_month') or None
     clinic.card_exp_year = _get(card, 'exp_year') or None
+
+
+def apply_default_card(clinic, stripe, payment_method):
+    """payment_method may be an id or an expanded object; stores brand/last4/expiry."""
+    if not payment_method:
+        return
+    if isinstance(payment_method, str):
+        try:
+            payment_method = stripe.PaymentMethod.retrieve(payment_method)
+        except Exception:
+            return
+    apply_card(clinic, payment_method)
+
+
+def apply_checkout_session(clinic, session, stripe, now=None):
+    """Copies a completed Checkout Session (mode=subscription) onto the clinic (does not save)."""
+    from .models import Plan
+    customer = _get(session, 'customer')
+    if customer and not isinstance(customer, str):
+        customer = _get(customer, 'id')
+    if customer:
+        clinic.stripe_customer_id = customer
+    plan_id = _get(_get(session, 'metadata', {}) or {}, 'plan_id')
+    if plan_id and str(plan_id).isdigit():
+        clinic.plan = Plan.objects.filter(pk=int(plan_id)).first() or clinic.plan
+    sub = _get(session, 'subscription')
+    if not sub:
+        return clinic
+    if isinstance(sub, str):
+        sub = stripe.Subscription.retrieve(sub, expand=['default_payment_method'])
+    apply_subscription(clinic, sub, now)
+    apply_default_card(clinic, stripe, _get(sub, 'default_payment_method'))
+    return clinic
