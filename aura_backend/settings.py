@@ -51,6 +51,7 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    'utils.request_id.RequestIDMiddleware',   # X-Request-ID on every response; traceable 401/403s
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',  
@@ -180,6 +181,7 @@ CORS_ALLOWED_ORIGINS = [o.strip() for o in os.environ.get('CORS_ALLOWED_ORIGINS'
 CORS_ALLOW_ALL_ORIGINS = not CORS_ALLOWED_ORIGINS
 # Auth uses the Authorization header, not cookies — only allow credentials for a fixed origin list.
 CORS_ALLOW_CREDENTIALS = bool(CORS_ALLOWED_ORIGINS)
+CORS_EXPOSE_HEADERS = ['X-Request-ID']        # lets the web app read the request id
 CORS_ALLOW_HEADERS = [
     'accept',
     'authorization',
@@ -255,3 +257,19 @@ if not DEBUG:
 # Uploads: reject anything bigger than 10 MB
 DATA_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024
 FILE_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024
+
+# ── Logging ────────────────────────────────────────────────
+# Console (Render logs). Every line carries the request id, e.g.
+#   2026-11-20 10:15:02 WARNING [3f9c…] aura.access: 403 not_permitted GET /api/... user=12 role=therapist clinic=1
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'filters': {'request_id': {'()': 'utils.request_id.RequestIDLogFilter'}},
+    'formatters': {'default': {'format': '%(asctime)s %(levelname)s [%(request_id)s] %(name)s: %(message)s'}},
+    'handlers': {'console': {'class': 'logging.StreamHandler', 'filters': ['request_id'], 'formatter': 'default'}},
+    'root': {'handlers': ['console'], 'level': os.environ.get('LOG_LEVEL', 'WARNING')},
+    'loggers': {
+        'aura':           {'level': 'INFO'},
+        'django.request': {'level': 'ERROR'},   # 4xx are logged by aura.access; keep 5xx tracebacks
+    },
+}

@@ -152,18 +152,19 @@ class LoginView(APIView):
                     role__in=['reception', 'therapist']
                 ).exists():
                     return Response(
-                        {'error': 'Your account is not active. Please contact your admin.'},
+                        {'error': 'Your account is not active. Please contact your admin.', 'code': 'account_inactive'},
                         status=403
                     )
                 # Check if account is active (not deleted from staff)
                 if not user.is_active:
                     return Response(
-                        {'error': 'Your account has been deactivated. Please contact your admin.'},
+                        {'error': 'Your account has been deactivated. Please contact your admin.', 'code': 'account_deactivated'},
                         status=403
                     )
 
             if not user.is_active:
-                return Response({'error': 'Your account has been deactivated. Please contact your admin.'}, status=403)
+                return Response({'error': 'Your account has been deactivated. Please contact your admin.',
+                                 'code': 'account_deactivated'}, status=403)
             blocked = _login_block(user)
             if blocked:
                 return blocked
@@ -339,7 +340,7 @@ class UserListView(APIView):
                "phone"?: "...", "specialist_area"?: "..."}      (role_id 2 / 3 also accepted)
         """
         if getattr(request.user, 'role', '') != 'admin':
-            return Response({'error': 'Only a clinic admin can create staff accounts.'}, status=403)
+            return Response({'error': 'Only a clinic admin can create staff accounts.', 'code': 'admin_only'}, status=403)
         d = request.data
         role = str(d.get('role', '') or '').strip().lower()
         role = {'2': 'reception', '3': 'therapist', 'receptionist': 'reception'}.get(str(d.get('role_id', '')), role) or role

@@ -82,13 +82,22 @@ def check_clinic_user(user, path=None):
     return clinic
 
 
+def _checked(request, user):
+    try:
+        return check_clinic_user(user, request.path)
+    except exceptions.APIException:
+        # lets the access log name the user even though authentication stopped here
+        request._request.denied_user = user
+        raise
+
+
 class TenantJWTAuthentication(JWTAuthentication):
     def authenticate(self, request):
         result = super().authenticate(request)
         if result is None:
             return None
         user, token = result
-        clinic = check_clinic_user(user, request.path)
+        clinic = _checked(request, user)
         set_current_clinic_id(clinic.id)
         return user, token
 
@@ -101,7 +110,7 @@ class TenantSessionAuthentication(SessionAuthentication):
         if result is None:
             return None
         user, auth = result
-        clinic = check_clinic_user(user, request.path)
+        clinic = _checked(request, user)
         set_current_clinic_id(clinic.id)
         return user, auth
 

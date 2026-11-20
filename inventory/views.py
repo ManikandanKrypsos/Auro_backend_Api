@@ -391,7 +391,7 @@ class AdjustStockView(APIView):
         if role not in self.STAFF_ROLES:
             return Response({'error': 'You do not have permission to adjust stock.'}, status=403)
         if role != 'admin' and reason != 'used':
-            return Response({'error': 'Only an admin can record wastage or count corrections.'}, status=403)
+            return Response({'error': 'Only an admin can record wastage or count corrections.', 'code': 'admin_only'}, status=403)
 
         errors = {}
         try:
@@ -418,7 +418,7 @@ class AdjustStockView(APIView):
             if 'appointment_id' not in errors and not appointment:
                 errors['appointment_id'] = 'Therapists must link product usage to their appointment.'
             elif appointment and appointment.staff_id != request.user.pk:
-                return Response({'error': 'You can only record usage on your own appointments.'}, status=403)
+                return Response({'error': 'You can only record usage on your own appointments.', 'code': 'not_own_appointment'}, status=403)
         if errors:
             return Response(errors, status=400)
 
@@ -457,7 +457,7 @@ def _filtered_movements(request, require_dates=False):
         return None, None, None, Response({'error': 'You do not have permission to view stock movements.'}, status=403)
     if role == 'therapist':
         if p.get('created_by_id') and str(p['created_by_id']) != str(request.user.pk):
-            return None, None, None, Response({'error': 'Therapists can only see their own movements.'}, status=403)
+            return None, None, None, Response({'error': 'Therapists can only see their own movements.', 'code': 'not_own_records'}, status=403)
         qs = qs.filter(created_by=request.user)
     for field in ('appointment_id', 'item_id', 'created_by_id'):
         if p.get(field):
