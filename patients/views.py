@@ -98,6 +98,9 @@ class PatientViewSet(viewsets.ModelViewSet):
         if category:
             qs = qs.filter(category=category)
 
+        if self.action == 'list':
+            from .serializers import with_visit_stats
+            qs = with_visit_stats(qs)
         return qs
 
     def get_object(self):

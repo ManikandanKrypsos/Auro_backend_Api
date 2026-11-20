@@ -36,6 +36,48 @@ def patient_status(instance, last_visit_date, next_appointment_date):
     return 'inactive'
 
 
+def with_visit_stats(queryset):
+    """Annotates visits / last visit / next appointment / total spent in the same query as the patients."""
+    from django.db.models import Count, Max, Min, OuterRef, Q, Subquery, Sum
+    from appointments.models import Appointment
+    now = timezone.now()
+    last_treatment = (Appointment.objects.model._base_manager
+                      .filter(patient=OuterRef('pk'), status='completed')
+                      .order_by('-date_time', '-id').values('treatment__name')[:1])
+    return queryset.annotate(
+        _visits=Count('appointments', filter=Q(appointments__status='completed'), distinct=True),
+        _last_visit_at=Max('appointments__date_time', filter=Q(appointments__status='completed')),
+        _next_appointment_at=Min('appointments__date_time',
+                                 filter=Q(appointments__status='upcoming', appointments__date_time__gte=now)),
+        _total_spent=Sum('appointments__payment_amount',
+                         filter=Q(appointments__status='completed', appointments__payment_status='paid')),
+        _last_visit_treatment=Subquery(last_treatment),
+    )
+
+
+def visit_stats(instance):
+    """The stats for one patient: from the annotations when present, otherwise from the database."""
+    if hasattr(instance, '_visits'):
+        return {
+            'visits': instance._visits, 'last_visit_at': instance._last_visit_at,
+            'last_visit_treatment': instance._last_visit_treatment,
+            'next_appointment_at': instance._next_appointment_at, 'total_spent': instance._total_spent,
+        }
+    from django.db.models import Sum
+    from appointments.models import Appointment
+    appts = Appointment.objects.filter(patient=instance, status='completed').order_by('-date_time', '-id')
+    last = appts.select_related('treatment').first()
+    return {
+        'visits': appts.count(),
+        'last_visit_at': last.date_time if last else None,
+        'last_visit_treatment': last.treatment.name if last and last.treatment else None,
+        'next_appointment_at': Appointment.objects.filter(
+            patient=instance, status='upcoming', date_time__gte=timezone.now(),
+        ).order_by('date_time').values_list('date_time', flat=True).first(),
+        'total_spent': appts.filter(payment_status='paid').aggregate(t=Sum('payment_amount'))['t'],
+    }
+
+
 class PatientSerializer(serializers.ModelSerializer):
     age = serializers.SerializerMethodField()
 
@@ -76,44 +118,29 @@ class PatientSerializer(serializers.ModelSerializer):
         } if marketing_id else None
 
         # ── Real stats calculated from appointments ────────────────────────
-        appts = Appointment.objects.filter(
-            patient=instance,
-            status='completed'
-        ).order_by('-date_time')
+        # The list queryset precomputes these (with_visit_stats) so a page costs one query, not 4 per row.
+        stats = visit_stats(instance)
+        data['visits'] = stats['visits']
 
-        # Total visits (completed appointments)
-        data['visits'] = appts.count()
-
-        # Last visit date and treatment
-        last_appt = appts.select_related('treatment').first()
-        if last_appt and last_appt.date_time:
-            from django.utils import timezone as tz
-            dt = tz.localtime(last_appt.date_time) if tz.is_aware(last_appt.date_time) else last_appt.date_time
+        last_at = stats['last_visit_at']
+        if last_at:
             data['last_visit'] = {
-                'date':      str(dt.date()),
-                'treatment': last_appt.treatment.name if last_appt.treatment else None,
+                'date':      str(timezone.localtime(last_at).date() if timezone.is_aware(last_at) else last_at.date()),
+                'treatment': stats['last_visit_treatment'],
             }
         else:
             data['last_visit'] = {'date': None, 'treatment': None}
 
-        # Next upcoming appointment (not cancelled, from now on)
-        next_appt = Appointment.objects.filter(
-            patient=instance,
-            status='upcoming',
-            date_time__gte=timezone.now(),
-        ).order_by('date_time').values_list('date_time', flat=True).first()
-        next_date = timezone.localtime(next_appt).date() if next_appt else None
+        next_at = stats['next_appointment_at']
+        next_date = timezone.localtime(next_at).date() if next_at else None
         data['next_appointment'] = str(next_date) if next_date else None
 
         # Badge status: active / inactive / vip
-        last_date = timezone.localtime(last_appt.date_time).date() if last_appt and last_appt.date_time else None
+        last_date = timezone.localtime(last_at).date() if last_at else None
         data['status'] = patient_status(instance, last_date, next_date)
 
         # Total money spent (sum of payment_amount for paid completed appointments)
-        total = appts.filter(
-            payment_status='paid'
-        ).aggregate(total=Sum('payment_amount'))['total'] or 0
-        data['total_spent'] = float(total)
+        data['total_spent'] = float(stats['total_spent'] or 0)
 
         return data
 
