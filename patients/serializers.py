@@ -42,7 +42,7 @@ class PatientSerializer(serializers.ModelSerializer):
     class Meta:
         model  = Patient
         fields = '__all__'
-        read_only_fields = ['patient_id', 'id']
+        read_only_fields = ['patient_id', 'id', 'created_by', 'clinic']
 
     def get_age(self, obj):
         if not obj.dob:

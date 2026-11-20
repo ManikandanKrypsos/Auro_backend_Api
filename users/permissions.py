@@ -20,3 +20,9 @@ class IsAdminOrReadOnly(BasePermission):
         if request.method in ['GET', 'HEAD', 'OPTIONS']:
             return True
         return request.user.role == 'admin'
+
+
+class IsClinicStaff(BasePermission):
+    """Admin, reception or therapist."""
+    def has_permission(self, request, view):
+        return request.user.is_authenticated and request.user.role in ['admin', 'reception', 'therapist']

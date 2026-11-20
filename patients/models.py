@@ -73,6 +73,8 @@ class Patient(models.Model):
                             null=True, blank=True, default=None
                         )
     tags              = models.CharField(max_length=100, blank=True)
+    created_by        = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+                                          related_name='created_patients')   # set automatically on create
     created_at        = models.DateTimeField(auto_now_add=True)
 
     def save(self, *args, **kwargs):

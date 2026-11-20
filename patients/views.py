@@ -4,7 +4,7 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
 from rest_framework.exceptions import NotFound
-from users.permissions import IsAdminOrReception
+from users.permissions import IsAdminOrReception, IsClinicStaff
 from .models import Patient
 from .serializers import PatientSerializer
 from django.db.models import Q
@@ -82,7 +82,7 @@ class PatientViewSet(viewsets.ModelViewSet):
             patient_ids = Appointment.objects.filter(
                 staff_id=self.request.user.pk
             ).values_list('patient_id', flat=True).distinct()
-            qs = qs.filter(id__in=patient_ids)
+            qs = qs.filter(Q(id__in=patient_ids) | Q(created_by_id=self.request.user.pk))
 
         search   = self.request.query_params.get('search', '')
         category = self.request.query_params.get('category', '')
@@ -126,9 +126,15 @@ class PatientViewSet(viewsets.ModelViewSet):
             raise NotFound(f"Patient '{pk}' not found")
 
     def get_permissions(self):
-        if self.action in ['create', 'update', 'partial_update', 'destroy']:
+        # Therapists may add patients (walk-ins) and edit patients they can see; only admin/reception delete.
+        if self.action == 'destroy':
             return [IsAdminOrReception()]
+        if self.action in ['create', 'update', 'partial_update']:
+            return [IsClinicStaff()]
         return [IsAuthenticated()]
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
 
     def _handle_image_upload(self, request, patient):
         """Save uploaded image file and update patient.image field."""
