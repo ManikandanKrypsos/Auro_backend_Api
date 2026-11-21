@@ -188,6 +188,7 @@ CORS_ALLOW_HEADERS = [
     'content-type',
     'origin',
     'x-requested-with',
+    'x-request-id',      # the app may send its own correlation id (see utils/request_id.py)
 ]
 CORS_ALLOW_METHODS = [
     'DELETE',
