@@ -46,15 +46,43 @@ def scheduled_phones_for(leads):
     )
 
 
+def scheduled_patients_for(leads):
+    """Ids of converted leads' linked patients that have at least one non-cancelled appointment."""
+    from appointments.models import Appointment
+    ids = {l.converted_patient_id for l in leads if l.converted_patient_id}
+    if not ids:
+        return set()
+    return set(Appointment.objects.filter(patient_id__in=ids).exclude(status='cancelled')
+               .values_list('patient_id', flat=True))
+
+
 class LeadExtraFieldsMixin:
     """assigned_staff_id + treatment_scheduled, shared by list & detail serializers."""
 
     def get_assigned_staff_id(self, obj):
         return obj.assigned_to_id
 
+    def get_assigned_staff_name(self, obj):
+        if obj.assigned_to:
+            return obj.assigned_to.username or obj.assigned_to.email.split('@')[0]
+        return None
+
+    def get_converted_patient_id(self, obj):
+        return obj.converted_patient.patient_id if obj.converted_patient_id and obj.converted_patient else None
+
+    def get_converted_patient_name(self, obj):
+        return obj.converted_patient.name if obj.converted_patient_id and obj.converted_patient else None
+
     def get_treatment_scheduled(self, obj):
         # Only meaningful for converted leads; always False otherwise.
-        if obj.stage != 'converted' or not obj.phone:
+        if obj.stage != 'converted':
+            return False
+        if obj.converted_patient_id:
+            patients = self.context.get('scheduled_patients')
+            if patients is None:
+                patients = scheduled_patients_for([obj])
+            return obj.converted_patient_id in patients
+        if not obj.phone:
             return False
         phones = self.context.get('scheduled_phones')
         if phones is None:
@@ -82,6 +110,9 @@ class LeadListSerializer(LeadExtraFieldsMixin, serializers.ModelSerializer):
     stage_id            = serializers.SerializerMethodField()
     service_detail      = serializers.SerializerMethodField()
     assigned_to_name    = serializers.SerializerMethodField()
+    assigned_staff_name = serializers.SerializerMethodField()
+    converted_patient_id   = serializers.SerializerMethodField()
+    converted_patient_name = serializers.SerializerMethodField()
 
     class Meta:
         model  = Lead
@@ -91,8 +122,10 @@ class LeadListSerializer(LeadExtraFieldsMixin, serializers.ModelSerializer):
             'stage', 'stage_id',
             'interest', 'service_id', 'service_detail',
             'notes', 'value',
-            'assigned_to', 'assigned_to_name', 'assigned_staff_id',
+            'assigned_staff_id', 'assigned_staff_name',
+            'assigned_to', 'assigned_to_name',            # deprecated aliases of the two above
             'last_contacted', 'next_action_date', 'treatment_scheduled',
+            'converted_patient_id', 'converted_patient_name', 'converted_at',
             'created_at', 'updated_at',
         ]
 
@@ -125,6 +158,9 @@ class LeadSerializer(LeadExtraFieldsMixin, serializers.ModelSerializer):
     stage_id            = serializers.SerializerMethodField()
     service_detail      = serializers.SerializerMethodField()
     assigned_to_name    = serializers.SerializerMethodField()
+    assigned_staff_name = serializers.SerializerMethodField()
+    converted_patient_id   = serializers.SerializerMethodField()
+    converted_patient_name = serializers.SerializerMethodField()
 
     class Meta:
         model  = Lead
@@ -134,8 +170,10 @@ class LeadSerializer(LeadExtraFieldsMixin, serializers.ModelSerializer):
             'stage', 'stage_id',
             'interest', 'service_id', 'service_detail',
             'notes', 'value',
-            'assigned_to', 'assigned_to_name', 'assigned_staff_id',
+            'assigned_staff_id', 'assigned_staff_name',
+            'assigned_to', 'assigned_to_name',            # deprecated aliases of the two above
             'last_contacted', 'next_action_date', 'treatment_scheduled',
+            'converted_patient_id', 'converted_patient_name', 'converted_at',
             'created_at', 'updated_at',
         ]
 
@@ -168,17 +206,18 @@ class LeadWriteSerializer(serializers.Serializer):
         "name":          "Isabella Sterling",
         "phone":         "+91 99887 76655",
         "email":         "isabella@email.com",
-        "source_id":     1,     // 1=Instagram 2=Web 3=Walk-In 4=Referral 5=WhatsApp 6=Other
+        "marketing_source_id": 1,     // 1=Instagram 2=Web 3=Walk-In 4=Referral 5=WhatsApp 6=Other
         "stage_id":      1,     // 1=New 2=Contacted 3=Consultation 5=Won 6=Lost
         "interest":      "Signature Glow",
         "notes":         "Prefers evening slots",
         "value":         1500.00,
-        "assigned_to":   8,     // or "assigned_staff_id": 8 (same thing)
+        "service_id":    3,
+        "assigned_staff_id": 8,     // canonical; "assigned_to" still accepted (deprecated)
         "next_action_date": "2026-11-07"
     }
     """
-    name         = serializers.CharField(max_length=100, required=False)
-    phone        = serializers.CharField(max_length=20, required=False)
+    name         = serializers.CharField(max_length=100, required=False, allow_blank=False)
+    phone        = serializers.CharField(max_length=20, required=False, allow_blank=False)
     email        = serializers.EmailField(required=False, allow_null=True, allow_blank=True)
     marketing_source_id = serializers.IntegerField(required=False)
     service_id          = serializers.IntegerField(required=False, allow_null=True)
@@ -193,9 +232,17 @@ class LeadWriteSerializer(serializers.Serializer):
     def _validate_staff(self, value):
         if value is not None:
             from users.models import User
-            if not User.objects.filter(id=value).exists():
-                raise serializers.ValidationError(f"User with id {value} not found.")
+            if not User.objects.filter(id=value, is_active=True).exists():
+                raise serializers.ValidationError(f"Staff member {value} not found.")
         return value
+
+    def validate(self, data):
+        # creating needs a name and a phone
+        if self.instance is None:
+            missing = {f: 'This field is required.' for f in ('name', 'phone') if not data.get(f)}
+            if missing:
+                raise serializers.ValidationError(missing)
+        return data
 
     def validate_assigned_to(self, value):
         return self._validate_staff(value)
