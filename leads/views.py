@@ -259,6 +259,9 @@ class LeadListView(APIView):
         serializer = LeadWriteSerializer(data=request.data)
         if serializer.is_valid():
             lead = serializer.save()
+            if lead.assigned_to_id:
+                from notifications import service as notify
+                notify.lead_assigned(lead, request.user)
             return Response(LeadSerializer(lead).data, status=201)
         return Response(serializer.errors, status=400)
 
@@ -290,7 +293,12 @@ class LeadDetailView(APIView):
             return Response({'error': 'Lead not found.'}, status=404)
         serializer = LeadWriteSerializer(lead, data=request.data, partial=True)
         if serializer.is_valid():
-            return Response(LeadSerializer(serializer.save()).data)
+            assigned_before = lead.assigned_to_id
+            lead = serializer.save()
+            if lead.assigned_to_id and lead.assigned_to_id != assigned_before:
+                from notifications import service as notify
+                notify.lead_assigned(lead, request.user)
+            return Response(LeadSerializer(lead).data)
         return Response(serializer.errors, status=400)
 
     def put(self, request, pk):

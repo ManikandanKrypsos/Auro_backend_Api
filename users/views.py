@@ -1179,6 +1179,11 @@ class LeaveListView(APIView):
         leave = StaffLeave(staff=staff, created_by=request.user, **d)
         _apply_review(leave, new_status, request.user, request.data.get('review_note') if is_admin else None)
         leave.save()
+        from notifications import service as notify
+        if new_status == 'pending' and not is_admin:
+            notify.leave_requested(leave, request.user)
+        elif is_admin:
+            notify.leave_reviewed(leave, request.user, added=True)
         return _leave_response(leave, 201)
 
 
@@ -1265,11 +1270,15 @@ class LeaveDetailView(APIView):
                 return overlap
         for field, value in d.items():
             setattr(entry, field, value)
+        status_before = entry.status
         if is_admin and 'status' in request.data and new_status != entry.status:
             _apply_review(entry, new_status, request.user, request.data.get('review_note'))
         elif is_admin and 'review_note' in request.data:
             entry.review_note = str(request.data.get('review_note') or '')[:255]
         entry.save()
+        if entry.status != status_before:
+            from notifications import service as notify
+            notify.leave_reviewed(entry, request.user)
         return _leave_response(entry)
 
     def put(self, request, staff_id, pk):

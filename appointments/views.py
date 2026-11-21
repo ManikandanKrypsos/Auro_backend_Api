@@ -1,4 +1,5 @@
 import datetime
+from django.conf import settings
 from django.utils import timezone
 from django.utils.dateparse import parse_date
 from rest_framework.views import APIView
@@ -373,11 +374,14 @@ class AppointmentListView(APIView):
             # ─────────────────────────────────────────────────────────────────
 
             appt = serializer.save()
-            try:
-                from .tasks import send_booking_confirmation
-                send_booking_confirmation.delay(appt.id)
-            except Exception:
-                pass
+            from notifications import service as notify
+            notify.appointment_booked(appt, request.user)
+            if getattr(settings, 'CELERY_ENABLED', False):
+                try:
+                    from .tasks import send_booking_confirmation
+                    send_booking_confirmation.delay(appt.id)
+                except Exception:
+                    pass
             _update_patient_category(appt.patient)
 
             # Auto-create pending ConsentRecord when appointment is booked
@@ -436,7 +440,10 @@ class AppointmentDetailView(APIView):
             return Response(clash, status=409)
         serializer = AppointmentWriteSerializer(appt, data=request.data, partial=True)
         if serializer.is_valid():
+            before = (appt.staff_id, appt.date_time, appt.status)
             appt = serializer.save()
+            from notifications import service as notify
+            notify.appointment_changed(before, appt, request.user)
             return Response(AppointmentSerializer(appt).data)
         return Response(serializer.errors, status=400)
 
@@ -518,8 +525,12 @@ class AppointmentStatusView(APIView):
         if status not in valid:
             return Response({'error': f'Status must be one of: {valid}'}, status=400)
 
+        status_before = appt.status
         appt.status = status
         appt.save()
+        if status == 'cancelled' and status_before != 'cancelled':
+            from notifications import service as notify
+            notify.appointment_cancelled(appt, request.user)
 
         # Auto-update patient category
         if status == 'completed':

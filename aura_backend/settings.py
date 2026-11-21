@@ -48,6 +48,7 @@ INSTALLED_APPS = [
     'packages',
     'ai_agent',
     'payments',
+    'notifications',
 ]
 
 MIDDLEWARE = [
@@ -205,6 +206,9 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 # ── Celery ─────────────────────────────────────────────────
+# Background tasks only run when Redis is configured (REDIS_URL). Without it, task calls are skipped
+# instead of blocking the request while Celery retries a Redis that isn't there.
+CELERY_ENABLED       = bool(os.environ.get('REDIS_URL'))
 CELERY_BROKER_URL    = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
 CELERY_RESULT_BACKEND = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
 CELERY_TIMEZONE      = os.environ.get('TIME_ZONE', 'Asia/Kolkata')
