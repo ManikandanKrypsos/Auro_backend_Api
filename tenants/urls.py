@@ -9,6 +9,11 @@ clinic_urlpatterns = [
 platform_urlpatterns = [
     path('login/',                       v.PlatformLoginView.as_view()),        # POST
     path('me/',                          v.PlatformMeView.as_view()),           # GET
+    path('logout/',                      v.PlatformLogoutView.as_view()),       # POST — ends this token
+    path('change-password/',             v.PlatformChangePasswordView.as_view()),  # POST
+    path('users/',                       v.PlatformUserListView.as_view()),     # GET list, POST invite
+    path('users/<int:pk>/',              v.PlatformUserDetailView.as_view()),   # GET, PATCH, DELETE (deactivate)
+    path('users/<int:pk>/reset-password/', v.PlatformUserResetPasswordView.as_view()),  # POST
     path('clinics/',                     v.PlatformClinicListView.as_view()),   # GET
     path('clinics/<int:pk>/',            v.PlatformClinicDetailView.as_view()), # GET
     path('clinics/<int:pk>/status/',     v.PlatformClinicStatusView.as_view()), # POST activate / suspend

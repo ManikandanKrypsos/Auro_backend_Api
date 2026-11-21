@@ -24,5 +24,7 @@ class Command(BaseCommand):
         admin, created = PlatformAdmin.objects.get_or_create(email=opts['email'].lower(), defaults={'name': opts['name']})
         admin.set_password(password)
         admin.is_active = True
+        admin.role = 'super_admin'           # this command is for the owner account
+        admin.must_change_password = False
         admin.save()
         self.stdout.write(self.style.SUCCESS(f'{"Created" if created else "Updated"} Super Admin {admin.email}'))

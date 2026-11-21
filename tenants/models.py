@@ -71,10 +71,15 @@ class Clinic(models.Model):
 
 
 class PlatformAdmin(models.Model):
-    """Super Admin of the SaaS platform — not a clinic user, has its own login."""
+    """A user of the Aura Console (the SaaS platform) — not a clinic user, has its own login."""
+    ROLE_CHOICES = (('super_admin', 'Super Admin'), ('viewer', 'Viewer'))
+
     name       = models.CharField(max_length=150)
     email      = models.EmailField(unique=True)
     password   = models.CharField(max_length=128)
+    role       = models.CharField(max_length=20, choices=ROLE_CHOICES, default='super_admin')   # viewer = read-only
+    must_change_password = models.BooleanField(default=False)   # invited with a temporary password
+    invited_by = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='invited')
     is_active  = models.BooleanField(default=True)
     last_login = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -87,3 +92,15 @@ class PlatformAdmin(models.Model):
 
     def __str__(self):
         return self.email
+
+    @property
+    def status(self):
+        if not self.is_active:
+            return 'deactivated'
+        return 'invited' if self.must_change_password else 'active'
+
+
+class PlatformRevokedToken(models.Model):
+    """Console tokens ended by logout before they expire (rows are dropped once the token would have expired)."""
+    jti        = models.CharField(max_length=32, unique=True)
+    expires_at = models.DateTimeField(db_index=True)

@@ -115,11 +115,47 @@ class TenantSessionAuthentication(SessionAuthentication):
         return user, auth
 
 
-# ── Platform Super Admin ──────────────────────────────────────────────────────
+# ── Aura Console (platform users) ─────────────────────────────────────────────
+
+# Paths a console user with a temporary password may call
+PLATFORM_PASSWORD_CHANGE_ALLOWED = (
+    '/api/platform/change-password/',
+    '/api/platform/me/',
+    '/api/platform/logout/',
+)
+
 
 def make_platform_token(admin):
-    # Includes the end of the password hash, so changing the password ends old sessions
-    return signing.dumps({'pa': admin.pk, 'ph': admin.password[-12:]}, salt=PLATFORM_TOKEN_SALT)
+    """
+    Signed, 12-hour token. `ph` (end of the password hash) ends every session when the password
+    changes; `jti` lets one session be ended on its own by logout.
+    """
+    import secrets
+    return signing.dumps({'pa': admin.pk, 'ph': admin.password[-12:], 'jti': secrets.token_hex(16)},
+                         salt=PLATFORM_TOKEN_SALT)
+
+
+def read_platform_token(token):
+    """Returns the token payload, or raises AuthenticationFailed."""
+    try:
+        return signing.loads(token, salt=PLATFORM_TOKEN_SALT, max_age=PLATFORM_TOKEN_MAX_AGE)
+    except signing.SignatureExpired:
+        raise exceptions.AuthenticationFailed({'error': 'Session expired. Please log in again.', 'code': 'token_expired'})
+    except signing.BadSignature:
+        raise exceptions.AuthenticationFailed({'error': 'Invalid console session. Please log in again.',
+                                               'code': 'token_not_valid'})
+
+
+def revoke_platform_token(data):
+    import datetime
+    from .models import PlatformRevokedToken
+    jti = data.get('jti')
+    if not jti:
+        return
+    now = timezone.now()
+    PlatformRevokedToken.objects.filter(expires_at__lt=now).delete()
+    PlatformRevokedToken.objects.get_or_create(
+        jti=jti, defaults={'expires_at': now + datetime.timedelta(seconds=PLATFORM_TOKEN_MAX_AGE)})
 
 
 class PlatformAdminAuthentication(BaseAuthentication):
@@ -130,24 +166,45 @@ class PlatformAdminAuthentication(BaseAuthentication):
         if not header.startswith(self.keyword + ' '):
             return None
         token = header[len(self.keyword) + 1:].strip()
-        try:
-            data = signing.loads(token, salt=PLATFORM_TOKEN_SALT, max_age=PLATFORM_TOKEN_MAX_AGE)
-        except signing.SignatureExpired:
-            raise exceptions.AuthenticationFailed('Session expired. Please log in again.')
-        except signing.BadSignature:
-            raise exceptions.AuthenticationFailed('Invalid Super Admin token.')
-        from .models import PlatformAdmin
+        data = read_platform_token(token)
+        from .models import PlatformAdmin, PlatformRevokedToken
         admin = PlatformAdmin.objects.filter(pk=data.get('pa'), is_active=True).first()
         if not admin or admin.password[-12:] != data.get('ph'):
-            raise exceptions.AuthenticationFailed('Invalid Super Admin token.')
+            raise exceptions.AuthenticationFailed({'error': 'Your console session has ended. Please log in again.',
+                                                   'code': 'session_ended'})
+        if data.get('jti') and PlatformRevokedToken.objects.filter(jti=data['jti']).exists():
+            raise exceptions.AuthenticationFailed({'error': 'You have logged out. Please log in again.',
+                                                   'code': 'session_ended'})
+        if admin.must_change_password and not request.path.startswith(PLATFORM_PASSWORD_CHANGE_ALLOWED):
+            raise PasswordChangeRequired()
         admin.is_authenticated = True
+        request.platform_token_data = data
         return admin, token
 
     def authenticate_header(self, request):
         return self.keyword
 
 
+class ReadOnlyRole(exceptions.APIException):
+    status_code = 403
+    default_code = 'read_only_role'
+    default_detail = {'error': 'Your console role (Viewer) is read-only.', 'code': 'read_only_role'}
+
+
 class IsPlatformAdmin(BasePermission):
+    """Any console user may read; only a Super Admin may change anything."""
+    def has_permission(self, request, view):
+        from rest_framework.permissions import SAFE_METHODS
+        from .models import PlatformAdmin
+        if not isinstance(request.user, PlatformAdmin):
+            return False
+        if request.method not in SAFE_METHODS and request.user.role != 'super_admin':
+            raise ReadOnlyRole()
+        return True
+
+
+class IsPlatformUser(BasePermission):
+    """Any logged-in console user, whatever the method (own session / own password)."""
     def has_permission(self, request, view):
         from .models import PlatformAdmin
         return isinstance(request.user, PlatformAdmin)

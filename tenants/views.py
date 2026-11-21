@@ -8,7 +8,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .auth import IsPlatformAdmin, PlatformAdminAuthentication, make_platform_token
+from .auth import IsPlatformAdmin, IsPlatformUser, PlatformAdminAuthentication, make_platform_token
 from . import billing as b
 from .models import Clinic, Plan, PlatformAdmin
 
@@ -113,8 +113,38 @@ def _first_admins(clinic_ids):
     return admins
 
 
+def serialize_platform_user(a, include_admin_fields=True):
+    data = {
+        'id':                   a.id,
+        'name':                 a.name,
+        'email':                a.email,
+        'role':                 a.role,
+        'must_change_password': a.must_change_password,
+    }
+    if include_admin_fields:
+        data.update({
+            'status':     a.status,          # invited | active | deactivated
+            'is_active':  a.is_active,
+            'last_login': a.last_login,
+            'created_at': a.created_at,
+            'invited_by': {'id': a.invited_by.id, 'name': a.invited_by.name, 'email': a.invited_by.email}
+                          if a.invited_by_id and a.invited_by else None,
+        })
+    return data
+
+
+def _platform_login_payload(admin):
+    return {
+        'token':                make_platform_token(admin),
+        'expires_in':           12 * 60 * 60,
+        'role':                 admin.role,
+        'must_change_password': admin.must_change_password,
+        'admin':                serialize_platform_user(admin, include_admin_fields=False),
+    }
+
+
 class PlatformLoginView(APIView):
-    """POST /api/platform/login/  {email, password} → Super Admin token (valid 12 hours)."""
+    """POST /api/platform/login/  {email, password} → console token (valid 12 hours) + role."""
     permission_classes = [AllowAny]
     authentication_classes = []
     throttle_scope = 'auth'
@@ -126,21 +156,216 @@ class PlatformLoginView(APIView):
             return Response({'error': 'Invalid email or password.'}, status=400)
         admin.last_login = timezone.now()
         admin.save(update_fields=['last_login'])
-        return Response({
-            'token': make_platform_token(admin),
-            'expires_in': 12 * 60 * 60,
-            'admin': {'id': admin.id, 'name': admin.name, 'email': admin.email},
-        })
+        return Response(_platform_login_payload(admin))
 
 
 class PlatformMeView(APIView):
     """GET /api/platform/me/"""
     authentication_classes = [PlatformAdminAuthentication]
+    permission_classes = [IsPlatformUser]
+
+    def get(self, request):
+        return Response(serialize_platform_user(request.user, include_admin_fields=False))
+
+
+class PlatformLogoutView(APIView):
+    """POST /api/platform/logout/  — ends this session's token on the server straight away."""
+    authentication_classes = [PlatformAdminAuthentication]
+    permission_classes = [IsPlatformUser]
+
+    def post(self, request):
+        from .auth import revoke_platform_token
+        revoke_platform_token(getattr(request, 'platform_token_data', {}) or {})
+        return Response({'message': 'Logged out.'})
+
+
+class PlatformChangePasswordView(APIView):
+    """
+    POST /api/platform/change-password/  {new_password, confirm_password, current_password?}
+    current_password isn't needed on first login (temporary password). Every other session of this
+    user ends; the response carries a fresh token for this one.
+    """
+    authentication_classes = [PlatformAdminAuthentication]
+    permission_classes = [IsPlatformUser]
+    throttle_scope = 'otp_verify'
+
+    def post(self, request):
+        admin = PlatformAdmin.objects.get(pk=request.user.pk)
+        new_password = str(request.data.get('new_password', '') or '')
+        confirm = str(request.data.get('confirm_password', '') or '')
+        if not admin.must_change_password and not admin.check_password(str(request.data.get('current_password', '') or '')):
+            return Response({'current_password': 'Current password is incorrect.'}, status=400)
+        if not new_password or not confirm:
+            return Response({'error': 'Both password fields are required.'}, status=400)
+        if new_password != confirm:
+            return Response({'confirm_password': 'Passwords do not match.'}, status=400)
+        if admin.check_password(new_password):
+            return Response({'new_password': 'Choose a password different from the current one.'}, status=400)
+        try:
+            validate_password(new_password)
+        except DjangoValidationError as e:
+            return Response({'new_password': ' '.join(e.messages)}, status=400)
+        admin.set_password(new_password)
+        admin.must_change_password = False
+        admin.save(update_fields=['password', 'must_change_password'])
+        data = _platform_login_payload(admin)
+        data['message'] = 'Password updated.'
+        return Response(data)
+
+
+# ── Console users (invite / list / role / remove) ─────────────────────────────
+
+def _temp_password():
+    from users.views import _temp_password as make
+    return make()
+
+
+def _last_super_admin(admin):
+    return (admin.role == 'super_admin' and admin.is_active and
+            not PlatformAdmin.objects.filter(role='super_admin', is_active=True).exclude(pk=admin.pk).exists())
+
+
+class PlatformUserListView(APIView):
+    """
+    GET  /api/platform/users/?role=viewer&status=invited|active|deactivated&search=&page=1&page_size=20
+    POST /api/platform/users/  {email, role: "super_admin" | "viewer", name?}  (Super Admin)
+         → the new user + temp_password (shown once); they must set their own password on first login.
+    """
+    authentication_classes = [PlatformAdminAuthentication]
     permission_classes = [IsPlatformAdmin]
 
     def get(self, request):
-        a = request.user
-        return Response({'id': a.id, 'name': a.name, 'email': a.email})
+        qs = PlatformAdmin.objects.select_related('invited_by').order_by('-is_active', 'name', 'id')
+        p = request.query_params
+        if p.get('role'):
+            if p['role'] not in dict(PlatformAdmin.ROLE_CHOICES):
+                return Response({'role': 'Use super_admin or viewer.'}, status=400)
+            qs = qs.filter(role=p['role'])
+        status = p.get('status', '').strip()
+        if status:
+            filters = {'deactivated': Q(is_active=False), 'invited': Q(is_active=True, must_change_password=True),
+                       'active': Q(is_active=True, must_change_password=False)}
+            if status not in filters:
+                return Response({'status': 'Use invited, active or deactivated.'}, status=400)
+            qs = qs.filter(filters[status])
+        search = p.get('search', '').strip()
+        if search:
+            qs = qs.filter(Q(name__icontains=search) | Q(email__icontains=search))
+        from utils.pagination import paginate
+        return paginate(request, qs, lambda rows: [serialize_platform_user(a) for a in rows])
+
+    def post(self, request):
+        d = request.data
+        email = str(d.get('email', '') or '').strip().lower()
+        role = str(d.get('role', '') or '').strip()
+        name = str(d.get('name', '') or '').strip() or email.split('@')[0]
+        errors = {}
+        try:
+            validate_email(email)
+            if PlatformAdmin.objects.filter(email__iexact=email).exists():
+                errors['email'] = 'A console user with this email already exists.'
+        except DjangoValidationError:
+            errors['email'] = 'Enter a valid email address.'
+        if role not in dict(PlatformAdmin.ROLE_CHOICES):
+            errors['role'] = 'Use super_admin or viewer.'
+        if errors:
+            return Response(errors, status=400)
+        temp_password = _temp_password()
+        admin = PlatformAdmin(name=name[:150], email=email, role=role, must_change_password=True,
+                              invited_by=request.user)
+        admin.set_password(temp_password)
+        admin.save()
+        data = serialize_platform_user(admin)
+        data['temp_password'] = temp_password
+        return Response(data, status=201)
+
+
+class PlatformUserDetailView(APIView):
+    """
+    GET    /api/platform/users/<id>/
+    PATCH  /api/platform/users/<id>/  {role?, name?, is_active?}   (Super Admin)
+    DELETE /api/platform/users/<id>/  — deactivates: can't log in, current sessions end at once.
+    You can't demote or deactivate yourself, or the last active Super Admin.
+    """
+    authentication_classes = [PlatformAdminAuthentication]
+    permission_classes = [IsPlatformAdmin]
+
+    def _get(self, pk):
+        return PlatformAdmin.objects.select_related('invited_by').filter(pk=pk).first()
+
+    def get(self, request, pk):
+        admin = self._get(pk)
+        if not admin:
+            return Response({'error': 'Console user not found.'}, status=404)
+        return Response(serialize_platform_user(admin))
+
+    def patch(self, request, pk):
+        admin = self._get(pk)
+        if not admin:
+            return Response({'error': 'Console user not found.'}, status=404)
+        d = request.data
+        if 'role' in d:
+            if d['role'] not in dict(PlatformAdmin.ROLE_CHOICES):
+                return Response({'role': 'Use super_admin or viewer.'}, status=400)
+            if d['role'] != 'super_admin' and admin.role == 'super_admin':
+                if admin.pk == request.user.pk:
+                    return Response({'error': "You can't change your own role.", 'code': 'cannot_change_self'}, status=400)
+                if _last_super_admin(admin):
+                    return Response({'error': 'There must be at least one active Super Admin.',
+                                     'code': 'last_super_admin'}, status=400)
+            admin.role = d['role']
+        if 'name' in d:
+            name = str(d.get('name') or '').strip()
+            if not name:
+                return Response({'name': 'This field may not be blank.'}, status=400)
+            admin.name = name[:150]
+        if 'is_active' in d:
+            active = d['is_active'] in (True, 'true', 'True', 1, '1')
+            if not active:
+                error = self._deactivation_error(request, admin)
+                if error:
+                    return error
+            admin.is_active = active
+        admin.save()
+        return Response(serialize_platform_user(admin))
+
+    def _deactivation_error(self, request, admin):
+        if admin.pk == request.user.pk:
+            return Response({'error': "You can't remove yourself.", 'code': 'cannot_change_self'}, status=400)
+        if _last_super_admin(admin):
+            return Response({'error': 'There must be at least one active Super Admin.', 'code': 'last_super_admin'}, status=400)
+        return None
+
+    def delete(self, request, pk):
+        admin = self._get(pk)
+        if not admin:
+            return Response({'error': 'Console user not found.'}, status=404)
+        error = self._deactivation_error(request, admin)
+        if error:
+            return error
+        admin.is_active = False
+        admin.save(update_fields=['is_active'])
+        return Response({'message': f'{admin.email} has been removed and can no longer log in.',
+                         'user': serialize_platform_user(admin)})
+
+
+class PlatformUserResetPasswordView(APIView):
+    """POST /api/platform/users/<id>/reset-password/  (Super Admin) → new temp_password, ends their sessions."""
+    authentication_classes = [PlatformAdminAuthentication]
+    permission_classes = [IsPlatformAdmin]
+
+    def post(self, request, pk):
+        admin = PlatformAdmin.objects.filter(pk=pk).first()
+        if not admin:
+            return Response({'error': 'Console user not found.'}, status=404)
+        if admin.pk == request.user.pk:
+            return Response({'error': 'Use change password for your own account.', 'code': 'cannot_change_self'}, status=400)
+        temp_password = _temp_password()
+        admin.set_password(temp_password)
+        admin.must_change_password = True
+        admin.save(update_fields=['password', 'must_change_password'])
+        return Response({'id': admin.id, 'email': admin.email, 'temp_password': temp_password,
+                         'must_change_password': True})
 
 
 class PlatformClinicListView(APIView):
