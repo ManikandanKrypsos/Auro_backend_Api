@@ -30,6 +30,7 @@ STAGE_MAP = {
 STAGE_ID_MAP = {v: k for k, v in STAGE_MAP.items()}
 # Old "Winning" id — accepted for older app versions and treated as Won.
 STAGE_MAP[4] = 'converted'
+ASSIGNABLE_ROLES = ('admin', 'reception')   # who can own a lead / lead task (they're the roles that can open leads)
 STAGE_ID_HELP = "Invalid stage_id. Use 1=New, 2=Contacted, 3=Consultation, 5=Won, 6=Lost"
 
 
@@ -232,8 +233,13 @@ class LeadWriteSerializer(serializers.Serializer):
     def _validate_staff(self, value):
         if value is not None:
             from users.models import User
-            if not User.objects.filter(id=value, is_active=True).exists():
+            staff = User.objects.filter(id=value, is_active=True).first()
+            if staff is None:
                 raise serializers.ValidationError(f"Staff member {value} not found.")
+            unchanged = self.instance is not None and self.instance.assigned_to_id == staff.id
+            if staff.role not in ASSIGNABLE_ROLES and not unchanged:   # older leads may still point at a therapist
+                raise serializers.ValidationError(
+                    "Leads can only be assigned to an admin or receptionist (therapists can't open leads).")
         return value
 
     def validate(self, data):

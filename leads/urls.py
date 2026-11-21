@@ -3,7 +3,7 @@ from .views import (
     LeadMetaView, LeadStatsView, LeadPipelineView,
     LeadListView, LeadDetailView,
     LeadStageView, LeadActivityView, LeadConvertView,
-    LeadHistoryView, LeadNotesView, LeadTasksView, LeadTaskDetailView,
+    LeadHistoryView, LeadNotesView, LeadTasksView, LeadTaskDetailView, LeadAssigneesView,
 )
 
 urlpatterns = [
@@ -11,6 +11,7 @@ urlpatterns = [
     path('meta/',                   LeadMetaView.as_view()),      # GET dropdown options
     path('stats/',                  LeadStatsView.as_view()),     # GET pipeline stats
     path('pipeline/',               LeadPipelineView.as_view()),  # GET kanban board
+    path('assignees/',              LeadAssigneesView.as_view()), # GET who a lead can be assigned to
     path('<int:pk>/',               LeadDetailView.as_view()),    # GET, PATCH, DELETE
     path('<int:pk>/stage/',         LeadStageView.as_view()),     # PATCH move stage
     path('<int:pk>/activity/',      LeadActivityView.as_view()),  # GET, POST

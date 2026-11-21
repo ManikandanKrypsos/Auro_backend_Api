@@ -436,6 +436,30 @@ class LeadActivityView(APIView):
         return Response(LeadActivitySerializer(activity).data, status=201)
 
 
+class LeadAssigneesView(APIView):
+    """
+    GET /api/leads/assignees/?search=ana
+    Everyone a lead (or lead task) can be assigned to: active admins and receptionists of the clinic.
+    """
+    permission_classes = [IsAdminOrReception]
+
+    def get(self, request):
+        from users.models import User
+        from .serializers import ASSIGNABLE_ROLES
+        qs = User.objects.filter(role__in=ASSIGNABLE_ROLES, is_active=True).order_by('username', 'id')
+        search = request.query_params.get('search', '').strip()
+        if search:
+            qs = qs.filter(Q(username__icontains=search) | Q(email__icontains=search))
+        return Response([{
+            'id':            u.id,
+            'name':          _name(u),
+            'email':         u.email,
+            'role':          u.role,
+            'profile_image': u.profile_image or None,
+            'is_me':         u.pk == request.user.pk,
+        } for u in qs])
+
+
 # ── History ───────────────────────────────────────────────────────────────────
 
 def _history_item(a):
@@ -554,9 +578,12 @@ def _apply_task_fields(task, d, errors, creating):
             task.assigned_to = None
         else:
             from users.models import User
+            from .serializers import ASSIGNABLE_ROLES
             staff = User.objects.filter(pk=raw, is_active=True).first() if str(raw).isdigit() else None
             if staff is None:
                 errors['assigned_staff_id'] = f'Staff member {raw} not found.'
+            elif staff.role not in ASSIGNABLE_ROLES:
+                errors['assigned_staff_id'] = 'Tasks can only be assigned to an admin or receptionist.'
             task.assigned_to = staff
 
 
