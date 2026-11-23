@@ -107,6 +107,12 @@ class Payment(models.Model):
     refund_of  = models.ForeignKey('self', on_delete=models.PROTECT, null=True, blank=True, related_name='refunds')
     reason     = models.CharField(max_length=255, blank=True)
     adjusts_invoice = models.BooleanField(default=True)   # refund also lowers what is owed (else the balance comes back)
+    # Back-office reconciliation (matched against the bank statement / card terminal / Stripe payout)
+    reconciled     = models.BooleanField(default=False, db_index=True)
+    reconciled_at  = models.DateTimeField(null=True, blank=True)
+    reconciled_by  = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+                                       related_name='+')
+    reconciliation_ref = models.CharField(max_length=120, blank=True)   # e.g. statement / payout id
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
                                    related_name='+')
     created_at = models.DateTimeField(auto_now_add=True)

@@ -57,6 +57,9 @@ def serialize_payment(p, with_invoice=True):
         'reference': p.reference, 'note': p.note,
         'receipt_number': p.receipt_number,
         'receipt_url': f'/api/payments/records/{p.id}/receipt/',
+        'reconciled': p.reconciled, 'reconciled_at': p.reconciled_at,
+        'reconciled_by': {'id': p.reconciled_by_id, 'name': _name(p.reconciled_by)} if p.reconciled_by_id else None,
+        'reconciliation_ref': p.reconciliation_ref,
         'created_by': {'id': p.created_by_id, 'name': _name(p.created_by)} if p.created_by_id else None,
         'created_at': p.created_at,
     }
@@ -497,13 +500,20 @@ def record_payment(request):
 class PaymentRecordListView(APIView):
     """
     GET /api/payments/records/?invoice_id=&patient_id=&method=cash,card&kind=payment|refund
-        &date_from=&date_to= (by paid date)&staff_id=&page=&page_size=
+        &date_from=&date_to= (by paid date)&staff_id=&reconciled=true|false&reconciliation_ref=&page=&page_size=
     """
     permission_classes = [IsAdminOrReception]
 
     def get(self, request):
         p, errors = request.query_params, {}
-        qs = Payment.objects.select_related('invoice', 'invoice__patient', 'created_by')
+        qs = Payment.objects.select_related('invoice', 'invoice__patient', 'created_by', 'reconciled_by')
+        raw = str(p.get('reconciled', '') or '').lower()
+        if raw in ('true', 'false'):
+            qs = qs.filter(reconciled=(raw == 'true'))
+        elif raw:
+            errors['reconciled'] = 'Use true or false.'
+        if p.get('reconciliation_ref'):
+            qs = qs.filter(reconciliation_ref__iexact=p['reconciliation_ref'].strip())
         if p.get('invoice_id'):
             qs = qs.filter(invoice_id=p['invoice_id']) if p['invoice_id'].isdigit() else qs.none()
         if p.get('patient_id'):
@@ -679,3 +689,100 @@ class AgeingReportView(APIView):
             'buckets': buckets,
             'top_patients': patients,
         })
+
+
+# ── Reconciliation (back office) ──────────────────────────────────────────────
+
+class ReconcileView(APIView):
+    """
+    POST /api/payments/records/reconcile/   (admin)
+    {"payment_ids": [905, 906], "reconciled": true, "reference": "BBVA statement 2026-11"}
+    Marks payments / refunds as matched (reconciled: false undoes it). Max 500 ids per call.
+    """
+    permission_classes = [IsAdmin]
+
+    def post(self, request):
+        d, errors = request.data, {}
+        ids = d.get('payment_ids')
+        if not isinstance(ids, list) or not ids:
+            errors['payment_ids'] = 'Send a list of payment ids.'
+        elif len(ids) > 500:
+            errors['payment_ids'] = 'At most 500 ids per call.'
+        elif any(isinstance(x, bool) or not str(x).isdigit() for x in ids):
+            errors['payment_ids'] = 'Ids must be whole numbers.'
+        value = d.get('reconciled', True)
+        if value not in (True, False, 'true', 'false'):
+            errors['reconciled'] = 'Use true or false.'
+        reference = str(d.get('reference', '') or '').strip()
+        if len(reference) > 120:
+            errors['reference'] = 'At most 120 characters.'
+        if errors:
+            return validation_error(errors)
+        value = value in (True, 'true')
+        wanted = {int(x) for x in ids}
+        qs = Payment.objects.filter(pk__in=wanted)           # other clinics' ids are simply not found
+        found = set(qs.values_list('pk', flat=True))
+        unchanged = set(qs.filter(reconciled=value).values_list('pk', flat=True))
+        to_change = qs.exclude(pk__in=unchanged)
+        if value:
+            updated = to_change.update(reconciled=True, reconciled_at=timezone.now(), reconciled_by=request.user,
+                                       reconciliation_ref=reference[:120])
+            if reference and unchanged:   # already reconciled: a new reference replaces the old one
+                Payment.objects.filter(pk__in=unchanged).update(reconciliation_ref=reference[:120])
+        else:
+            updated = to_change.update(reconciled=False, reconciled_at=None, reconciled_by=None, reconciliation_ref='')
+        rows = Payment.objects.select_related('invoice', 'invoice__patient', 'created_by', 'reconciled_by') \
+            .filter(pk__in=found).order_by('paid_at', 'id')
+        return Response({
+            'reconciled': value,
+            'updated': updated,
+            'already': len(unchanged),
+            'not_found': sorted(wanted - found),
+            'payments': [serialize_payment(x) for x in rows],
+        })
+
+
+class ReconciliationSummaryView(APIView):
+    """
+    GET /api/payments/reconciliation/?date_from=2026-11-01&date_to=2026-11-30&method=card
+    Per method: what came in (payments − refunds) and how much of it is reconciled / still to match.
+    Default period: this month.
+    """
+    permission_classes = [IsAdminOrReception]
+
+    def get(self, request):
+        from django.db.models import Count, Sum
+        from .metrics import payments_between, signed_amount, month_bounds
+        p, errors = request.query_params, {}
+        first, last = month_bounds(timezone.localdate())
+        date_from = _date(p.get('date_from'), 'date_from', errors) or first
+        date_to = _date(p.get('date_to'), 'date_to', errors) or last
+        if date_from > date_to:
+            errors['date_to'] = 'Must be on or after date_from.'
+        methods = list(inv.METHODS)
+        if p.get('method'):
+            methods = [m.strip() for m in p['method'].split(',') if m.strip()]
+            if any(m not in inv.METHODS for m in methods):
+                errors['method'] = f'Use one of: {", ".join(inv.METHODS)}.'
+        if errors:
+            return validation_error(errors)
+        qs = payments_between(date_from, date_to).filter(method__in=methods)
+        rows = {(r['method'], r['reconciled']): r for r in
+                qs.values('method', 'reconciled').annotate(n=Count('id'), t=Sum(signed_amount()))}
+        out, tot = [], {'count': 0, 'net': 0.0, 'reconciled_count': 0, 'reconciled_net': 0.0}
+        for m in methods:
+            done, todo = rows.get((m, True), {}), rows.get((m, False), {})
+            item = {
+                'method': m, 'method_label': dict(Payment.METHOD_CHOICES)[m],
+                'count': (done.get('n') or 0) + (todo.get('n') or 0),
+                'net': _f((done.get('t') or 0) + (todo.get('t') or 0)),
+                'reconciled_count': done.get('n') or 0, 'reconciled_net': _f(done.get('t')),
+                'unreconciled_count': todo.get('n') or 0, 'unreconciled_net': _f(todo.get('t')),
+            }
+            out.append(item)
+            for k in tot:
+                tot[k] = round(tot[k] + item[k], 2) if isinstance(tot[k], float) else tot[k] + item[k]
+        tot['unreconciled_count'] = tot['count'] - tot['reconciled_count']
+        tot['unreconciled_net'] = round(tot['net'] - tot['reconciled_net'], 2)
+        return Response({'date_from': date_from, 'date_to': date_to, 'currency': 'eur',
+                         'totals': tot, 'methods': out})
