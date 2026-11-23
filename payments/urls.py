@@ -10,12 +10,14 @@ from .views import (
     MarkAsPaidView,
     StripeWebhookView,
 )
-from .invoice_views import PaymentRecordDetailView, PaymentRecordListView
+from .invoice_views import PaymentReceiptView, PaymentRecordDetailView, PaymentRecordListView, PaymentRefundView
 
 urlpatterns = [
     path('',                                  PaymentListView.as_view()),   # GET screen list, POST record a payment
     path('records/',                          PaymentRecordListView.as_view()),
     path('records/<int:pk>/',                 PaymentRecordDetailView.as_view()),
+    path('records/<int:pk>/refund/',          PaymentRefundView.as_view()),    # POST partial / full refund
+    path('records/<int:pk>/receipt/',         PaymentReceiptView.as_view()),   # GET JSON, ?output=pdf
     path('create-checkout-session/',          CreateCheckoutSessionView.as_view()),
     path('create-intent/',                    CreatePaymentIntentView.as_view()),
     path('confirm/',                          ConfirmPaymentView.as_view()),

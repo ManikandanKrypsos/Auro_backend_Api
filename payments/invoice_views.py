@@ -55,9 +55,18 @@ def serialize_payment(p, with_invoice=True):
         'method': p.method, 'method_label': dict(Payment.METHOD_CHOICES).get(p.method, p.method),
         'paid_at': p.paid_at, 'date': timezone.localtime(p.paid_at).date().isoformat(),
         'reference': p.reference, 'note': p.note,
+        'receipt_number': p.receipt_number,
+        'receipt_url': f'/api/payments/records/{p.id}/receipt/',
         'created_by': {'id': p.created_by_id, 'name': _name(p.created_by)} if p.created_by_id else None,
         'created_at': p.created_at,
     }
+    if p.kind == 'payment':
+        data['refunded_amount'] = _f(p.amount - inv.refundable(p))
+        data['refundable_amount'] = _f(inv.refundable(p))
+    else:
+        data['refund_of_id'] = p.refund_of_id
+        data['reason'] = p.reason
+        data['adjusts_invoice'] = p.adjusts_invoice
     if with_invoice:
         i = p.invoice
         data['invoice'] = {'id': i.id, 'invoice_number': i.invoice_number, 'status': i.status,
@@ -85,7 +94,7 @@ def serialize_invoice(i, detail=False):
         'days_overdue': (today - i.due_date).days if owed and i.due_date < today else 0,
         'currency': 'eur',
         'subtotal': _f(i.subtotal), 'tax_amount': _f(i.tax_amount), 'total': _f(i.total),
-        'amount_paid': _f(i.amount_paid), 'balance_due': _f(i.balance_due),
+        'amount_paid': _f(i.amount_paid), 'credited': _f(i.credited), 'balance_due': _f(i.balance_due),
         'notes': i.notes, 'created_at': i.created_at, 'updated_at': i.updated_at,
     }
     if detail:
@@ -289,7 +298,7 @@ class InvoiceDetailNewView(APIView):
             return validation_error(errors)
         if lines is not None:
             new_total = sum((l.line_total for l in lines), Decimal(0))
-            if new_total < i.amount_paid:
+            if new_total - i.credited < i.amount_paid:
                 return error(409, 'total_below_paid',
                              f'The new total ({new_total}) is less than what has already been paid ({i.amount_paid}). '
                              f'Refund the difference first.')
@@ -343,14 +352,22 @@ class AppointmentInvoiceView(APIView):
 
 
 class InvoiceSettingsView(APIView):
-    """GET (admin/reception) / PATCH (admin) /api/invoices/settings/  {default_tax_rate, invoice_due_days}"""
+    """
+    GET (admin/reception) / PATCH (admin) /api/invoices/settings/
+    {default_tax_rate, invoice_due_days, legal_name, tax_id, billing_address, billing_phone, billing_email}
+    The billing details are printed on receipts.
+    """
 
     def get_permissions(self):
         return [IsAdmin()] if self.request.method == 'PATCH' else [IsAdminOrReception()]
 
+    TEXT_FIELDS = {'legal_name': 200, 'tax_id': 40, 'billing_address': 1000, 'billing_phone': 40, 'billing_email': 254}
+
     def _payload(self, clinic):
-        return {'default_tax_rate': _f(clinic.default_tax_rate), 'invoice_due_days': clinic.invoice_due_days,
-                'prices_include_tax': True, 'currency': 'eur'}
+        data = {'default_tax_rate': _f(clinic.default_tax_rate), 'invoice_due_days': clinic.invoice_due_days,
+                'prices_include_tax': True, 'currency': 'eur', 'clinic_name': clinic.name}
+        data.update({f: getattr(clinic, f) for f in self.TEXT_FIELDS})
+        return data
 
     def get(self, request):
         return Response(self._payload(request.user.clinic))
@@ -368,9 +385,22 @@ class InvoiceSettingsView(APIView):
                 errors['invoice_due_days'] = 'Whole number of days between 0 and 365.'
             else:
                 clinic.invoice_due_days = int(raw)
+        for f, limit in self.TEXT_FIELDS.items():
+            if f in request.data:
+                value = str(request.data.get(f) or '').strip()
+                if len(value) > limit:
+                    errors[f] = f'At most {limit} characters.'
+                elif f == 'billing_email' and value:
+                    from django.core.exceptions import ValidationError as DjangoValidationError
+                    from django.core.validators import validate_email
+                    try:
+                        validate_email(value)
+                    except DjangoValidationError:
+                        errors[f] = 'Enter a valid email address.'
+                setattr(clinic, f, value)
         if errors:
             return validation_error(errors)
-        clinic.save(update_fields=['default_tax_rate', 'invoice_due_days', 'updated_at'])
+        clinic.save(update_fields=['default_tax_rate', 'invoice_due_days', 'updated_at', *self.TEXT_FIELDS])
         return Response(self._payload(clinic))
 
 
@@ -467,4 +497,74 @@ class PaymentRecordDetailView(APIView):
             return error(404, 'payment_not_found', 'Payment not found.')
         data = serialize_payment(p)
         data['invoice'] = serialize_invoice(_get_invoice(p.invoice_id))
+        return Response(data)
+
+
+class PaymentRefundView(APIView):
+    """
+    POST /api/payments/records/<id>/refund/
+    {"amount": 20, "reason": "Treatment shortened", "adjust_invoice": true, "record_only": false}
+    amount: optional (default = everything still refundable on this payment).
+    adjust_invoice (default true): the refund also lowers what is owed. false = the amount goes back
+    onto the balance (e.g. refunded to the wrong card, to be collected again).
+    Online payments are refunded through Stripe; record_only: true just records a refund already
+    made in Stripe.
+    """
+    permission_classes = [IsAdminOrReception]
+
+    def post(self, request, pk):
+        d, errors = request.data, {}
+        reason = str(d.get('reason', '') or '').strip()
+        if not reason:
+            errors['reason'] = 'This field is required.'
+        amount = None
+        if d.get('amount') not in (None, ''):
+            amount = _dec(d.get('amount'), 'amount', errors, Decimal('0.01'))
+        flags = {}
+        for f, default in (('adjust_invoice', True), ('record_only', False)):
+            v = d.get(f, default)
+            if v not in (True, False, 'true', 'false'):
+                errors[f] = 'Use true or false.'
+            flags[f] = v in (True, 'true')
+        if errors:
+            return validation_error(errors)
+        with transaction.atomic():
+            payment = Payment.objects.select_for_update().select_related('invoice').filter(pk=pk).first()
+            if not payment:
+                return error(404, 'payment_not_found', 'Payment not found.')
+            Invoice.objects.select_for_update().filter(pk=payment.invoice_id).first()
+            try:
+                refund = inv.refund_payment(payment, amount, reason=reason, user=request.user,
+                                            adjust_invoice=flags['adjust_invoice'], record_only=flags['record_only'])
+            except inv.PaymentError as e:
+                status = 400 if e.field else (502 if e.code == 'stripe_error' else 409)
+                return error(status, e.code, e.message, {e.field: e.message} if e.field else None)
+        data = serialize_payment(Payment.objects.select_related('invoice', 'invoice__patient', 'created_by').get(pk=refund.pk))
+        data['invoice'] = serialize_invoice(_get_invoice(payment.invoice_id))
+        data['original_payment'] = serialize_payment(Payment.objects.select_related('invoice', 'created_by').get(pk=payment.pk),
+                                                     with_invoice=False)
+        return Response(data, status=201)
+
+
+class PaymentReceiptView(APIView):
+    """
+    GET /api/payments/records/<id>/receipt/              JSON (to render in the app)
+    GET /api/payments/records/<id>/receipt/?output=pdf   PDF download
+    One receipt per payment (each instalment) and per refund.
+    """
+    permission_classes = [IsAdminOrReception]
+
+    def get(self, request, pk):
+        from .receipts import receipt_data, receipt_pdf
+        p = (Payment.objects.select_related('invoice', 'invoice__patient', 'invoice__appointment',
+                                            'invoice__appointment__treatment', 'created_by', 'refund_of')
+             .filter(pk=pk).first())
+        if not p:
+            return error(404, 'payment_not_found', 'Payment not found.')
+        data = receipt_data(p)
+        if request.query_params.get('output') == 'pdf':
+            from django.http import HttpResponse
+            resp = HttpResponse(receipt_pdf(data), content_type='application/pdf')
+            resp['Content-Disposition'] = f'attachment; filename="{data["receipt_number"] or "receipt"}.pdf"'
+            return resp
         return Response(data)

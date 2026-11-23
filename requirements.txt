@@ -44,6 +44,7 @@ python-crontab==3.3.0
 python-dateutil==2.9.0.post0
 python-dotenv==1.2.1
 qrcode==8.2
+reportlab==4.2.5
 redis==7.4.0
 requests==2.33.1
 six==1.17.0

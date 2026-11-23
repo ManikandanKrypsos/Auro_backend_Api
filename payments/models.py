@@ -17,6 +17,7 @@ class Invoice(models.Model):
         ('open',           'Open'),             # nothing paid yet
         ('partially_paid', 'Partially paid'),
         ('paid',           'Paid'),
+        ('partially_refunded', 'Partially refunded'),   # paid, then part of it given back
         ('refunded',       'Refunded'),         # everything paid was refunded
         ('void',           'Void'),             # cancelled, nothing owed
         ('no_charge',      'No charge'),        # total 0 (e.g. a package session)
@@ -42,6 +43,7 @@ class Invoice(models.Model):
     tax_amount     = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     total          = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     amount_paid    = models.DecimalField(max_digits=12, decimal_places=2, default=0)   # payments minus refunds
+    credited       = models.DecimalField(max_digits=12, decimal_places=2, default=0)   # refunds that also reduced what is owed
     balance_due    = models.DecimalField(max_digits=12, decimal_places=2, default=0, db_index=True)
 
     created_by     = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True,
@@ -98,8 +100,13 @@ class Payment(models.Model):
     amount     = models.DecimalField(max_digits=12, decimal_places=2)            # always positive
     method     = models.CharField(max_length=20, choices=METHOD_CHOICES)
     paid_at    = models.DateTimeField(db_index=True)                              # when the money moved
-    reference  = models.CharField(max_length=120, blank=True)                     # card slip, transfer ref, pi_…
+    reference  = models.CharField(max_length=120, blank=True)                     # card slip, transfer ref, pi_… / re_…
     note       = models.CharField(max_length=255, blank=True)
+    receipt_number = models.CharField(max_length=30, blank=True, db_index=True)   # RCPT-2026-0001 / REF-2026-0001
+    # Refunds only
+    refund_of  = models.ForeignKey('self', on_delete=models.PROTECT, null=True, blank=True, related_name='refunds')
+    reason     = models.CharField(max_length=255, blank=True)
+    adjusts_invoice = models.BooleanField(default=True)   # refund also lowers what is owed (else the balance comes back)
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
                                    related_name='+')
     created_at = models.DateTimeField(auto_now_add=True)
@@ -109,10 +116,11 @@ class Payment(models.Model):
 
 
 class InvoiceCounter(models.Model):
-    """Last invoice number used per clinic and year (INV-<year>-<n>)."""
+    """Last number used per clinic, year and kind (invoice INV-…, receipt RCPT-…, refund REF-…)."""
     clinic = models.ForeignKey('tenants.Clinic', on_delete=models.CASCADE, related_name='+')
     year   = models.PositiveSmallIntegerField()
+    kind   = models.CharField(max_length=10, default='invoice')
     last   = models.PositiveIntegerField(default=0)
 
     class Meta:
-        constraints = [models.UniqueConstraint(fields=['clinic', 'year'], name='invoice_counter_unique')]
+        constraints = [models.UniqueConstraint(fields=['clinic', 'year', 'kind'], name='number_counter_unique')]
