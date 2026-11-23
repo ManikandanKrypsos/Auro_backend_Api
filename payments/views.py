@@ -61,6 +61,20 @@ class CreateCheckoutSessionView(APIView):
         amount, error_response = _amount_due(appt)
         if error_response:
             return error_response
+        from .invoicing import invoice_for_appointment
+        invoice_id = invoice_for_appointment(appt).id
+
+        # Where Stripe sends the patient back. The app may pass its own URLs (same rules as the
+        # subscription checkout); {CHECKOUT_SESSION_ID} is always added so the app can verify.
+        from tenants.billing_views import _allowed_return_url
+        default_base = 'https://krypsos-auro.onrender.com/#/'
+        success_url = request.data.get('success_url') or f'{default_base}paymentSuccessScreen?appointment_id={appt.id}'
+        cancel_url = request.data.get('cancel_url') or f'{default_base}paymentCancelScreen?appointment_id={appt.id}'
+        for field, url in (('success_url', success_url), ('cancel_url', cancel_url)):
+            if request.data.get(field) and not _allowed_return_url(url):
+                return Response({field: 'Must be a URL of the Aura web app (an allowed origin).'}, status=400)
+        if '{CHECKOUT_SESSION_ID}' not in success_url:
+            success_url += ('&' if '?' in success_url else '?') + 'session_id={CHECKOUT_SESSION_ID}'
 
         amount_cents = int(float(amount) * 100)
 
@@ -79,10 +93,13 @@ class CreateCheckoutSessionView(APIView):
                     'quantity': 1,
                 }],
                 mode='payment',
-                success_url='https://krypsos-auro.onrender.com/#/paymentSuccessScreen?appointment_id=' + str(appt.id),
-                cancel_url='https://krypsos-auro.onrender.com/#/paymentCancelScreen?appointment_id=' + str(appt.id),
+                success_url=success_url,
+                cancel_url=cancel_url,
+                client_reference_id=str(appt.id),
+                payment_intent_data={'metadata': {'appointment_id': str(appt.id), 'invoice_id': str(invoice_id)}},
                 metadata={
                     'appointment_id': str(appt.id),
+                    'invoice_id':     str(invoice_id),
                     'patient_name':   appt.patient.name if appt.patient else '',
                     'treatment_name': appt.treatment.name if appt.treatment else '',
                 },
@@ -91,9 +108,12 @@ class CreateCheckoutSessionView(APIView):
             # The price stays on the invoice; mark the appointment as paying online
             type(appt).objects.filter(pk=appt.pk).update(payment_type='online')
 
+            from .models import Invoice
+            Invoice._base_manager.filter(pk=invoice_id).update(stripe_checkout_session_id=session.id)
             return Response({
                 'checkout_url': session.url,
                 'session_id':   session.id,
+                'invoice_id':   invoice_id,
                 'appointment_id': appt.id,
                 'amount_display': f"€{float(amount):.2f}",
             })
@@ -136,11 +156,14 @@ class CreatePaymentIntentView(APIView):
         amount_cents = int(float(amount) * 100)
 
         try:
+            from .invoicing import invoice_for_appointment
+            invoice_id = invoice_for_appointment(appt).id
             intent = stripe.PaymentIntent.create(
                 amount=amount_cents,
                 currency='eur',
                 metadata={
                     'appointment_id': str(appt.id),
+                    'invoice_id':     str(invoice_id),
                     'patient_name':   appt.patient.name if appt.patient else '',
                     'treatment_name': appt.treatment.name if appt.treatment else '',
                 },
@@ -150,6 +173,8 @@ class CreatePaymentIntentView(APIView):
             # The price stays on the invoice; mark the appointment as paying online
             type(appt).objects.filter(pk=appt.pk).update(payment_type='online')
 
+            from .models import Invoice
+            Invoice._base_manager.filter(pk=invoice_id).update(stripe_payment_intent_id=intent.id)
             return Response({
                 'client_secret':     intent.client_secret,
                 'payment_intent_id': intent.id,
@@ -189,10 +214,14 @@ class ConfirmPaymentView(APIView):
 
         try:
             intent = stripe.PaymentIntent.retrieve(payment_intent_id)
+            from .stripe_sync import plain
+            meta = (plain(intent) or {}).get('metadata') or {}
+            if str(meta.get('appointment_id', '')) != str(appt.id):
+                return Response({'error': 'This payment does not belong to this appointment.'}, status=400)
             if intent.status == 'succeeded':
-                appt.payment_status = 'paid'
-                appt.payment_type   = 'online'
-                appt.save()
+                from .stripe_sync import apply_payment_intent
+                apply_payment_intent(intent)          # idempotent: safe if the webhook already did it
+                appt.refresh_from_db()
                 return Response({
                     'success':        True,
                     'message':        'Payment confirmed successfully.',
@@ -246,7 +275,12 @@ class RefundPaymentView(APIView):
         try:
             # First check if payment_intent_id stored in notes (web checkout)
             payment_intent_id = None
-            if appt.notes and appt.notes.startswith('stripe_pi:'):
+            from .models import Payment
+            rec = (Payment.objects.filter(invoice__appointment=appt, kind='payment', method='online',
+                                          reference__startswith='pi_').order_by('-paid_at').first())
+            if rec:
+                payment_intent_id = rec.reference
+            if not payment_intent_id and appt.notes and appt.notes.startswith('stripe_pi:'):
                 payment_intent_id = appt.notes.split('stripe_pi:')[1].strip()
 
             # If not in notes, search Stripe
@@ -706,42 +740,92 @@ class StripeWebhookView(APIView):
         except (ValueError, stripe.error.SignatureVerificationError):
             return HttpResponse(status=400)
 
-        from appointments.models import Appointment
-
-        if event['type'] == 'checkout.session.completed':
-            session        = event['data']['object']
-            appt_id        = session.get('metadata', {}).get('appointment_id')
-            payment_intent = session.get('payment_intent')
-            if appt_id:
-                try:
-                    appt = Appointment.objects.get(id=appt_id)
-                    appt.payment_status = 'paid'
-                    appt.payment_type   = 'online'
-                    # Store payment_intent_id in notes field for refund lookup
-                    if payment_intent:
-                        appt.notes = f"stripe_pi:{payment_intent}"
-                    appt.save()
-                except Appointment.DoesNotExist:
-                    pass
-
-        elif event['type'] == 'payment_intent.succeeded':
-            appt_id = event['data']['object']['metadata'].get('appointment_id')
-            if appt_id:
-                try:
-                    appt = Appointment.objects.get(id=appt_id)
-                    appt.payment_status = 'paid'
-                    appt.save()
-                except Appointment.DoesNotExist:
-                    pass
-
-        elif event['type'] == 'payment_intent.payment_failed':
-            appt_id = event['data']['object']['metadata'].get('appointment_id')
-            if appt_id:
-                try:
-                    appt = Appointment.objects.get(id=appt_id)
-                    appt.payment_status = 'pending'
-                    appt.save()
-                except Appointment.DoesNotExist:
-                    pass
-
+        # Appointment / invoice payments. Recording is idempotent (see stripe_sync), so this endpoint and
+        # the billing webhook (which also forwards these events) can both receive them safely.
+        from .stripe_sync import apply_checkout_session, apply_payment_intent
+        from .stripe_sync import plain
+        event = plain(event)
+        obj = event['data']['object']
+        try:
+            if event['type'] == 'checkout.session.completed' and obj.get('mode') == 'payment':
+                apply_checkout_session(obj)
+            elif event['type'] == 'payment_intent.succeeded':
+                apply_payment_intent(obj)
+            # payment_intent.payment_failed: nothing to record — the invoice simply stays unpaid
+        except Exception:
+            logger.exception('Stripe webhook %s failed', event.get('id'))
+            return HttpResponse(status=500)       # Stripe retries
         return HttpResponse(status=200)
+
+
+class ReconcileStripeView(APIView):
+    """
+    POST /api/payments/reconcile-session/
+    {"session_id": "cs_…"}  or  {"payment_intent_id": "pi_…"}  or  {"appointment_id": 42}  or  {"invoice_id": 51}
+    Asks Stripe directly whether the payment went through and records it if it did — for when a
+    webhook was missed or is late. Safe to call any number of times (never records twice).
+    With appointment_id / invoice_id, the last checkout / payment started for that invoice is checked.
+    """
+    permission_classes = [IsAdminOrReception]
+
+    def post(self, request):
+        from .invoice_views import serialize_invoice, serialize_payment, _get_invoice
+        from .models import Invoice
+        from .stripe_sync import apply_checkout_session, apply_payment_intent, invoice_for, plain
+        from utils.api_errors import error, validation_error
+        d = request.data
+        session_id = str(d.get('session_id', '') or '').strip()
+        pi_id = str(d.get('payment_intent_id', '') or '').strip()
+        if not session_id and not pi_id:
+            raw_appt, raw_inv = str(d.get('appointment_id', '') or ''), str(d.get('invoice_id', '') or '')
+            if not raw_appt and not raw_inv:
+                return validation_error({'session_id': 'Send session_id, payment_intent_id, appointment_id or invoice_id.'})
+            if (raw_appt and not raw_appt.isdigit()) or (raw_inv and not raw_inv.isdigit()):
+                return validation_error({'appointment_id' if raw_appt else 'invoice_id': 'Must be an id.'})
+            from appointments.models import Appointment
+            if raw_appt and not Appointment.objects.filter(pk=int(raw_appt)).exists():
+                return error(404, 'appointment_not_found', 'Appointment not found.')
+            if raw_inv and not Invoice.objects.filter(pk=int(raw_inv)).exists():
+                return error(404, 'invoice_not_found', 'Invoice not found.')
+            invoice = invoice_for(int(raw_appt) if raw_appt else None, int(raw_inv) if raw_inv else None)
+            session_id = invoice.stripe_checkout_session_id
+            pi_id = invoice.stripe_payment_intent_id
+            if not session_id and not pi_id:
+                return error(404, 'no_stripe_payment', 'No Stripe payment has been started for this invoice.')
+        elif session_id and not session_id.startswith('cs_'):
+            return validation_error({'session_id': 'A Checkout Session id (cs_…) is required.'})
+        elif pi_id and not pi_id.startswith('pi_'):
+            return validation_error({'payment_intent_id': 'A PaymentIntent id (pi_…) is required.'})
+
+        try:
+            if session_id:
+                obj = plain(stripe.checkout.Session.retrieve(session_id))
+                stripe_status = obj.get('payment_status')
+            else:
+                obj = plain(stripe.PaymentIntent.retrieve(pi_id))
+                stripe_status = obj.get('status')
+        except stripe.error.InvalidRequestError:
+            return error(404, 'stripe_not_found', 'Stripe has no payment with that id.')
+        except stripe.error.StripeError as e:
+            logger.warning('Stripe error: %s', e)
+            return error(502, 'stripe_error', 'Could not reach Stripe. Please try again.')
+
+        meta = obj.get('metadata') or {}
+        # only for this clinic's invoices: the scoped lookups return nothing for another clinic's
+        from appointments.models import Appointment
+        appt_ok = meta.get('appointment_id') and Appointment.objects.filter(pk=meta['appointment_id']).exists()
+        inv_ok = meta.get('invoice_id') and Invoice.objects.filter(pk=meta['invoice_id']).exists()
+        if not appt_ok and not inv_ok:
+            return error(404, 'stripe_not_found', 'That Stripe payment is not for this clinic.')
+
+        invoice, payment, outcome = (apply_checkout_session(obj) if session_id else apply_payment_intent(obj))
+        if invoice is None:
+            return error(404, 'invoice_not_found', 'Invoice not found for this Stripe payment.')
+        paid = outcome in ('recorded', 'already_recorded', 'already_paid')
+        return Response({
+            'stripe_status':  stripe_status,          # paid / unpaid / no_payment_required · succeeded / processing / …
+            'paid':           paid,
+            'outcome':        outcome if paid else 'not_paid',
+            'payment':        serialize_payment(payment) if payment else None,
+            'invoice':        serialize_invoice(_get_invoice(invoice.pk)),
+        })

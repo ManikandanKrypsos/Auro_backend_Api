@@ -4,6 +4,7 @@ from django.http import JsonResponse
 from django.conf import settings
 from django.conf.urls.static import static
 from appointments.schedule_views import DayScheduleView
+from utils.health import health
 from tenants.urls import billing_urlpatterns, clinic_urlpatterns, platform_urlpatterns
 
 
@@ -42,6 +43,7 @@ urlpatterns = [
     path('api/billing/',      include(billing_urlpatterns)),    # clinic subscription (Stripe)
     path('api/notifications/', include('notifications.urls')),  # in-app bell
     path('api/invoices/',     include('payments.invoice_urls')),  # invoices (lines, payments, balance)
+    path('api/health/',       health),                          # uptime monitor / keep-warm
     path('api/users/',        include('users.urls')),
     path('api/patients/',     include('patients.urls')),
     path('api/treatments/',   include('treatments.urls')),

@@ -9,6 +9,7 @@ from .views import (
     InvoiceDetailView,
     MarkAsPaidView,
     StripeWebhookView,
+    ReconcileStripeView,
 )
 from .invoice_views import (PaymentReceiptView, PaymentRecordDetailView, PaymentRecordListView, PaymentRefundView,
                             ReconcileView, ReconciliationSummaryView)
@@ -27,6 +28,7 @@ urlpatterns = [
     path('refund/',                           RefundPaymentView.as_view()),
     path('mark-paid/',                        MarkAsPaidView.as_view()),
     path('webhook/',                          StripeWebhookView.as_view()),
+    path('reconcile-session/',                ReconcileStripeView.as_view()),  # POST ask Stripe, record if paid
     path('status/<int:appointment_id>/',      PaymentStatusView.as_view()),
     path('invoice/<int:appointment_id>/',     InvoiceDetailView.as_view()),
 ]

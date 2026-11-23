@@ -36,6 +36,9 @@ class Invoice(models.Model):
     due_date       = models.DateField()
     status         = models.CharField(max_length=20, choices=STATUS_CHOICES, default='open', db_index=True)
     voided_automatically = models.BooleanField(default=False)    # voided because the appointment was cancelled
+    # Last Stripe checkout started for this invoice (so a missed webhook can be re-checked later)
+    stripe_checkout_session_id = models.CharField(max_length=255, blank=True)
+    stripe_payment_intent_id   = models.CharField(max_length=255, blank=True)
     notes          = models.TextField(blank=True)
 
     # Kept up to date from lines and payments (see payments.invoicing.recalc)

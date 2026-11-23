@@ -291,6 +291,8 @@ def refund_payment(payment, amount=None, reason='', user=None, adjust_invoice=Tr
                                      metadata={'aura_payment_id': str(payment.id), 'reason': (reason or '')[:200]})
         except stripe.error.StripeError as e:
             raise PaymentError('stripe_error', getattr(e, 'user_message', None) or 'Stripe could not refund this payment.')
+        from .stripe_sync import plain
+        r = plain(r)
         if r.get('status') not in ('succeeded', 'pending'):
             raise PaymentError('stripe_error', f"Stripe refund {r.get('status')}.")
         stripe_ref = r.get('id', '')

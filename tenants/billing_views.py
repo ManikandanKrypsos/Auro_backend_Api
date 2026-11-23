@@ -342,7 +342,9 @@ class BillingWebhookView(APIView):
     invoice.payment_failed          → past_due + grace period
     customer.subscription.deleted   → canceled (blocked)
     customer.subscription.updated   → keeps next billing date / trial end / cancel_at_period_end in sync
-    checkout.session.completed      → subscription started from Stripe Checkout (web)
+    checkout.session.completed      → subscription started from Stripe Checkout (web), or — mode=payment —
+                                      a patient's appointment payment (recorded on the invoice)
+    payment_intent.succeeded        → a patient's appointment payment from the mobile app
     customer.updated                → card changed in the billing portal
     """
     permission_classes = [AllowAny]
@@ -363,7 +365,7 @@ class BillingWebhookView(APIView):
 
 HANDLED_EVENTS = ('invoice.payment_succeeded', 'invoice.paid', 'invoice.payment_failed',
                   'customer.subscription.deleted', 'customer.subscription.updated',
-                  'checkout.session.completed', 'customer.updated')
+                  'checkout.session.completed', 'customer.updated', 'payment_intent.succeeded')
 
 
 def handle_event(event):
@@ -371,6 +373,18 @@ def handle_event(event):
     if etype not in HANDLED_EVENTS:
         return None
     obj = b._get(b._get(event, 'data', {}), 'object', {})
+    from payments.stripe_sync import plain
+    obj = plain(obj) or {}
+    # Patients paying for appointments (not the clinic's subscription): forwarded to the invoice
+    # code, so this one webhook endpoint is enough for both. Recording there is idempotent.
+    meta = b._get(obj, 'metadata', {}) or {}
+    if (etype == 'checkout.session.completed' and b._get(obj, 'mode') == 'payment') or \
+            (etype == 'payment_intent.succeeded' and (meta.get('appointment_id') or meta.get('invoice_id'))):
+        from payments.stripe_sync import apply_checkout_session, apply_payment_intent
+        (apply_checkout_session if etype == 'checkout.session.completed' else apply_payment_intent)(obj)
+        return None
+    if etype == 'payment_intent.succeeded':
+        return None
     created = b._ts(b._get(event, 'created')) or timezone.now()
     with transaction.atomic():
         if etype == 'customer.updated':
