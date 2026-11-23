@@ -75,9 +75,41 @@ def serialize_payment(p, with_invoice=True):
     return data
 
 
+# ── Ageing ────────────────────────────────────────────────────────────────────
+# Buckets by days past the due date, for invoices that still have something to pay.
+AGEING_BUCKETS = (
+    ('current', 'Not yet due',      None, 0),     # due today or later
+    ('1_30',    '1–30 days overdue',  1, 30),
+    ('31_60',   '31–60 days overdue', 31, 60),
+    ('61_90',   '61–90 days overdue', 61, 90),
+    ('90_plus', 'Over 90 days overdue', 91, None),
+)
+OWING = ('open', 'partially_paid')
+
+
+def ageing_bucket(days_overdue):
+    for key, _, low, high in AGEING_BUCKETS:
+        if (low is None or days_overdue >= low) and (high is None or days_overdue <= high):
+            return key
+    return 'current'
+
+
+def bucket_filter(qs, key, today):
+    """Invoices still owing whose due date puts them in the bucket."""
+    spec = {k: (lo, hi) for k, _, lo, hi in AGEING_BUCKETS}[key]
+    qs = qs.filter(status__in=OWING, balance_due__gt=0)
+    lo, hi = spec
+    if key == 'current':
+        return qs.filter(due_date__gte=today)
+    qs = qs.filter(due_date__lte=today - datetime.timedelta(days=lo))
+    if hi is not None:
+        qs = qs.filter(due_date__gte=today - datetime.timedelta(days=hi))
+    return qs
+
+
 def serialize_invoice(i, detail=False):
     today = timezone.localdate()
-    owed = i.balance_due > 0 and i.status in ('open', 'partially_paid')
+    owed = i.balance_due > 0 and i.status in OWING
     appt = i.appointment if i.appointment_id else None
     data = {
         'id': i.id, 'invoice_number': i.invoice_number, 'status': i.status,
@@ -92,6 +124,7 @@ def serialize_invoice(i, detail=False):
         } if appt else None,
         'issue_date': i.issue_date, 'due_date': i.due_date,
         'days_overdue': (today - i.due_date).days if owed and i.due_date < today else 0,
+        'ageing_bucket': ageing_bucket((today - i.due_date).days) if owed else None,
         'currency': 'eur',
         'subtotal': _f(i.subtotal), 'tax_amount': _f(i.tax_amount), 'total': _f(i.total),
         'amount_paid': _f(i.amount_paid), 'credited': _f(i.credited), 'balance_due': _f(i.balance_due),
@@ -228,6 +261,17 @@ class InvoiceListView(APIView):
             qs = qs.filter(issue_date__lte=date_to)
         if p.get('overdue', '').lower() == 'true':
             qs = qs.filter(status__in=['open', 'partially_paid'], balance_due__gt=0, due_date__lt=timezone.localdate())
+        if p.get('ageing'):
+            keys = [k.strip() for k in p['ageing'].split(',') if k.strip()]
+            valid = [k for k, *_ in AGEING_BUCKETS]
+            if any(k not in valid for k in keys):
+                errors['ageing'] = f'Use {", ".join(valid)} (comma-separate for several).'
+            else:
+                today = timezone.localdate()
+                ids = set()
+                for k in keys:
+                    ids.update(bucket_filter(Invoice.objects.all(), k, today).values_list('id', flat=True))
+                qs = qs.filter(id__in=ids)
         if p.get('search'):
             s = p['search'].strip()
             qs = qs.filter(Q(invoice_number__icontains=s) | Q(patient__name__icontains=s) | Q(patient__phone__icontains=s))
@@ -568,3 +612,70 @@ class PaymentReceiptView(APIView):
             resp['Content-Disposition'] = f'attachment; filename="{data["receipt_number"] or "receipt"}.pdf"'
             return resp
         return Response(data)
+
+
+class AgeingReportView(APIView):
+    """
+    GET /api/invoices/ageing/?staff_id=8&patient_id=Aura41&top=20
+    What is still owed, grouped by how far past the due date it is, for the whole clinic
+    (or one therapist / one patient). Only open and partially paid invoices count.
+    """
+    permission_classes = [IsAdminOrReception]
+
+    def get(self, request):
+        from django.db.models import Count, Max, Min, Sum
+        p, errors = request.query_params, {}
+        today = timezone.localdate()
+        base = Invoice.objects.filter(status__in=OWING, balance_due__gt=0)
+        if p.get('staff_id'):
+            if not p['staff_id'].isdigit():
+                errors['staff_id'] = 'Must be an id.'
+            else:
+                base = base.filter(appointment__staff_id=int(p['staff_id']))
+        if p.get('patient_id'):
+            pid = p['patient_id'].strip()
+            base = base.filter(patient_id=int(pid)) if pid.isdigit() else base.filter(patient__patient_id__iexact=pid)
+        top = 20
+        if p.get('top'):
+            if not p['top'].isdigit() or not 1 <= int(p['top']) <= 100:
+                errors['top'] = 'Whole number between 1 and 100.'
+            else:
+                top = int(p['top'])
+        if errors:
+            return validation_error(errors)
+
+        buckets = []
+        for key, label, lo, hi in AGEING_BUCKETS:
+            agg = bucket_filter(base, key, today).aggregate(n=Count('id'), t=Sum('balance_due'))
+            buckets.append({'key': key, 'label': label, 'min_days': lo, 'max_days': hi,
+                            'count': agg['n'], 'amount': _f(agg['t'])})
+        total = round(sum(b['amount'] for b in buckets), 2)
+        overdue = round(sum(b['amount'] for b in buckets if b['key'] != 'current'), 2)
+        for b in buckets:
+            b['pct'] = round(b['amount'] / total * 100, 1) if total else 0.0
+
+        # who owes the most (overdue first, then everything owed)
+        rows = (base.exclude(patient_id=None).values('patient_id', 'patient__patient_id', 'patient__name', 'patient__phone')
+                .annotate(amount=Sum('balance_due'), invoices=Count('id'), oldest_due=Min('due_date'))
+                .order_by('-amount')[:top])
+        overdue_by_patient = dict(base.filter(due_date__lt=today).values('patient_id')
+                                  .annotate(t=Sum('balance_due')).values_list('patient_id', 't'))
+        patients = [{
+            'patient': {'id': r['patient__patient_id'], 'db_id': r['patient_id'], 'name': r['patient__name'],
+                        'phone': r['patient__phone']},
+            'amount': _f(r['amount']), 'overdue_amount': _f(overdue_by_patient.get(r['patient_id'])),
+            'invoices': r['invoices'], 'oldest_due_date': r['oldest_due'],
+            'max_days_overdue': max((today - r['oldest_due']).days, 0) if r['oldest_due'] else 0,
+        } for r in rows]
+
+        oldest = base.aggregate(d=Min('due_date'))['d']
+        return Response({
+            'as_of': today,
+            'currency': 'eur',
+            'total_outstanding': total,
+            'total_overdue': overdue,
+            'invoice_count': sum(b['count'] for b in buckets),
+            'oldest_due_date': oldest,
+            'buckets': buckets,
+            'top_patients': patients,
+        })
