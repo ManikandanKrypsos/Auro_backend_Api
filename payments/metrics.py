@@ -1,12 +1,12 @@
 """
-Single definition of "revenue" used by the dashboard and the payments screen,
-so the numbers on both always reconcile.
+Single definition of money used by the dashboard and the payments screen, so both always agree.
 
-Revenue (collected) = sum of payment_amount where payment_status == 'paid'
-Pending             = sum of payment_amount where payment_status == 'pending'
-Billed              = revenue + pending
-Scope               = every appointment except cancelled ones that were never paid
-Date                = the appointment's date (clinic local time)
+Revenue (received) = payments minus refunds whose paid date is in the period (clinic local time).
+                     Partial payments count when they arrive; refunds count when they are made.
+Outstanding        = balance still due on open / partially paid invoices issued in the period.
+Staff / treatment  = through the invoice's appointment (standalone invoices only count in totals).
+
+paid_total() / billable() are the old appointment-based rule, kept for anything not yet moved.
 """
 import datetime
 from django.db.models import Sum
@@ -44,3 +44,51 @@ def month_bounds(d):
     first = d.replace(day=1)
     nxt   = datetime.date(first.year + (first.month == 12), first.month % 12 + 1, 1)
     return first, nxt - datetime.timedelta(days=1)
+
+
+# ── Money received (payments) ─────────────────────────────────────────────────
+
+def payments_between(start, end, staff_id=None, treatment_id=None):
+    """Payment rows (payments and refunds) whose local paid date is within [start, end]. None = open."""
+    from .models import Payment
+    qs = Payment.objects.all()
+    if start:
+        qs = qs.filter(paid_at__gte=day_start(start))
+    if end:
+        qs = qs.filter(paid_at__lt=day_start(end + datetime.timedelta(days=1)))
+    if staff_id is not None:
+        qs = qs.filter(invoice__appointment__staff_id=staff_id)
+    if treatment_id is not None:
+        qs = qs.filter(invoice__appointment__treatment_id=treatment_id)
+    return qs
+
+
+
+def signed_amount():
+    """+amount for payments, -amount for refunds (for aggregate())."""
+    from django.db.models import Case, DecimalField, F, When
+    return Case(When(kind='refund', then=-F('amount')), default=F('amount'),
+                output_field=DecimalField(max_digits=12, decimal_places=2))
+
+
+def received_total(start, end, staff_id=None, treatment_id=None):
+    qs = payments_between(start, end, staff_id, treatment_id)
+    return round(float(qs.aggregate(t=Sum(signed_amount()))['t'] or 0), 2)
+
+
+def received_by(start, end, field):
+    """{value_of_field: net received} — e.g. field='invoice__appointment__treatment_id'."""
+    rows = payments_between(start, end).values(field).annotate(t=Sum(signed_amount()))
+    return {r[field]: round(float(r['t'] or 0), 2) for r in rows}
+
+
+def outstanding_total(start, end, staff_id=None):
+    from .models import Invoice
+    qs = Invoice.objects.filter(status__in=['open', 'partially_paid'])
+    if start:
+        qs = qs.filter(issue_date__gte=start)
+    if end:
+        qs = qs.filter(issue_date__lte=end)
+    if staff_id is not None:
+        qs = qs.filter(appointment__staff_id=staff_id)
+    return round(float(qs.aggregate(t=Sum('balance_due'))['t'] or 0), 2)

@@ -41,6 +41,7 @@ urlpatterns = [
     path('api/platform/',     include(platform_urlpatterns)),   # Super Admin (separate login)
     path('api/billing/',      include(billing_urlpatterns)),    # clinic subscription (Stripe)
     path('api/notifications/', include('notifications.urls')),  # in-app bell
+    path('api/invoices/',     include('payments.invoice_urls')),  # invoices (lines, payments, balance)
     path('api/users/',        include('users.urls')),
     path('api/patients/',     include('patients.urls')),
     path('api/treatments/',   include('treatments.urls')),

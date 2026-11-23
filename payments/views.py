@@ -14,6 +14,18 @@ from django.utils.decorators import method_decorator
 stripe.api_key = os.environ.get('STRIPE_SECRET_KEY', '')
 
 
+def _amount_due(appt):
+    """(amount, None) = the invoice balance to charge, or (None, error Response)."""
+    from .invoicing import invoice_for_appointment
+    invoice = invoice_for_appointment(appt)
+    if invoice.status == 'void':
+        return None, Response({'error': 'This appointment was cancelled; there is nothing to pay.'}, status=400)
+    if invoice.balance_due <= 0:
+        return None, Response({'error': 'This appointment is already paid.' if invoice.total > 0
+                               else 'No price set for this appointment.'}, status=400)
+    return invoice.balance_due, None
+
+
 class CreateCheckoutSessionView(APIView):
     """
     POST /api/payments/create-checkout-session/
@@ -45,17 +57,10 @@ class CreateCheckoutSessionView(APIView):
         if appt.payment_status == 'paid':
             return Response({'error': 'This appointment is already paid.'}, status=400)
 
-        # Get amount
-        amount = None
-        if appt.price_plan and appt.price_plan.price:
-            amount = appt.price_plan.price
-        elif appt.payment_amount:
-            amount = appt.payment_amount
-        elif appt.treatment and appt.treatment.price:
-            amount = appt.treatment.price
-
-        if not amount:
-            return Response({'error': 'No price set for this appointment.'}, status=400)
+        # Charge what is still due on the appointment's invoice (supports partly-paid invoices)
+        amount, error_response = _amount_due(appt)
+        if error_response:
+            return error_response
 
         amount_cents = int(float(amount) * 100)
 
@@ -83,11 +88,8 @@ class CreateCheckoutSessionView(APIView):
                 },
             )
 
-            # Update appointment payment info
-            appt.payment_amount = amount
-            appt.payment_type   = 'online'
-            appt.payment_status = 'pending'
-            appt.save()
+            # The price stays on the invoice; mark the appointment as paying online
+            type(appt).objects.filter(pk=appt.pk).update(payment_type='online')
 
             return Response({
                 'checkout_url': session.url,
@@ -126,16 +128,10 @@ class CreatePaymentIntentView(APIView):
         if appt.payment_status == 'paid':
             return Response({'error': 'This appointment is already paid.'}, status=400)
 
-        amount = None
-        if appt.price_plan and appt.price_plan.price:
-            amount = appt.price_plan.price
-        elif appt.payment_amount:
-            amount = appt.payment_amount
-        elif appt.treatment and appt.treatment.price:
-            amount = appt.treatment.price
-
-        if not amount:
-            return Response({'error': 'No price set for this appointment.'}, status=400)
+        # Charge what is still due on the appointment's invoice (supports partly-paid invoices)
+        amount, error_response = _amount_due(appt)
+        if error_response:
+            return error_response
 
         amount_cents = int(float(amount) * 100)
 
@@ -151,10 +147,8 @@ class CreatePaymentIntentView(APIView):
                 description=f"Aura Clinic — {appt.treatment.name if appt.treatment else 'Treatment'} for {appt.patient.name if appt.patient else 'Patient'}",
             )
 
-            appt.payment_amount = amount
-            appt.payment_type   = 'online'
-            appt.payment_status = 'pending'
-            appt.save()
+            # The price stays on the invoice; mark the appointment as paying online
+            type(appt).objects.filter(pk=appt.pk).update(payment_type='online')
 
             return Response({
                 'client_secret':     intent.client_secret,
@@ -353,6 +347,15 @@ def _payment_totals(qs):
     }
 
 
+def _invoice_bits(appt):
+    i = getattr(appt, 'invoice', None)
+    if i is None:
+        return {'invoice_id': None, 'invoice_number': None, 'invoice_status': None,
+                'amount_paid': 0.0, 'balance_due': float(appt.payment_amount or 0)}
+    return {'invoice_id': i.id, 'invoice_number': i.invoice_number, 'invoice_status': i.status,
+            'amount_paid': round(float(i.amount_paid), 2), 'balance_due': round(float(i.balance_due), 2)}
+
+
 class PaymentListView(APIView):
     """
     GET /api/payments/
@@ -367,8 +370,16 @@ class PaymentListView(APIView):
     not status/search. change_pct compares with the previous period of the
     same length (previous month, previous N days, yesterday). With no period,
     stats are all-time compared with everything before the 1st of this month.
+    Money: total_paid = payments received in the period (minus refunds); total_pending =
+    balance still due on invoices issued in the period (see payments/metrics.py).
+
+    POST /api/payments/  — record a payment against an invoice (cash / card / transfer / …)
     """
     permission_classes = [IsAdminOrReception]
+
+    def post(self, request):
+        from .invoice_views import record_payment
+        return record_payment(request)
 
     def get(self, request):
         import datetime
@@ -429,9 +440,11 @@ class PaymentListView(APIView):
             base = base.filter(staff_id=staff_id)
 
         # ── List ──────────────────────────────────────────────────────────────
-        qs = in_period(base, period_start, period_end).select_related('patient', 'treatment', 'staff')
+        qs = in_period(base, period_start, period_end).select_related('patient', 'treatment', 'staff', 'invoice')
         if status in ['paid', 'pending', 'refunded']:
             qs = qs.filter(payment_status=status)
+        elif status == 'partially_paid':
+            qs = qs.filter(invoice__status='partially_paid')
         if search:
             qs = qs.filter(patient__name__icontains=search)
         qs = qs.order_by('date_time' if sort == 'date_asc' else '-date_time')
@@ -467,6 +480,7 @@ class PaymentListView(APIView):
                 'payment_method': PAYMENT_METHOD_MAP.get(appt.payment_type, 'other'),
                 'staff_id':       staff.id if staff else None,
                 'staff_name':     (staff.username or staff.email.split('@')[0]) if staff else None,
+                **_invoice_bits(appt),
             })
 
         # ── Stats + previous period ───────────────────────────────────────────
@@ -484,16 +498,27 @@ class PaymentListView(APIView):
             som = timezone.localdate().replace(day=1)
             cur_qs  = in_period(base, period_start, period_end)
             prev_qs = in_period(base, period_start, None).filter(date_time__lt=day_start(som))
+            prev_start, prev_end = period_start, som - datetime.timedelta(days=1)
         cur, prev = _payment_totals(cur_qs), _payment_totals(prev_qs)
+        from .metrics import outstanding_total, payments_between, received_total
+        cur_from, cur_to = period_start, period_end
+        if not (period_start and period_end):
+            cur_to = period_end
+        cur['total_paid'] = received_total(cur_from, cur_to, staff_id)
+        cur['total_pending'] = outstanding_total(cur_from, cur_to, staff_id)
+        prev['total_paid'] = received_total(prev_start, prev_end, staff_id)
+        prev['total_pending'] = outstanding_total(prev_start, prev_end, staff_id)
 
         billed = cur['total_paid'] + cur['total_pending']
         paid_pct, pending_pct = _pcts([cur['total_paid'], cur['total_pending']])
 
-        # Methods: paid payments only, share of count
+        # Methods: payments received in the period (refunds not counted), share of count.
+        # Online (Stripe) is a card payment for this breakdown.
         method_counts = {m: 0 for m in PAYMENT_METHODS}
         method_amount = {m: 0.0 for m in PAYMENT_METHODS}
-        for ptype, amount in cur_qs.filter(payment_status='paid').values_list('payment_type', 'payment_amount'):
-            m = PAYMENT_METHOD_MAP.get(ptype, 'other')
+        for method, amount in payments_between(cur_from, cur_to, staff_id).filter(kind='payment') \
+                .values_list('method', 'amount'):
+            m = 'card' if method == 'online' else (method if method in method_counts else 'other')
             method_counts[m] += 1
             method_amount[m] += float(amount or 0)
         method_pcts = dict(zip(PAYMENT_METHODS, _pcts([method_counts[m] for m in PAYMENT_METHODS])))
@@ -547,13 +572,27 @@ class InvoiceDetailView(APIView):
         except Appointment.DoesNotExist:
             return Response({'error': 'Appointment not found.'}, status=404)
 
-        amount    = float(appt.payment_amount) if appt.payment_amount else 0.0
-        tax_rate  = 0.07  # 7% VAT
-        tax       = round(amount * tax_rate, 2)
-        total     = round(amount + tax, 2)
+        # Backed by the real invoice now (prices include tax). Same response shape as before,
+        # plus invoice_number / amount_paid / balance_due / lines.
+        from .invoicing import invoice_for_appointment
+        from .invoice_views import serialize_line
+        invoice = invoice_for_appointment(appt, request.user)
+        total    = float(invoice.total)
+        tax      = float(invoice.tax_amount)
+        amount   = float(invoice.subtotal)
+        lines    = [serialize_line(l) for l in invoice.lines.all()]
+        rates    = sorted({l['tax_rate'] for l in lines})
+        rate_txt = ', '.join(f"{r:g}%" for r in rates) or '0%'
 
         return Response({
-            'invoice_id':      f"#AURA-{appt.date_time.year if appt.date_time else '2026'}-{appt.id}",
+            'invoice_id':      invoice.invoice_number,
+            'invoice_db_id':   invoice.id,
+            'invoice_number':  invoice.invoice_number,
+            'invoice_status':  invoice.status,
+            'due_date':        invoice.due_date,
+            'amount_paid':     round(float(invoice.amount_paid), 2),
+            'balance_due':     round(float(invoice.balance_due), 2),
+            'lines':           lines,
             'appointment_id':  appt.id,
             'date':            appt.date_time.strftime('%B %d, %Y') if appt.date_time else '',
             'patient': {
@@ -570,18 +609,19 @@ class InvoiceDetailView(APIView):
                 'name':      appt.treatment.name if appt.treatment else '',
                 'category':  appt.treatment.category if appt.treatment else '',
                 'duration':  appt.duration,
-                'amount':    f"€{amount:.2f}",
+                'amount':    f"€{total:.2f}",
             },
             'pricing': {
                 'subtotal':     f"€{amount:.2f}",
-                'tax_rate':     '7%',
+                'tax_rate':     rate_txt,
                 'tax_amount':   f"€{tax:.2f}",
                 'total_amount': f"€{total:.2f}",
+                'prices_include_tax': True,
             },
             'payment': {
                 'status':       appt.payment_status,
                 'type':         appt.payment_type,
-                'amount':       f"€{amount:.2f}",
+                'amount':       f"€{float(invoice.amount_paid):.2f}",
                 'total':        f"€{total:.2f}",
             },
         })

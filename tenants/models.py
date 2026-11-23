@@ -53,6 +53,10 @@ class Clinic(models.Model):
     card_last4             = models.CharField(max_length=4, blank=True)
     card_exp_month         = models.PositiveSmallIntegerField(null=True, blank=True)
     card_exp_year          = models.PositiveSmallIntegerField(null=True, blank=True)
+
+    # Invoicing defaults (prices include tax; the rate is stored on every invoice line)
+    default_tax_rate       = models.DecimalField(max_digits=5, decimal_places=2, default=7)   # percent
+    invoice_due_days       = models.PositiveSmallIntegerField(default=0)   # standalone invoices: due N days after issue
     cancel_at_period_end   = models.BooleanField(default=False)            # canceled in the portal, ends at current_period_end
     last_billing_event_at  = models.DateTimeField(null=True, blank=True)   # ignores out-of-order webhooks
 

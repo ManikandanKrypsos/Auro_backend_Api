@@ -10,7 +10,7 @@ from treatments.models import Treatment
 from leads.models import Lead
 from users.models import User, StaffWorkingHours, StaffBreakTime, StaffLeave
 from clinic.models import ClinicHours, PlannedClosure
-from payments.metrics import paid_total, billable, in_dates, month_bounds
+from payments.metrics import billable, in_dates, month_bounds, received_by, received_total
 
 
 def _calc_trend(current, previous):
@@ -56,9 +56,9 @@ DEFAULT_CHART_RANGE = 'month'
 DAY_CODES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']   # date.weekday() → code
 
 
-def _revenue_total(qs):
-    """Revenue = paid payment_amount (shared rule with /api/payments/, see payments/metrics.py)."""
-    return paid_total(qs)
+def _revenue_on(day):
+    """Revenue = money received that day (shared rule with /api/payments/, see payments/metrics.py)."""
+    return received_total(day, day)
 
 
 def _get_chart_range(request):
@@ -81,7 +81,8 @@ def _build_revenue_chart(chart_range, today):
     year  → one point per calendar year, from the first year with data up to the
             current year, at most the last 10 years (date = 1 January)
     Future days/months in the window are included (they can hold prepaid appointments).
-    revenue            = paid payment_amount (same rule as /api/payments/ total_paid)
+    revenue            = money received in the bucket (payments − refunds, by paid date;
+                         same rule as /api/payments/ total_paid)
     appointments_count = all appointments except cancelled
     """
     if chart_range == 'year':
@@ -107,17 +108,19 @@ def _build_revenue_chart(chart_range, today):
         Appointment.objects
         .filter(date_time__gte=_day_start(buckets[0]),
                 date_time__lt=_day_start(end))
-        .exclude(status='cancelled', payment_status='pending')
-        .values_list('date_time', 'status', 'payment_status', 'payment_amount')
+        .exclude(status='cancelled')
+        .values_list('date_time', flat=True)
     )
-    for dt, status, pay_status, amount in rows:
+    for dt in rows:
         key = key_of(timezone.localtime(dt).date())
-        if key not in points:
-            continue
-        if status != 'cancelled':
+        if key in points:
             points[key]['appointments_count'] += 1
-        if pay_status == 'paid' and amount:
-            points[key]['revenue'] += float(amount)
+    from payments.metrics import payments_between
+    for paid_at, kind, amount in payments_between(buckets[0], end - datetime.timedelta(days=1)) \
+            .values_list('paid_at', 'kind', 'amount'):
+        key = key_of(timezone.localtime(paid_at).date())
+        if key in points:
+            points[key]['revenue'] += float(amount) * (-1 if kind == 'refund' else 1)
 
     return [
         {'date': str(b), 'revenue': round(points[b]['revenue'], 2),
@@ -361,7 +364,7 @@ class DashboardView(APIView):
                 'occupancy':    _today_occupancy(today),
             },
             'revenue': {
-                'today': _calc_trend(_revenue_total(todays_appts), _revenue_total(yesterdays_appts)),
+                'today': _calc_trend(_revenue_on(today), _revenue_on(yesterday)),
             },
             'chart_range':      chart_range,
             'revenue_chart':    _build_revenue_chart(chart_range, today),
@@ -393,14 +396,13 @@ class DashboardView(APIView):
         appts_month      = in_dates(all_appts, month_first, month_last)
         appts_last_month = in_dates(all_appts, last_first, last_last)
 
-        revenue = paid_total
-
-        rev_today      = revenue(appts_today)
-        rev_yesterday  = revenue(appts_yesterday)
-        rev_week       = revenue(appts_week)
-        rev_prev_week  = revenue(appts_prev_week)
-        rev_month      = revenue(appts_month)
-        rev_last_month = revenue(appts_last_month)
+        # Revenue = money received in each period (see payments/metrics.py)
+        rev_today      = received_total(today, today)
+        rev_yesterday  = received_total(yesterday, yesterday)
+        rev_week       = received_total(week_start, today)
+        rev_prev_week  = received_total(week_start - datetime.timedelta(days=7), week_start - datetime.timedelta(days=1))
+        rev_month      = received_total(month_first, month_last)
+        rev_last_month = received_total(last_first, last_last)
 
         # Today appointments trend
         total_today    = appts_today.count()
@@ -478,12 +480,12 @@ class DashboardView(APIView):
         best_services = list(
             appts_month
             .values('treatment__id', 'treatment__name', 'treatment__duration')
-            .annotate(
-                bookings=Count('id'),
-                revenue=Sum('payment_amount', filter=Q(payment_status='paid'))
-            )
+            .annotate(bookings=Count('id'))
             .order_by('-bookings')[:3]
         )
+        service_revenue = received_by(month_first, month_last, 'invoice__appointment__treatment_id')
+        for svc in best_services:
+            svc['revenue'] = service_revenue.get(svc['treatment__id'], 0.0)
 
         # Staff performance
         staff_perf = []
@@ -496,7 +498,7 @@ class DashboardView(APIView):
                 'specialist_area': s.specialist_area,
                 'total':           sa.count(),
                 'completed':       sa.filter(status='completed').count(),
-                'revenue':         paid_total(sa),
+                'revenue':         received_total(month_first, month_last, staff_id=s.id),
             })
         staff_perf.sort(key=lambda x: x['revenue'], reverse=True)
 

@@ -23,6 +23,8 @@ TENANT_MODELS = {
     'inventory.PurchaseOrder': 'supplier',
     'inventory.StockMovement': 'item',
     'inventory.Lot': 'item',
+    'payments.Invoice': 'patient',
+    'payments.Payment': 'invoice',
 }
 
 
