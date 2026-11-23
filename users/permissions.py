@@ -26,3 +26,14 @@ class IsClinicStaff(BasePermission):
     """Admin, reception or therapist."""
     def has_permission(self, request, view):
         return request.user.is_authenticated and request.user.role in ['admin', 'reception', 'therapist']
+
+
+class IsAdminOrStaffReadOnly(BasePermission):
+    """Any clinic staff (admin / reception / therapist) can read; only an admin can change."""
+    def has_permission(self, request, view):
+        if not request.user.is_authenticated:
+            return False
+        role = getattr(request.user, 'role', '')
+        if request.method in ('GET', 'HEAD', 'OPTIONS'):
+            return role in ('admin', 'reception', 'therapist')
+        return role == 'admin'
