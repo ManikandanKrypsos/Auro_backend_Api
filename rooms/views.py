@@ -2,7 +2,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from .models import Room
 from .serializers import RoomSerializer, RoomCreateUpdateSerializer
-from users.permissions import IsAdminOrStaffReadOnly
+from users.permissions import IsStaffReadAdminOrReceptionWrite
 
 
 class RoomListView(APIView):
@@ -10,7 +10,7 @@ class RoomListView(APIView):
     GET  /api/rooms/        — list all rooms (optional ?search= ?type=)
     POST /api/rooms/        — add a new room
     """
-    permission_classes = [IsAdminOrStaffReadOnly]   # read: any staff (booking) · write: admin
+    permission_classes = [IsStaffReadAdminOrReceptionWrite]   # read: any staff · create/update/delete: admin + reception
 
     def get(self, request):
         rooms  = Room.objects.all()
@@ -38,7 +38,7 @@ class RoomDetailView(APIView):
     PATCH  /api/rooms/<id>/  — edit a room
     DELETE /api/rooms/<id>/  — delete a room
     """
-    permission_classes = [IsAdminOrStaffReadOnly]   # read: any staff (booking) · write: admin
+    permission_classes = [IsStaffReadAdminOrReceptionWrite]   # read: any staff · create/update/delete: admin + reception
 
     def _get_room(self, pk):
         try:
@@ -77,7 +77,7 @@ class RoomTypesView(APIView):
     """
     GET /api/rooms/types/  — list all available room types for the dropdown
     """
-    permission_classes = [IsAdminOrStaffReadOnly]   # read: any staff (booking) · write: admin
+    permission_classes = [IsStaffReadAdminOrReceptionWrite]   # read: any staff · create/update/delete: admin + reception
 
     def get(self, request):
         types = [
