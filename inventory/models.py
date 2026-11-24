@@ -92,6 +92,7 @@ class StockMovement(models.Model):
         ('received',    'Received'),
         ('wastage',     'Wastage'),
         ('correction',  'Count Correction'),
+        ('returned',    'Returned to Supplier'),
     ]
 
     item       = models.ForeignKey(InventoryItem, on_delete=models.CASCADE, related_name='movements')

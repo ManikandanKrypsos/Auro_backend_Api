@@ -39,16 +39,18 @@ def _first_overlap(qs, start, end, exclude_id=None):
     return None, None
 
 
-def find_conflict(start, duration, staff=None, room=None, exclude_id=None):
+def find_conflict(start, duration, staff=None, room=None, exclude_id=None, treatment=None):
     """
     start      — timezone-aware datetime
     duration   — minutes
     staff/room — User / Room instances (optional)
+    treatment  — Treatment (optional); if it needs a machine, that machine must be free too
     exclude_id — appointment being edited (ignored when checking overlaps)
 
     Checks, in order: clinic_closed, outside_clinic_hours, staff_on_leave,
     staff_not_working, outside_staff_hours, staff_break, staff_double_booked,
-    room_double_booked. Room checks include every staff member's bookings.
+    room_double_booked, equipment_unavailable, equipment_double_booked. Room and equipment checks
+    include every staff member's bookings.
     """
     end         = start + datetime.timedelta(minutes=duration)
     local_start = timezone.localtime(start)
@@ -60,6 +62,8 @@ def find_conflict(start, duration, staff=None, room=None, exclude_id=None):
     if local_end.date() != day and local_end.time() == datetime.time(0, 0):
         et = datetime.time(23, 59, 59)
 
+    equipment = treatment.equipment if treatment is not None and treatment.equipment_id else None
+
     def conflict(ctype, message, **extra):
         out = {
             'error':                      'conflict',
@@ -68,6 +72,8 @@ def find_conflict(start, duration, staff=None, room=None, exclude_id=None):
             'conflicting_appointment_id': None,
             'staff_name':                 _staff_name(staff),
             'room_name':                  room.name if room else None,
+            'equipment_id':               equipment.id if equipment else None,
+            'equipment_name':             equipment.name if equipment else None,
             'treatment':                  None,
             'blocked_until':              None,
         }
@@ -136,6 +142,24 @@ def find_conflict(start, duration, staff=None, room=None, exclude_id=None):
                             f"{_hm(timezone.localtime(a.date_time))}–{_hm(timezone.localtime(a_end))}.",
                             conflicting_appointment_id=a.id,
                             staff_name=_staff_name(a.staff),
+                            treatment=a.treatment.name if a.treatment else None,
+                            blocked_until=_hm(timezone.localtime(a_end)))
+
+    # ── Equipment (the machine the treatment needs, any therapist / room) ─────
+    if equipment:
+        if equipment.status != 'active':
+            return conflict('equipment_unavailable',
+                            f"{equipment.name} is {equipment.get_status_display().lower()} and can't be booked.")
+        a, a_end = _first_overlap(Appointment.objects.filter(treatment__equipment=equipment), start, end, exclude_id)
+        if a:
+            return conflict('equipment_double_booked',
+                            f"{equipment.name} is in use by {_staff_name(a.staff) or 'another therapist'} for "
+                            f"{a.treatment.name if a.treatment else 'an appointment'} "
+                            f"{_hm(timezone.localtime(a.date_time))}–{_hm(timezone.localtime(a_end))}"
+                            + (f" in {a.room_fk.name}." if a.room_fk else "."),
+                            conflicting_appointment_id=a.id,
+                            staff_name=_staff_name(a.staff),
+                            room_name=a.room_fk.name if a.room_fk else None,
                             treatment=a.treatment.name if a.treatment else None,
                             blocked_until=_hm(timezone.localtime(a_end)))
     return None

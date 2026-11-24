@@ -368,7 +368,7 @@ class AppointmentListView(APIView):
                 room_id  = request.data.get('room_id')
                 if room_id:
                     room_obj = Room.objects.filter(id=room_id).first()
-                clash = find_conflict(date_time, duration, staff=staff, room=room_obj)
+                clash = find_conflict(date_time, duration, staff=staff, room=room_obj, treatment=treatment_obj)
                 if clash:
                     return Response(clash, status=409)
             # ─────────────────────────────────────────────────────────────────
@@ -435,6 +435,9 @@ class AppointmentDetailView(APIView):
         appt = self._get(pk)
         if not appt:
             return Response({'error': 'Appointment not found.'}, status=404)
+        if str(request.data.get('status_id', '')) == '5' and appt.date_time > timezone.now():
+            return Response({'error': "An appointment can only be marked as a no-show once its start time has passed.",
+                             'code': 'not_started'}, status=400)
         clash = self._reschedule_conflict(appt, request.data)
         if clash:
             return Response(clash, status=409)
@@ -478,6 +481,9 @@ class AppointmentDetailView(APIView):
             room = Room.objects.filter(id=data['room_id']).first() if data['room_id'] else None
 
         duration = appt.duration
+        treatment = appt.treatment
+        if data.get('treatment_id'):
+            treatment = Treatment.objects.filter(id=data['treatment_id']).first() or treatment
         if data.get('duration'):
             try:
                 duration = int(data['duration'])
@@ -487,7 +493,7 @@ class AppointmentDetailView(APIView):
             tr = Treatment.objects.filter(id=data['treatment_id']).first()
             duration = tr.duration if tr and tr.duration else duration
 
-        return find_conflict(start, duration or 60, staff=staff, room=room, exclude_id=appt.pk)
+        return find_conflict(start, duration or 60, staff=staff, room=room, exclude_id=appt.pk, treatment=treatment)
 
     def patch(self, request, pk):
         return self._update(request, pk)
@@ -507,7 +513,8 @@ class AppointmentStatusView(APIView):
     """
     PATCH /api/appointments/<id>/status/
     Body: { "status": "in_session" }
-    Status options: upcoming | in_session | completed | cancelled
+    Status options: upcoming | in_session | completed | cancelled | no_show
+    no_show: only once the appointment's start time has passed.
     Admin / reception: any appointment. Therapists: only their own.
     """
     permission_classes = [IsAuthenticated]
@@ -521,9 +528,12 @@ class AppointmentStatusView(APIView):
             return Response({'error': 'Appointment not found.'}, status=404)
 
         status = request.data.get('status')
-        valid  = ['upcoming', 'in_session', 'completed', 'cancelled']
+        valid  = ['upcoming', 'in_session', 'completed', 'cancelled', 'no_show']
         if status not in valid:
             return Response({'error': f'Status must be one of: {valid}'}, status=400)
+        if status == 'no_show' and appt.date_time > timezone.now():
+            return Response({'error': "An appointment can only be marked as a no-show once its start time has passed.",
+                             'code': 'not_started'}, status=400)
 
         status_before = appt.status
         appt.status = status
@@ -775,6 +785,17 @@ class AvailableSlotsView(APIView):
                 status__in=['upcoming', 'in_session']
             ).select_related('patient', 'treatment'))
 
+        # Appointments (any therapist / room) using the machine this treatment needs
+        equipment = treatment.equipment if treatment.equipment_id else None
+        equipment_appts = []
+        if equipment:
+            equipment_appts = list(Appointment.objects.filter(
+                treatment__equipment=equipment,
+                date_time__year=year,
+                date_time__month=mon,
+                status__in=['upcoming', 'in_session']
+            ).select_related('treatment'))
+
         def to_local_naive(dt):
             if dt.tzinfo:
                 try:
@@ -884,6 +905,27 @@ class AvailableSlotsView(APIView):
                     'label': 'Room Occupied',
                 })
 
+            # Machine in use elsewhere (or not bookable at all)
+            if equipment and equipment.status != 'active':
+                blocked.append({
+                    'start': fmt_time(eff_open),
+                    'end':   fmt_time(eff_close),
+                    'type':  'equipment_unavailable',
+                    'label': f"{equipment.name} — {equipment.get_status_display()}",
+                })
+            for a in equipment_appts:
+                appt_dt = to_local_naive(a.date_time)
+                if appt_dt.date() != date or any(b.get('appointment_id') == a.id for b in blocked):
+                    continue
+                appt_end = appt_dt + datetime.timedelta(minutes=a.duration or treatment.duration)
+                blocked.append({
+                    'start':          appt_dt.strftime('%H:%M'),
+                    'end':            appt_end.strftime('%H:%M'),
+                    'type':           'equipment_occupied',
+                    'label':          f"{equipment.name} in use",
+                    'appointment_id': a.id,
+                })
+
             # Sort blocked by start time
             blocked.sort(key=lambda x: x['start'])
 
@@ -902,6 +944,7 @@ class AvailableSlotsView(APIView):
             'staff_id':                 int(staff_id),
             'service_id':               int(service_id),
             'service_duration_minutes': treatment.duration,
+            'equipment':                {'id': equipment.id, 'name': equipment.name, 'status': equipment.status} if equipment else None,
             'dates':                    dates,
         })
 
@@ -920,6 +963,7 @@ class AppointmentMetaView(APIView):
                 {'id': 2, 'value': 'in_session', 'label': 'In Session'},
                 {'id': 3, 'value': 'completed',  'label': 'Completed'},
                 {'id': 4, 'value': 'cancelled',  'label': 'Cancelled'},
+                {'id': 5, 'value': 'no_show',    'label': 'No-show'},
             ],
             'payment_statuses': [
                 {'id': 1, 'value': 'pending',  'label': 'Pending'},
@@ -963,6 +1007,7 @@ class TodayAppointmentsView(APIView):
             'upcoming':         qs.filter(status='upcoming').count(),
             'completed':        qs.filter(status='completed').count(),
             'cancelled':        qs.filter(status='cancelled').count(),
+            'no_show':          qs.filter(status='no_show').count(),
             'appointments':     AppointmentSerializer(qs, many=True).data,
         })
 

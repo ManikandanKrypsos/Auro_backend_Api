@@ -10,7 +10,7 @@ from .views import (
     CalendarView,
     TodayAppointmentsView,
 )
-from treatments.consumable_views import AppointmentConsumptionView
+from treatments.consumable_views import AppointmentConsumptionView, PendingConsumptionView
 
 urlpatterns = [
     path('',                        AppointmentListView.as_view()),    # GET, POST
@@ -22,5 +22,6 @@ urlpatterns = [
     path('<int:pk>/status/',        AppointmentStatusView.as_view()),  # PATCH status
     path('<int:pk>/arrived/',       AppointmentArrivalView.as_view()), # PATCH arrived
     path('<int:pk>/consent/',       AppointmentConsentView.as_view()), # PATCH consent
-    path('<int:pk>/consumption/',   AppointmentConsumptionView.as_view()),  # GET stock used by the treatment
+    path('<int:pk>/consumption/',   AppointmentConsumptionView.as_view()),  # GET usage / pre-fill · POST confirm usage
+    path('consumption/pending/',    PendingConsumptionView.as_view()),      # GET sessions still to confirm
 ]

@@ -47,10 +47,12 @@ class InventoryMetaView(APIView):
                 {'value': 'received', 'label': 'Received'},
                 {'value': 'wastage',  'label': 'Wastage'},
                 {'value': 'correction', 'label': 'Count Correction'},
+                {'value': 'returned', 'label': 'Returned to Supplier'},
             ],
             'adjust_reasons': [
                 {'value': 'used',             'label': 'Used in treatment'},
                 {'value': 'wastage',          'label': 'Wastage (lost / damaged / expired)'},
+                {'value': 'returned',         'label': 'Returned to supplier'},
                 {'value': 'count_correction', 'label': 'Count correction'},
             ],
         })
@@ -375,15 +377,15 @@ class AdjustStockView(APIView):
     Who can call it:
       reason "used"                       — admin, reception, therapist
                                             (therapists: appointment_id is required and must be their own)
-      reason "wastage" / "count_correction" — admin only
+      reason "wastage" / "returned" (to supplier) / "count_correction" — admin only
     The movement's created_by is whoever made the call, so usage is attributed to the therapist.
     lot_id (optional, lot-tracked items): which lot it applies to. Without it, removals use the
     earliest-expiring lots first and additions stay unassigned to a lot.
     """
     permission_classes = [IsAuthenticated]
     STAFF_ROLES = ('admin', 'reception', 'therapist')
-    REASON_TO_TYPE = {'used': 'used', 'wastage': 'wastage', 'count_correction': 'correction'}
-    MUST_BE_NEGATIVE = {'used': 'Product usage', 'wastage': 'Wastage'}
+    REASON_TO_TYPE = {'used': 'used', 'wastage': 'wastage', 'count_correction': 'correction', 'returned': 'returned'}
+    MUST_BE_NEGATIVE = {'used': 'Product usage', 'wastage': 'Wastage', 'returned': 'A return to the supplier'}
 
     def post(self, request, pk):
         role = getattr(request.user, 'role', '') or ''
@@ -391,7 +393,7 @@ class AdjustStockView(APIView):
         if role not in self.STAFF_ROLES:
             return Response({'error': 'You do not have permission to adjust stock.'}, status=403)
         if role != 'admin' and reason != 'used':
-            return Response({'error': 'Only an admin can record wastage or count corrections.', 'code': 'admin_only'}, status=403)
+            return Response({'error': 'Only an admin can record wastage, returns or count corrections.', 'code': 'admin_only'}, status=403)
 
         errors = {}
         try:
@@ -402,7 +404,7 @@ class AdjustStockView(APIView):
             errors['quantity_delta'] = 'A non-zero whole number is required (negative removes stock).'
             delta = None
         if reason not in self.REASON_TO_TYPE:
-            errors['reason'] = 'Use "used", "wastage" or "count_correction".'
+            errors['reason'] = 'Use "used", "wastage", "returned" or "count_correction".'
         elif reason in self.MUST_BE_NEGATIVE and delta is not None and delta > 0:
             errors['quantity_delta'] = f'{self.MUST_BE_NEGATIVE[reason]} removes stock, so quantity_delta must be negative.'
         appointment = None

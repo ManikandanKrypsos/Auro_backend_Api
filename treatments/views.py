@@ -33,7 +33,7 @@ class TreatmentListView(APIView):
         return [IsAdmin()] if self.request.method == 'POST' else [IsAdminOrReadOnly()]
 
     def get(self, request):
-        treatments = Treatment.objects.prefetch_related('price_plans', 'staff').all()
+        treatments = Treatment.objects.select_related('equipment').prefetch_related('price_plans', 'staff').all()
         search   = request.query_params.get('search', '').strip()
         category = request.query_params.get('category', '').strip()
         if search:
@@ -66,7 +66,7 @@ class TreatmentDetailView(APIView):
 
     def _get(self, pk):
         try:
-            return Treatment.objects.prefetch_related('price_plans', 'staff').get(pk=pk)
+            return Treatment.objects.select_related('equipment').prefetch_related('price_plans', 'staff').get(pk=pk)
         except Treatment.DoesNotExist:
             return None
 

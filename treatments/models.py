@@ -36,6 +36,8 @@ class Treatment(models.Model):
 
     # Resources
     rooms = models.ManyToManyField(Room, blank=True, related_name='treatments')
+    equipment = models.ForeignKey('rooms.Equipment', on_delete=models.SET_NULL, null=True, blank=True,
+                                  related_name='treatments')   # machine this treatment needs (booking conflicts)
 
     # Staff Assignment
     staff = models.ManyToManyField(
@@ -84,27 +86,40 @@ class TreatmentConsumable(models.Model):
         constraints = [models.UniqueConstraint(fields=['treatment', 'item'], name='treatment_consumable_unique')]
 
 
-class AppointmentConsumption(models.Model):
+class SessionConsumption(models.Model):
     """
-    What completing an appointment took from stock, per item (see treatments.consumption).
-    Rows stay as history; if the appointment stops being completed they are marked reversed and
-    the stock is put back.
+    The therapist's confirmed product usage for one appointment — the only thing that takes
+    consumables out of stock (see treatments.consumption). The treatment's consumables only
+    pre-fill it. Editing it puts the previous usage back and records the new one; if the
+    appointment stops being in session / completed, it is reversed.
     """
-    objects     = TenantManager.via('appointment__clinic_id')()
+    objects      = TenantManager.via('appointment__clinic_id')()
 
-    appointment = models.ForeignKey('appointments.Appointment', on_delete=models.CASCADE, related_name='consumptions')
+    appointment  = models.ForeignKey('appointments.Appointment', on_delete=models.CASCADE, related_name='consumption_records')
+    confirmed_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    note         = models.CharField(max_length=255, blank=True)
+    reversed     = models.BooleanField(default=False)
+    reversed_at  = models.DateTimeField(null=True, blank=True)
+    created_at   = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-id']
+
+
+class AppointmentConsumption(models.Model):
+    """One item of a confirmed SessionConsumption."""
+    objects     = TenantManager.via('record__appointment__clinic_id')()
+
+    record      = models.ForeignKey(SessionConsumption, on_delete=models.CASCADE, related_name='lines')
     item        = models.ForeignKey('inventory.InventoryItem', on_delete=models.CASCADE, related_name='+')
-    planned     = models.PositiveIntegerField()                 # from the treatment's consumables
-    deducted    = models.PositiveIntegerField(default=0)        # actually taken from stock
-    shortfall   = models.PositiveIntegerField(default=0)        # planned but not in stock
-    skipped_manual = models.BooleanField(default=False)         # already logged by hand for this appointment
+    planned     = models.PositiveIntegerField(default=0)            # from the treatment's consumables (0 = extra item)
+    quantity    = models.PositiveIntegerField()                     # what the therapist says was used
+    deducted    = models.PositiveIntegerField(default=0)            # actually taken from stock
+    shortfall   = models.PositiveIntegerField(default=0)            # used but not in stock
+    lot         = models.ForeignKey('inventory.Lot', on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
     unit_cost   = models.DecimalField(max_digits=10, decimal_places=2, default=0)   # item cost at the time
     movement    = models.ForeignKey('inventory.StockMovement', on_delete=models.SET_NULL, null=True, blank=True,
-                                    related_name='+')
-    reversed    = models.BooleanField(default=False)
-    reversal_movement = models.ForeignKey('inventory.StockMovement', on_delete=models.SET_NULL, null=True,
-                                          blank=True, related_name='+')
-    created_at  = models.DateTimeField(auto_now_add=True)
+                                    related_name='+')               # first movement it made (one per lot)
 
     class Meta:
         ordering = ['id']

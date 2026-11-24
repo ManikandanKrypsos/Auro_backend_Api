@@ -191,6 +191,7 @@ class PatientHistoryView(APIView):
         completed = appts.filter(status='completed').count()
         cancelled = appts.filter(status='cancelled').count()
         scheduled = appts.filter(status='upcoming').count()
+        no_show   = appts.filter(status='no_show').count()
 
         timeline = []
         for a in appts:
@@ -226,6 +227,7 @@ class PatientHistoryView(APIView):
                 'completed': completed,
                 'cancelled': cancelled,
                 'scheduled': scheduled,
+                'no_show':   no_show,
             },
             'timeline': timeline,
         })

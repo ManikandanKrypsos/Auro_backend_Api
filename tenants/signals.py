@@ -14,6 +14,7 @@ TENANT_MODELS = {
     'appointments.Appointment': 'patient',
     'treatments.Treatment': None,
     'rooms.Room': None,
+    'rooms.Equipment': None,
     'leads.Lead': None,
     'packages.PatientPackage': 'patient',
     'clinic.ClinicHours': None,

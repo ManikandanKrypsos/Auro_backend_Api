@@ -17,6 +17,7 @@ class Appointment(models.Model):
         ('in_session', 'In Session'),
         ('completed',  'Completed'),
         ('cancelled',  'Cancelled'),
+        ('no_show',    'No-show'),
     )
 
     PAYMENT_STATUS_CHOICES = (

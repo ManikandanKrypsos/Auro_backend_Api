@@ -162,7 +162,7 @@ class AppointmentSerializer(serializers.ModelSerializer):
         return None
 
     def get_status_id(self, obj):
-        return {'upcoming':1,'in_session':2,'completed':3,'cancelled':4}.get(obj.status)
+        return {'upcoming':1,'in_session':2,'completed':3,'cancelled':4,'no_show':5}.get(obj.status)
 
     def get_consent_status_id(self, obj):
         return {'pending':1,'signed':2}.get(obj.consent_status)
@@ -238,7 +238,7 @@ class AppointmentWriteSerializer(serializers.Serializer):
 
     def validate_status_id(self, value):
         if value not in STATUS_MAP:
-            raise serializers.ValidationError("Invalid status_id. Use 1=Upcoming, 2=Completed, 3=Cancelled, 4=No Show.")
+            raise serializers.ValidationError("Invalid status_id. Use 1=Upcoming, 2=In session, 3=Completed, 4=Cancelled, 5=No-show.")
         return value
 
     def validate_payment_status_id(self, value):

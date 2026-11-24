@@ -29,6 +29,7 @@ class TreatmentSerializer(serializers.ModelSerializer):
     category_id                   = serializers.SerializerMethodField()
     rooms_detail                  = serializers.SerializerMethodField()
     recommended_frequency_unit_id = serializers.SerializerMethodField()
+    equipment                     = serializers.SerializerMethodField()
 
     class Meta:
         model  = Treatment
@@ -40,6 +41,7 @@ class TreatmentSerializer(serializers.ModelSerializer):
             'pre_care_instructions', 'post_care_instructions',
             'contraindications',
             'rooms_detail',
+            'equipment_id', 'equipment',
             'staffs',
             'recommended_frequency_value',
             'recommended_frequency_unit', 'recommended_frequency_unit_id',
@@ -51,6 +53,10 @@ class TreatmentSerializer(serializers.ModelSerializer):
 
     def get_recommended_frequency_unit_id(self, obj):
         return FREQUENCY_UNIT_ID_MAP.get(obj.recommended_frequency_unit)
+
+    def get_equipment(self, obj):
+        e = obj.equipment
+        return {'id': e.id, 'name': e.name, 'status': e.status} if e else None
 
     def get_staffs(self, obj):
         return [
@@ -91,6 +97,7 @@ class TreatmentWriteSerializer(serializers.Serializer):
         "contraindications":             ["Pregnancy"],
         "room_ids":                      [1],
         "staff_ids":                     [8],
+        "equipment_id":                  3,      // machine this treatment needs (null = none)
         "recommended_frequency_value":   1,
         "recommended_frequency_unit_id": 2
     }
@@ -110,6 +117,13 @@ class TreatmentWriteSerializer(serializers.Serializer):
     staff_ids                     = serializers.ListField(child=serializers.IntegerField(), required=False)
     recommended_frequency_value   = serializers.IntegerField(required=False, allow_null=True)
     recommended_frequency_unit_id = serializers.IntegerField(required=False, allow_null=True)
+    equipment_id                  = serializers.IntegerField(required=False, allow_null=True)
+
+    def validate_equipment_id(self, value):
+        from rooms.models import Equipment
+        if value is not None and not Equipment.objects.filter(id=value).exists():
+            raise serializers.ValidationError(f"Equipment with id {value} does not exist.")
+        return value
 
     def validate_category_id(self, value):
         if value not in CATEGORY_MAP:
