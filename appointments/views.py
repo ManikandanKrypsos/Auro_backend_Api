@@ -566,6 +566,9 @@ class AppointmentStatusView(APIView):
 
         data = AppointmentSerializer(appt).data
         data['package_detail'] = package_detail
+        if status == 'completed':
+            from treatments.consumption import summary
+            data['consumption'] = summary(appt)      # stock taken; warnings if anything was short
         return Response(data)
 
 

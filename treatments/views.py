@@ -74,7 +74,11 @@ class TreatmentDetailView(APIView):
         t = self._get(pk)
         if not t:
             return Response({'error': 'Treatment not found.'}, status=404)
-        return Response(TreatmentSerializer(t).data)
+        data = TreatmentSerializer(t).data
+        from .consumable_views import consumables_payload
+        extra = consumables_payload(t)
+        data.update({k: extra[k] for k in ('consumables', 'consumables_cost', 'margin', 'margin_pct')})
+        return Response(data)
 
     def _update(self, request, pk):
         t = self._get(pk)

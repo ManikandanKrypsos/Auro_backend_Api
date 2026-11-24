@@ -68,3 +68,43 @@ class PricePlan(models.Model):
 
     def __str__(self):
         return f"{self.treatment.name} — {self.sessions} session(s) @ {self.price}"
+
+class TreatmentConsumable(models.Model):
+    """An inventory item a treatment uses, and how many units per appointment."""
+    objects   = TenantManager.via('treatment__clinic_id')()
+
+    treatment = models.ForeignKey(Treatment, on_delete=models.CASCADE, related_name='consumables')
+    item      = models.ForeignKey('inventory.InventoryItem', on_delete=models.CASCADE, related_name='used_by_treatments')
+    quantity  = models.PositiveIntegerField(default=1)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['id']
+        constraints = [models.UniqueConstraint(fields=['treatment', 'item'], name='treatment_consumable_unique')]
+
+
+class AppointmentConsumption(models.Model):
+    """
+    What completing an appointment took from stock, per item (see treatments.consumption).
+    Rows stay as history; if the appointment stops being completed they are marked reversed and
+    the stock is put back.
+    """
+    objects     = TenantManager.via('appointment__clinic_id')()
+
+    appointment = models.ForeignKey('appointments.Appointment', on_delete=models.CASCADE, related_name='consumptions')
+    item        = models.ForeignKey('inventory.InventoryItem', on_delete=models.CASCADE, related_name='+')
+    planned     = models.PositiveIntegerField()                 # from the treatment's consumables
+    deducted    = models.PositiveIntegerField(default=0)        # actually taken from stock
+    shortfall   = models.PositiveIntegerField(default=0)        # planned but not in stock
+    skipped_manual = models.BooleanField(default=False)         # already logged by hand for this appointment
+    unit_cost   = models.DecimalField(max_digits=10, decimal_places=2, default=0)   # item cost at the time
+    movement    = models.ForeignKey('inventory.StockMovement', on_delete=models.SET_NULL, null=True, blank=True,
+                                    related_name='+')
+    reversed    = models.BooleanField(default=False)
+    reversal_movement = models.ForeignKey('inventory.StockMovement', on_delete=models.SET_NULL, null=True,
+                                          blank=True, related_name='+')
+    created_at  = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['id']

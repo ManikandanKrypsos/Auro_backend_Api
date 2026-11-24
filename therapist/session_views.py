@@ -243,11 +243,13 @@ class SessionCompleteView(APIView):
         from appointments.views import _update_patient_category
         _update_patient_category(appt.patient)
 
+        from treatments.consumption import summary
         return Response({
             'message':    'Session completed successfully.',
             'note_id':    note.id,
             'appointment_id': appt.id,
             'status':     'completed',
+            'consumption': summary(appt),      # stock taken; warnings if anything was short
         })
 
 

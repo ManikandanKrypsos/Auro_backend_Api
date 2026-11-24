@@ -15,6 +15,7 @@ TYPES = {
     'appointment_rescheduled': ('Appointment rescheduled', 'One of your appointments moved to a new time',      ('therapist',)),
     'appointment_cancelled':  ('Appointment cancelled',  'One of your appointments was cancelled',             ('therapist',)),
     'lead_assigned':          ('Lead assigned',          'A lead was assigned to you',                          ('admin', 'reception')),
+    'stock_shortfall':        ('Stock shortfall',        'A completed treatment needed more stock than was available', ('admin',)),
 }
 
 
