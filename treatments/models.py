@@ -98,6 +98,11 @@ class SessionConsumption(models.Model):
     appointment  = models.ForeignKey('appointments.Appointment', on_delete=models.CASCADE, related_name='consumption_records')
     confirmed_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
     note         = models.CharField(max_length=255, blank=True)
+    # admin review of what the therapist confirmed (a new confirmation starts unreviewed)
+    reviewed     = models.BooleanField(default=False)
+    reviewed_by  = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    reviewed_at  = models.DateTimeField(null=True, blank=True)
+    review_note  = models.CharField(max_length=500, blank=True)
     reversed     = models.BooleanField(default=False)
     reversed_at  = models.DateTimeField(null=True, blank=True)
     created_at   = models.DateTimeField(auto_now_add=True)
@@ -110,8 +115,15 @@ class AppointmentConsumption(models.Model):
     """One item of a confirmed SessionConsumption."""
     objects     = TenantManager.via('record__appointment__clinic_id')()
 
+    TYPE_CHOICES = [
+        ('used',     'Used in the treatment'),          # deducted from stock ('used' movement)
+        ('waste',    'Wasted / broken'),                # deducted from stock ('wastage' movement)
+        ('returned', 'Returned to stock unused'),       # not deducted — recorded for traceability
+    ]
+
     record      = models.ForeignKey(SessionConsumption, on_delete=models.CASCADE, related_name='lines')
     item        = models.ForeignKey('inventory.InventoryItem', on_delete=models.CASCADE, related_name='+')
+    type        = models.CharField(max_length=10, choices=TYPE_CHOICES, default='used')
     planned     = models.PositiveIntegerField(default=0)            # from the treatment's consumables (0 = extra item)
     quantity    = models.PositiveIntegerField()                     # what the therapist says was used
     deducted    = models.PositiveIntegerField(default=0)            # actually taken from stock

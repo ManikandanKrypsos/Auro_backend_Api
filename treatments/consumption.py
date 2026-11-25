@@ -12,7 +12,10 @@ Rules agreed with the clinic:
   notification.
 - Lot items: the chosen lot first, then earliest-expiring lots, then stock not in any lot. One stock
   movement per lot, so it can be put back into the same lot.
-- Confirming again (an edit) puts the previous usage back and records the new one.
+- Each line has a type: used (deducted, 'used' movement), waste (deducted, 'wastage' movement) or
+  returned (brought back unused — recorded only, stock untouched).
+- Confirming again (an edit) puts the previous usage back and records the new one; the new
+  confirmation needs a fresh admin review (review()).
 - If the appointment leaves in_session / completed (cancelled, no-show, back to upcoming), the
   confirmed usage is put back.
 """
@@ -26,6 +29,8 @@ log = logging.getLogger('aura.consumption')
 
 AUTO = 'Session usage: '                # note prefix on movements made here
 CONFIRMABLE = ('in_session', 'completed')
+MOVEMENT_TYPE = {'used': 'used', 'waste': 'wastage'}     # line type → stock movement type ('returned': none)
+TYPES = ('used', 'waste', 'returned')
 
 
 def _name(u):
@@ -39,7 +44,7 @@ def active_record(appt):
 
 # ── deduct / put back ────────────────────────────────────────────────────────
 
-def _take(item, quantity, appt, user, note, lot=None):
+def _take(item, quantity, appt, user, note, lot=None, movement_type='used'):
     """Deduct `quantity` (≤ current stock). Returns the first movement."""
     from inventory.models import Lot
     from inventory.services import remove_from_item
@@ -53,10 +58,10 @@ def _take(item, quantity, appt, user, note, lot=None):
             if left <= 0:
                 break
             n = min(l.quantity_remaining, left)
-            m = remove_from_item(item, n, 'used', user=user, note=note, lot=l, appointment=appt)
+            m = remove_from_item(item, n, movement_type, user=user, note=note, lot=l, appointment=appt)
             first, left = first or m, left - n
     if left > 0:
-        m = remove_from_item(item, left, 'used', user=user, note=note, appointment=appt)
+        m = remove_from_item(item, left, movement_type, user=user, note=note, appointment=appt)
         first = first or m
     return first
 
@@ -70,7 +75,7 @@ def _put_back(record, user, reason):
             continue
         item = InventoryItem.objects.select_for_update().get(pk=line.item_id)
         moves = StockMovement.objects.filter(
-            appointment_id=record.appointment_id, item_id=line.item_id, type='used',
+            appointment_id=record.appointment_id, item_id=line.item_id, type=MOVEMENT_TYPE.get(line.type, 'used'),
             note__startswith=AUTO, id__gte=line.movement_id).order_by('id')
         left = line.deducted
         for m in moves:
@@ -89,7 +94,7 @@ def _put_back(record, user, reason):
 
 def confirm_usage(appt, lines, user, note=''):
     """
-    lines: [(item, quantity, lot_or_None)] — already validated.
+    lines: [(item, quantity, lot_or_None, type)] — already validated (type in TYPES).
     Replaces any earlier confirmation. Returns the new SessionConsumption.
     """
     from inventory.models import InventoryItem
@@ -103,13 +108,19 @@ def confirm_usage(appt, lines, user, note=''):
         for rec in old:
             _put_back(rec, user, f'usage for appointment #{appt.id} was edited')
         record = SessionConsumption.objects.create(appointment=appt, confirmed_by=user, note=note[:255])
-        for item, qty, lot in lines:
+        for item, qty, lot, kind in lines:
             item = InventoryItem.objects.select_for_update().get(pk=item.pk)
-            line = AppointmentConsumption(record=record, item=item, planned=planned.get(item.id, 0),
+            line = AppointmentConsumption(record=record, item=item, type=kind,
+                                          planned=planned.get(item.id, 0) if kind == 'used' else 0,
                                           quantity=qty, lot=lot, unit_cost=item.cost_per_unit or 0)
+            if kind == 'returned':          # brought back unused: nothing leaves stock
+                line.save()
+                continue
             take = min(qty, max(item.current_stock, 0))
             if take > 0:
-                line.movement = _take(item, take, appt, user, f'{AUTO}{treatment} (appointment #{appt.id})', lot)
+                label = 'wasted' if kind == 'waste' else treatment
+                line.movement = _take(item, take, appt, user, f'{AUTO}{label} (appointment #{appt.id})', lot,
+                                      MOVEMENT_TYPE[kind])
                 line.deducted = take
             line.shortfall = qty - take
             if line.shortfall:
@@ -117,6 +128,15 @@ def confirm_usage(appt, lines, user, note=''):
             line.save()
     if short:
         _notify_shortfall(appt, short)
+    return record
+
+
+def review(record, user, note=''):
+    record.reviewed = True
+    record.reviewed_by = user
+    record.reviewed_at = timezone.now()
+    record.review_note = (note or '')[:500]
+    record.save(update_fields=['reviewed', 'reviewed_by', 'reviewed_at', 'review_note'])
     return record
 
 
@@ -165,7 +185,7 @@ def prefill(appt):
         already = -(logged.get(c.item_id) or 0)
         cost = float(c.item.cost_per_unit or 0)
         qty = max(c.quantity - already, 0)
-        out.append({'item_id': c.item_id, 'item_name': c.item.name, 'unit': c.item.unit,
+        out.append({'item_id': c.item_id, 'item_name': c.item.name, 'unit': c.item.unit, 'type': 'used',
                     'planned': c.quantity, 'already_logged': already, 'quantity': qty,
                     'in_stock': c.item.current_stock, 'unit_cost': round(cost, 2), 'cost': round(cost * qty, 2),
                     'track_lots': c.item.track_lots, 'lots': _lots(c.item)})
@@ -180,13 +200,20 @@ def summary(appt):
             'can_confirm': appt.status in CONFIRMABLE,
             'confirmed_by': _name(rec.confirmed_by) if rec else None,
             'confirmed_at': rec.created_at.isoformat() if rec else None,
-            'note': rec.note if rec else ''}
+            'note': rec.note if rec else '',
+            'reviewed': bool(rec and rec.reviewed),
+            'reviewed_by': _name(rec.reviewed_by) if rec and rec.reviewed else None,
+            'reviewed_at': rec.reviewed_at.isoformat() if rec and rec.reviewed_at else None,
+            'review_note': rec.review_note if rec else ''}
     if rec:
+        labels = dict(rec.lines.model.TYPE_CHOICES)
         data['items'] = [{
             'item_id': l.item_id, 'item_name': l.item.name, 'unit': l.item.unit,
+            'type': l.type, 'type_label': labels.get(l.type, l.type),
             'planned': l.planned, 'quantity': l.quantity, 'deducted': l.deducted, 'shortfall': l.shortfall,
             'lot_id': l.lot_id, 'lot_number': l.lot.lot_number if l.lot_id and l.lot else None,
-            'unit_cost': round(float(l.unit_cost), 2), 'cost': round(float(l.unit_cost) * l.quantity, 2),
+            'unit_cost': round(float(l.unit_cost), 2),
+            'cost': 0.0 if l.type == 'returned' else round(float(l.unit_cost) * l.quantity, 2),
         } for l in rec.lines.select_related('item', 'lot')]
     else:
         data['items'] = prefill(appt)

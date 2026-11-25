@@ -9,6 +9,8 @@ DELETE /api/treatments/<id>/consumables/<link_id>/                            (a
 GET    /api/appointments/<id>/consumption/            confirmed usage or pre-fill (any staff; therapist: own)
 POST   /api/appointments/<id>/consumption/            therapist confirms actual usage → deducts stock
 GET    /api/appointments/consumption/pending/         completed sessions with usage not confirmed yet
+GET    /api/appointments/consumption/review/          confirmed usage waiting for admin review (admin)
+POST   /api/appointments/<id>/consumption/review/     admin marks the confirmed usage reviewed {note?}
 """
 from django.db import transaction
 from rest_framework.response import Response
@@ -165,7 +167,9 @@ class AppointmentConsumptionView(APIView):
     """
     GET  — confirmed usage, or the pre-fill from the treatment's consumables (any staff; therapist: own)
     POST — confirm what was actually used. The only thing that takes consumables out of stock.
-           {"items": [{"item_id": 34, "quantity": 2, "lot_id": 7}], "note": "..."}
+           {"items": [{"item_id": 34, "quantity": 2, "lot_id": 7, "type": "used"}], "note": "..."}
+           type: used (default) | waste (broken / wasted — deducted as wastage) | returned (brought back
+           unused — recorded, stock untouched). The same item may appear once per type.
            Sending it again replaces the earlier confirmation (stock is put back, then re-deducted).
            "items": [] confirms that nothing was used.
     """
@@ -179,7 +183,7 @@ class AppointmentConsumptionView(APIView):
 
     def post(self, request, pk):
         from inventory.models import Lot
-        from .consumption import CONFIRMABLE, confirm_usage
+        from .consumption import CONFIRMABLE, TYPES, confirm_usage
         appt = _own_appointment(request, pk)
         if not appt:
             return error(404, 'appointment_not_found', 'Appointment not found.')
@@ -187,7 +191,7 @@ class AppointmentConsumptionView(APIView):
             return error(400, 'not_in_session', 'Usage can only be confirmed for an appointment that is in session or completed.')
         items = request.data.get('items')
         if not isinstance(items, list):
-            return validation_error({'items': 'Send a list of {item_id, quantity, lot_id?} (an empty list = nothing used).'})
+            return validation_error({'items': 'Send a list of {item_id, quantity, lot_id?, type?} (an empty list = nothing used).'})
         errors, lines, seen = {}, [], set()
         for n, it in enumerate(items):
             if not isinstance(it, dict):
@@ -199,8 +203,12 @@ class AppointmentConsumptionView(APIView):
                 errors[f'items[{n}].quantity'] = 'Whole number from 0 to 9999.'
                 continue
             qty = int(raw)
-            if item and item.id in seen:
-                errors[f'items[{n}].item_id'] = 'Listed twice.'
+            kind = str(it.get('type') or 'used').strip().lower()
+            if kind not in TYPES:
+                errors[f'items[{n}].type'] = 'Use "used", "waste" or "returned".'
+                continue
+            if item and (item.id, kind) in seen:
+                errors[f'items[{n}].item_id'] = f'Listed twice as "{kind}".'
                 continue
             lot = None
             if it.get('lot_id') not in (None, '') and item:
@@ -208,8 +216,8 @@ class AppointmentConsumptionView(APIView):
                 if lot is None:
                     errors[f'items[{n}].lot_id'] = 'Lot not found for this item.'
             if item and qty > 0:
-                seen.add(item.id)
-                lines.append((item, qty, lot))
+                seen.add((item.id, kind))
+                lines.append((item, qty, lot, kind))
         if errors:
             return validation_error(errors)
         confirm_usage(appt, lines, request.user, str(request.data.get('note') or ''))
@@ -252,3 +260,94 @@ class PendingConsumptionView(APIView):
                     'staff_id': a.staff_id, 'staff_name': (a.staff.username or a.staff.email.split('@')[0]) if a.staff else None,
                     'treatment_id': a.treatment_id, 'treatment': a.treatment.name if a.treatment else None}
         return paginate(request, qs, lambda objs: [row(a) for a in objs])
+
+
+def _staff_date_filters(request, qs, staff_field, date_field):
+    """?staff_id= ?date_from= ?date_to= (appointment date). Returns (qs, error_response)."""
+    from django.utils.dateparse import parse_date
+    p = request.query_params
+    if p.get('staff_id'):
+        if not str(p['staff_id']).isdigit():
+            return None, validation_error({'staff_id': 'Must be a whole number.'})
+        qs = qs.filter(**{staff_field: int(p['staff_id'])})
+    for field, op in (('date_from', 'gte'), ('date_to', 'lte')):
+        if p.get(field):
+            d = parse_date(p[field])
+            if not d:
+                return None, validation_error({field: 'Use YYYY-MM-DD.'})
+            qs = qs.filter(**{f'{date_field}__date__{op}': d})
+    return qs, None
+
+
+def _review_row(rec):
+    from .consumption import _name
+    a = rec.appointment
+    lines = list(rec.lines.all())
+    return {
+        'appointment_id': a.id, 'record_id': rec.id, 'date_time': a.date_time.isoformat(), 'status': a.status,
+        'patient_id': a.patient.patient_id if a.patient else None,
+        'patient_name': a.patient.name if a.patient else None,
+        'staff_id': a.staff_id, 'staff_name': _name(a.staff),
+        'treatment_id': a.treatment_id, 'treatment': a.treatment.name if a.treatment else None,
+        'confirmed_by': _name(rec.confirmed_by), 'confirmed_at': rec.created_at.isoformat(), 'note': rec.note,
+        'item_count': len(lines),
+        'total_cost': round(sum(float(l.unit_cost) * l.quantity for l in lines if l.type != 'returned'), 2),
+        'has_shortfall': any(l.shortfall for l in lines),
+        'has_waste': any(l.type == 'waste' for l in lines),
+        'has_returned': any(l.type == 'returned' for l in lines),
+        'differs_from_recipe': any((l.type == 'used' and l.quantity != l.planned) or l.type != 'used' for l in lines),
+        'reviewed': rec.reviewed, 'reviewed_by': _name(rec.reviewed_by) if rec.reviewed else None,
+        'reviewed_at': rec.reviewed_at.isoformat() if rec.reviewed_at else None, 'review_note': rec.review_note,
+    }
+
+
+class ConsumptionReviewListView(APIView):
+    """
+    GET /api/appointments/consumption/review/   (admin)
+    Confirmed session usage, newest first. ?status=pending (default, not reviewed yet) | reviewed | all
+    ?staff_id= ?date_from= ?date_to= (appointment date) · opt-in pagination ?page= &page_size=
+    Only the current confirmation of each appointment is listed (edits replace it).
+    """
+    permission_classes = [IsAdmin]
+
+    def get(self, request):
+        from django.db.models import Prefetch
+        from utils.pagination import paginate
+        from .models import AppointmentConsumption, SessionConsumption
+        qs = (SessionConsumption.objects.filter(reversed=False)
+              .select_related('appointment', 'appointment__patient', 'appointment__staff',
+                              'appointment__treatment', 'confirmed_by', 'reviewed_by')
+              .prefetch_related(Prefetch('lines', queryset=AppointmentConsumption._base_manager.all()))
+              .order_by('-created_at'))
+        status = request.query_params.get('status', 'pending')
+        if status not in ('pending', 'reviewed', 'all'):
+            return validation_error({'status': 'Use pending, reviewed or all.'})
+        if status != 'all':
+            qs = qs.filter(reviewed=(status == 'reviewed'))
+        qs, bad = _staff_date_filters(request, qs, 'appointment__staff_id', 'appointment__date_time')
+        if bad:
+            return bad
+        return paginate(request, qs, lambda objs: [_review_row(r) for r in objs])
+
+
+class ConsumptionReviewView(APIView):
+    """
+    POST /api/appointments/<id>/consumption/review/   (admin)   {"note": "Checked against the vial log"}
+    Marks the appointment's current confirmed usage as reviewed. Sending it again updates the note.
+    If the therapist later edits the usage, the new confirmation is unreviewed again.
+    """
+    permission_classes = [IsAdmin]
+
+    def post(self, request, pk):
+        from .consumption import active_record, review
+        appt = _own_appointment(request, pk)
+        if not appt:
+            return error(404, 'appointment_not_found', 'Appointment not found.')
+        rec = active_record(appt)
+        if not rec:
+            return error(400, 'not_confirmed', 'The therapist has not confirmed the product usage for this appointment yet.')
+        note = request.data.get('note') or ''
+        if not isinstance(note, str) or len(note) > 500:
+            return validation_error({'note': 'Text of at most 500 characters.'})
+        review(rec, request.user, note.strip())
+        return _usage_response(appt)
