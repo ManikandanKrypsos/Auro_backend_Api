@@ -20,6 +20,7 @@ def api_root(request):
             'appointments': '/api/appointments/',
             'leads':        '/api/leads/',
             'dashboard':    '/api/dashboard/',
+            'reports':      '/api/reports/',
             'roles':        '/api/users/roles/',
             'rooms':        '/api/rooms/',
             'equipment':    '/api/equipment/',
@@ -52,6 +53,7 @@ urlpatterns = [
     path('api/appointments/', include('appointments.urls')),
     path('api/leads/',        include('leads.urls')),
     path('api/dashboard/',    include('dashboard.urls')),
+    path('api/reports/',      include('dashboard.report_urls')),   # Reports module (admin)
     path('api/rooms/', include('rooms.urls')),
     path('api/equipment/', include('rooms.equipment_urls')),
     path('api/clinic/', include('clinic.urls')),
