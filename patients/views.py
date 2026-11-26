@@ -198,31 +198,41 @@ class PatientViewSet(viewsets.ModelViewSet):
         """
         GET /api/patients/lookup/?search=ana   (any staff — used by booking)
         Finds any patient in the clinic by name, phone, email or Aura id, but returns only what's
-        needed to pick one: no medical details. Max 20 results, at least 2 characters.
-        `can_view_record` says whether this user may open the full patient record.
+        needed to pick one: no medical details. `can_view_record` says whether this user may open
+        the full patient record.
+        search: optional — empty / missing lists every patient (A→Z), any length filters.
+        Pagination: ?page=1&page_size=20 (max 100) → {count, page, page_size, total_pages, results}.
+        Without page / page_size: a plain list of the first 20 matches (as before).
         """
+        from utils.pagination import paginate, wants_pagination
         search = str(request.query_params.get('search', '') or '').strip()
-        if len(search) < 2:
-            return Response({'search': 'Type at least 2 characters.'}, status=400)
-        qs = Patient.objects.filter(
-            Q(name__icontains=search) | Q(phone__icontains=search) |
-            Q(email__istartswith=search) | Q(patient_id__iexact=search)
-        ).order_by('name', 'id')[:20]
-        rows = list(qs)
-        visible = None
-        if getattr(request.user, 'role', '') == 'therapist':
-            from appointments.models import Appointment
-            treated = set(Appointment.objects.filter(staff_id=request.user.pk, patient__in=rows)
-                          .values_list('patient_id', flat=True))
-            visible = {p.id for p in rows if p.id in treated or p.created_by_id == request.user.pk}
-        return Response([{
-            'id':              p.patient_id,
-            'db_id':           p.id,
-            'name':            p.name,
-            'phone':           p.phone,
-            'is_vip':          p.category == 'VIP',
-            'can_view_record': visible is None or p.id in visible,
-        } for p in rows])
+        qs = Patient.objects.all()
+        if search:
+            qs = qs.filter(
+                Q(name__icontains=search) | Q(phone__icontains=search) |
+                Q(email__istartswith=search) | Q(patient_id__iexact=search)
+            )
+        qs = qs.order_by('name', 'id')
+        if not wants_pagination(request):
+            qs = qs[:20]
+        is_therapist = getattr(request.user, 'role', '') == 'therapist'
+
+        def serialize(rows):
+            visible = None
+            if is_therapist:
+                from appointments.models import Appointment
+                treated = set(Appointment.objects.filter(staff_id=request.user.pk, patient__in=rows)
+                              .values_list('patient_id', flat=True))
+                visible = {p.id for p in rows if p.id in treated or p.created_by_id == request.user.pk}
+            return [{
+                'id':              p.patient_id,
+                'db_id':           p.id,
+                'name':            p.name,
+                'phone':           p.phone,
+                'is_vip':          p.category == 'VIP',
+                'can_view_record': visible is None or p.id in visible,
+            } for p in rows]
+        return paginate(request, qs, serialize)
 
     @action(detail=False, methods=['get'], url_path='stats',
             permission_classes=[IsAuthenticated])

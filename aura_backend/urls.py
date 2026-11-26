@@ -29,6 +29,7 @@ def api_root(request):
             'purchase_orders': '/api/purchase-orders/',
             'therapist':    '/api/therapist/',
             'packages':     '/api/packages/',
+            'courses':      '/api/courses/',
             'ai':           '/api/ai/',
             'payments':     '/api/payments/',
             'schedule_day': '/api/schedule/day/?date=YYYY-MM-DD',
@@ -59,6 +60,7 @@ urlpatterns = [
     path('api/purchase-orders/', include('inventory.purchase_urls')),
     path('api/therapist/', include('therapist.urls')),
     path('api/packages/', include('packages.urls')),
+    path('api/courses/', include('packages.course_urls')),     # treatment courses (Protocol tab)
     path('api/ai/', include('ai_agent.urls')),
     path('api/payments/', include('payments.urls')),
     path('api/schedule/day/', DayScheduleView.as_view()),   # calendar: one day, all staff + rooms
