@@ -16,6 +16,7 @@ def api_root(request):
         'endpoints': {
             'users':        '/api/users/',
             'patients':     '/api/patients/',
+            'documents':    '/api/documents/',
             'treatments':   '/api/treatments/',
             'appointments': '/api/appointments/',
             'leads':        '/api/leads/',
@@ -49,6 +50,7 @@ urlpatterns = [
     path('api/health/',       health),                          # uptime monitor / keep-warm
     path('api/users/',        include('users.urls')),
     path('api/patients/',     include('patients.urls')),
+    path('api/documents/',    include('patients.document_urls')),   # patient documents (consents, IDs, lab results...)
     path('api/treatments/',   include('treatments.urls')),
     path('api/appointments/', include('appointments.urls')),
     path('api/leads/',        include('leads.urls')),

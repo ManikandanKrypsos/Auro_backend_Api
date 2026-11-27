@@ -143,19 +143,11 @@ class PatientViewSet(viewsets.ModelViewSet):
         """Save uploaded image file and update patient.image field."""
         image_file = request.FILES.get('image')
         if image_file:
-            import os
-            from django.conf import settings
-            upload_dir = os.path.join(settings.MEDIA_ROOT, 'patients')
-            os.makedirs(upload_dir, exist_ok=True)
+            from utils import storage
             from utils.upload_security import checked_ext, random_token
             ext      = checked_ext(image_file, 'image')
             filename = f"patient_{patient.id}_{random_token()}{ext}"
-            filepath = os.path.join(upload_dir, filename)
-            with open(filepath, 'wb+') as f:
-                for chunk in image_file.chunks():
-                    f.write(chunk)
-            base_url = request.build_absolute_uri('/')
-            patient.image = f"{base_url.rstrip('/')}{settings.MEDIA_URL}patients/{filename}"
+            patient.image = storage.store(image_file, 'patients', filename, request)
             patient.save()
 
     def create(self, request, *args, **kwargs):

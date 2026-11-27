@@ -134,11 +134,13 @@ class PatientOverviewView(APIView):
         # Consent records
         from patients.models import ConsentRecord
         for c in ConsentRecord.objects.filter(patient=patient).order_by('-created_at')[:10]:
+            is_consent = c.type == 'consent'
             activity.append({
-                'type':     'consent',
+                'type':     'consent' if is_consent else 'document',
                 'date':     str(c.created_at.date()),
-                'title':    'Consent Form Added',
-                'subtitle': f"{c.title or 'Consent'} · {c.status.capitalize() if c.status else ''}",
+                'title':    'Consent Form Added' if is_consent else 'Document Added',
+                'subtitle': f"{c.title or 'Consent'} · {c.status.capitalize() if c.status else ''}" if is_consent
+                            else f"{c.title} · {c.get_type_display()}",
             })
 
         # Payments
@@ -434,7 +436,7 @@ class PatientConsentView(APIView):
         if not patient:
             return Response({'error': 'Patient not found.'}, status=404)
 
-        records = ConsentRecord.objects.filter(patient=patient)
+        records = ConsentRecord.objects.filter(patient=patient, type='consent')   # other documents: /api/documents/
         signed  = records.filter(status='signed').count()
         pending = records.filter(status='pending').count()
 
@@ -490,18 +492,18 @@ class PatientConsentDetailView(APIView):
     """
     permission_classes = [IsAuthenticated]
 
-    def _get(self, pk, record_id):
+    def _get(self, request, pk, record_id):
         from patients.models import ConsentRecord
         patient = _get_patient(pk, request.user)
         if not patient:
             return None, None
         try:
-            return patient, ConsentRecord.objects.get(id=record_id, patient=patient)
+            return patient, ConsentRecord.objects.get(id=record_id, patient=patient, type='consent')
         except ConsentRecord.DoesNotExist:
             return patient, None
 
     def patch(self, request, pk, record_id):
-        patient, record = self._get(pk, record_id)
+        patient, record = self._get(request, pk, record_id)
         if not patient:
             return Response({'error': 'Patient not found.'}, status=404)
         if not record:
@@ -515,7 +517,7 @@ class PatientConsentDetailView(APIView):
         return Response({'message': 'Consent record updated.', 'id': record.id})
 
     def delete(self, request, pk, record_id):
-        patient, record = self._get(pk, record_id)
+        patient, record = self._get(request, pk, record_id)
         if not patient:
             return Response({'error': 'Patient not found.'}, status=404)
         if not record:

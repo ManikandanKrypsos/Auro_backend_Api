@@ -128,23 +128,41 @@ class SessionNote(models.Model):
 # ── Consent Records ───────────────────────────────────────────────────────────
 
 class ConsentRecord(models.Model):
+    """
+    A patient document. Started as consent forms only; `type` now also covers ID copies, referral
+    letters, lab results and other files (see GET /api/documents/). Signing (status pending/signed,
+    patient_signed, therapist_signed, signed_date) only applies to consents — other types are
+    'not_required'.
+    """
     objects = TenantManager.via('patient__clinic_id')()   # scoped to the current clinic via its parent
 
     STATUS_CHOICES = (
-        ('signed',  'Signed'),
-        ('pending', 'Pending'),
+        ('signed',       'Signed'),
+        ('pending',      'Pending'),
+        ('not_required', 'No signature needed'),
+    )
+    TYPE_CHOICES = (
+        ('consent',     'Consent form'),
+        ('id_document', 'ID document'),
+        ('referral',    'Referral letter'),
+        ('lab_result',  'Lab result'),
+        ('other',       'Other'),
     )
 
     patient           = models.ForeignKey(Patient, on_delete=models.CASCADE, related_name='consent_records')
     appointment       = models.ForeignKey('appointments.Appointment', on_delete=models.SET_NULL, null=True, blank=True, related_name='consent_records')
+    type              = models.CharField(max_length=20, choices=TYPE_CHOICES, default='consent', db_index=True)
     title             = models.CharField(max_length=150)
     file_name         = models.CharField(max_length=255, blank=True)
     file_url          = models.TextField(blank=True)
-    status            = models.CharField(max_length=10, choices=STATUS_CHOICES, default='pending')
+    notes             = models.TextField(blank=True)
+    status            = models.CharField(max_length=12, choices=STATUS_CHOICES, default='pending')
     patient_signed    = models.BooleanField(default=False)
     therapist_signed  = models.BooleanField(default=False)
     signed_date       = models.DateField(null=True, blank=True)
+    uploaded_by       = models.ForeignKey('users.User', on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
     created_at        = models.DateTimeField(auto_now_add=True)
+    updated_at        = models.DateTimeField(auto_now=True, null=True)
 
     class Meta:
         ordering = ['-created_at']

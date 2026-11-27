@@ -634,19 +634,12 @@ class AppointmentConsentView(APIView):
         # Handle PDF file upload from phone
         consent_file = request.FILES.get('consent_file')
         if consent_file:
-            import os, time
-            from django.conf import settings
-            upload_dir = os.path.join(settings.MEDIA_ROOT, 'consent_forms')
-            os.makedirs(upload_dir, exist_ok=True)
+            import time
+            from utils import storage
             from utils.upload_security import checked_ext, random_token
             ext      = checked_ext(consent_file, 'document', '.pdf')
             filename = f"consent_{appt.id}_{int(time.time())}_{random_token()}{ext}"
-            filepath = os.path.join(upload_dir, filename)
-            with open(filepath, 'wb+') as f:
-                for chunk in consent_file.chunks():
-                    f.write(chunk)
-            base_url = request.build_absolute_uri('/')
-            appt.consent_form_url = f"{base_url.rstrip('/')}{settings.MEDIA_URL}consent_forms/{filename}"
+            appt.consent_form_url = storage.store(consent_file, 'consent_forms', filename, request)
         elif url:
             appt.consent_form_url = url
 

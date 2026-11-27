@@ -13,6 +13,8 @@ def safe_image_url(url, request=None):
     """
     if not url:
         return None
+    if url.startswith('r2://'):
+        return url          # private R2 file — signed when the response is sent
 
     # External URL (Unsplash, CDN, etc.) — return as-is, don't validate
     our_domain = getattr(settings, 'ALLOWED_HOSTS', [])

@@ -37,6 +37,8 @@ def _safe_image(url):
     """Return None if image file doesn't exist on disk (deleted by Render redeploy)."""
     if not url:
         return None
+    if url.startswith('r2://'):
+        return url                       # private R2 file — signed when the response is sent
     if not url.startswith('http'):
         return None
     if 'auro-backend-api.onrender.com' in url and '/media/' in url:
@@ -263,17 +265,11 @@ class MeView(APIView):
         # Handle image file upload
         image_file = request.FILES.get('profile_image')
         if image_file:
-            upload_dir = os.path.join(settings.MEDIA_ROOT, 'staff')
-            os.makedirs(upload_dir, exist_ok=True)
+            from utils import storage
             from utils.upload_security import checked_ext, random_token
             ext      = checked_ext(image_file, 'image')
             filename = f"staff_{user.id}_{random_token()}{ext}"
-            filepath = os.path.join(upload_dir, filename)
-            with open(filepath, 'wb+') as f:
-                for chunk in image_file.chunks():
-                    f.write(chunk)
-            base_url = request.build_absolute_uri('/')
-            user.profile_image = f"{base_url.rstrip('/')}{settings.MEDIA_URL}staff/{filename}"
+            user.profile_image = storage.store(image_file, 'staff', filename, request)
 
         # Update other fields
         for field in ['username', 'phone', 'specialist_area', 'years_of_experience', 'joining_date']:
@@ -638,22 +634,11 @@ class StaffDetailView(APIView):
             # Handle image file upload — save file and return URL
             image_file = request.FILES.get('profile_image')
             if image_file:
-                # Save to MEDIA_ROOT/staff/
-                upload_dir = os.path.join(settings.MEDIA_ROOT, 'staff')
-                os.makedirs(upload_dir, exist_ok=True)
-
+                from utils import storage
                 from utils.upload_security import checked_ext, random_token
                 ext       = checked_ext(image_file, 'image')
                 filename  = f"staff_{updated_user.id}_{random_token()}{ext}"
-                filepath  = os.path.join(upload_dir, filename)
-
-                with open(filepath, 'wb+') as f:
-                    for chunk in image_file.chunks():
-                        f.write(chunk)
-
-                # Build absolute URL
-                base_url  = request.build_absolute_uri('/')
-                image_url = f"{base_url.rstrip('/')}{settings.MEDIA_URL}staff/{filename}"
+                image_url = storage.store(image_file, 'staff', filename, request)
                 updated_user.profile_image = image_url
                 updated_user.save()
             data = _format_staff(updated_user)
