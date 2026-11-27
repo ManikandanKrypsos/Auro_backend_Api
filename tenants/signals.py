@@ -26,6 +26,7 @@ TENANT_MODELS = {
     'inventory.Lot': 'item',
     'payments.Invoice': 'patient',
     'payments.Payment': 'invoice',
+    'audit.AuditEvent': None,
 }
 
 

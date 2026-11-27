@@ -724,6 +724,7 @@ class ReconcileView(APIView):
         found = set(qs.values_list('pk', flat=True))
         unchanged = set(qs.filter(reconciled=value).values_list('pk', flat=True))
         to_change = qs.exclude(pk__in=unchanged)
+        changing = list(to_change.select_related('invoice__patient'))      # for the audit trail
         if value:
             updated = to_change.update(reconciled=True, reconciled_at=timezone.now(), reconciled_by=request.user,
                                        reconciliation_ref=reference[:120])
@@ -731,6 +732,8 @@ class ReconcileView(APIView):
                 Payment.objects.filter(pk__in=unchanged).update(reconciliation_ref=reference[:120])
         else:
             updated = to_change.update(reconciled=False, reconciled_at=None, reconciled_by=None, reconciliation_ref='')
+        from audit.recorder import record_reconciliation
+        record_reconciliation(changing, value, reference)
         rows = Payment.objects.select_related('invoice', 'invoice__patient', 'created_by', 'reconciled_by') \
             .filter(pk__in=found).order_by('paid_at', 'id')
         return Response({

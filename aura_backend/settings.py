@@ -49,6 +49,7 @@ INSTALLED_APPS = [
     'ai_agent',
     'payments',
     'notifications',
+    'audit',
 ]
 
 MIDDLEWARE = [

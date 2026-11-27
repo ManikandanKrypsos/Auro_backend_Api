@@ -13,7 +13,7 @@ from rest_framework.authentication import BaseAuthentication, SessionAuthenticat
 from rest_framework.permissions import BasePermission
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
-from .context import set_current_clinic_id
+from .context import set_current_clinic_id, set_current_user
 
 PLATFORM_TOKEN_SALT = 'aura-platform-admin'
 PLATFORM_TOKEN_MAX_AGE = 12 * 60 * 60          # 12 hours
@@ -99,6 +99,7 @@ class TenantJWTAuthentication(JWTAuthentication):
         user, token = result
         clinic = _checked(request, user)
         set_current_clinic_id(clinic.id)
+        set_current_user(user)
         return user, token
 
 
@@ -112,6 +113,7 @@ class TenantSessionAuthentication(SessionAuthentication):
         user, auth = result
         clinic = _checked(request, user)
         set_current_clinic_id(clinic.id)
+        set_current_user(user)
         return user, auth
 
 

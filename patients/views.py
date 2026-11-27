@@ -174,10 +174,16 @@ class PatientViewSet(viewsets.ModelViewSet):
         return response
 
     def destroy(self, request, *args, **kwargs):
+        from django.db.models import ProtectedError
+        from utils.api_errors import error
         patient = self.get_object()
         patient_id   = patient.patient_id
         patient_name = patient.name
-        patient.delete()
+        try:
+            patient.delete()
+        except ProtectedError:
+            return error(409, 'patient_has_invoices',
+                         f'{patient_name} has invoices, so the record can\'t be deleted (invoices must be kept).')
         return Response({
             'message':          f'Patient {patient_name} ({patient_id}) deleted successfully',
             'deleted_id':       patient_id,
