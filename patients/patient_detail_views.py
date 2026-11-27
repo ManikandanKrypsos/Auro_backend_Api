@@ -69,31 +69,23 @@ class PatientOverviewView(APIView):
                 'total_sessions': plan.sessions if plan else a.total_sessions,
             }
 
-        # Active packages
-        from treatments.models import PricePlan
+        # Active packages (one query: every appointment of the patient that has a price plan)
+        by_plan = {}
+        for a in (Appointment.objects.filter(patient=patient, price_plan__isnull=False)
+                  .select_related('price_plan', 'treatment', 'staff').order_by('date_time')):
+            by_plan.setdefault(a.price_plan_id, []).append(a)
         active_packages = []
-        plan_ids = Appointment.objects.filter(
-            patient=patient,
-            price_plan__isnull=False
-        ).values_list('price_plan_id', flat=True).distinct()
-
-        for plan_id in plan_ids:
-            appts_in_plan = Appointment.objects.filter(
-                patient=patient,
-                price_plan_id=plan_id
-            ).select_related('price_plan', 'treatment', 'staff').order_by('date_time')
-            if not appts_in_plan.exists():
-                continue
-            first     = appts_in_plan.first()
+        for plan_id, appts_in_plan in by_plan.items():
+            first     = appts_in_plan[0]
             plan      = first.price_plan
             total_sessions = plan.sessions if plan else first.total_sessions
-            completed = appts_in_plan.filter(status='completed').count()
+            completed = sum(1 for a in appts_in_plan if a.status == 'completed')
 
             # Only show if not all sessions completed
             if completed >= total_sessions:
                 continue
 
-            next_a = appts_in_plan.filter(status='upcoming', date_time__gte=now).order_by('date_time').first()
+            next_a = next((a for a in appts_in_plan if a.status == 'upcoming' and a.date_time >= now), None)
             active_packages.append({
                 'plan_id':        plan_id,
                 'package_name':   first.treatment.name if first.treatment else '',
@@ -189,23 +181,26 @@ class PatientHistoryView(APIView):
             patient=patient
         ).select_related('staff', 'treatment', 'room_fk', 'price_plan').order_by('-date_time')
 
-        total     = appts.count()
-        completed = appts.filter(status='completed').count()
-        cancelled = appts.filter(status='cancelled').count()
-        scheduled = appts.filter(status='upcoming').count()
-        no_show   = appts.filter(status='no_show').count()
+        counts    = dict(appts.order_by().values_list('status').annotate(n=Count('id')))
+        total     = sum(counts.values())
+        completed = counts.get('completed', 0)
+        cancelled = counts.get('cancelled', 0)
+        scheduled = counts.get('upcoming', 0)
+        no_show   = counts.get('no_show', 0)
+
+        rows = list(appts)
+        upcoming_by_plan = {}                       # plan id → its upcoming appointments, earliest first
+        for a in sorted(rows, key=lambda x: x.date_time):
+            if a.price_plan_id and a.status == 'upcoming':
+                upcoming_by_plan.setdefault(a.price_plan_id, []).append(a)
 
         timeline = []
-        for a in appts:
+        for a in rows:
             from django.utils import timezone as tz
             dt   = tz.localtime(a.date_time) if tz.is_aware(a.date_time) else a.date_time
             plan = a.price_plan
-            next_a = Appointment.objects.filter(
-                patient=patient,
-                price_plan=plan,
-                status='upcoming',
-                date_time__gt=a.date_time
-            ).order_by('date_time').first() if plan else None
+            next_a = next((u for u in upcoming_by_plan.get(a.price_plan_id, []) if u.date_time > a.date_time),
+                          None) if plan else None
 
             timeline.append({
                 'id':                  a.id,
@@ -248,19 +243,14 @@ class PatientNotesView(APIView):
         if not patient:
             return Response({'error': 'Patient not found.'}, status=404)
 
-        notes       = SessionNote.objects.filter(patient=patient).select_related('therapist')
-        total       = notes.count()
-        with_photos = notes.exclude(before_photo='').exclude(after_photo='').count()
-        completed   = notes.filter(appointment__status='completed').count()
+        from utils.storage import display_url
+        notes       = list(SessionNote.objects.filter(patient=patient).select_related('therapist', 'appointment'))
+        total       = len(notes)
+        with_photos = sum(1 for n in notes if n.before_photo and n.after_photo)
+        completed   = sum(1 for n in notes if n.appointment and n.appointment.status == 'completed')
 
         def _full_url(url):
-            if not url:
-                return None
-            if url.startswith('http'):
-                return url
-            if not url.startswith('/'):
-                url = '/' + url
-            return request.build_absolute_uri(url)
+            return display_url(url, request)
 
         def fmt_note(n):
             return {
@@ -303,6 +293,7 @@ class PatientNotesView(APIView):
                 return Response({'error': 'Appointment not found for this patient.'}, status=404)
 
         from utils.image_upload import get_image_value
+        from utils.storage import display_url
         note = SessionNote.objects.create(
             patient=patient,
             appointment=appt,
@@ -327,8 +318,8 @@ class PatientNotesView(APIView):
             'products_used':          note.products_used,
             'recommended_to_patient': note.recommended_to_patient,
             'next_treatment':         note.next_treatment,
-            'before_photo':           note.before_photo if note.before_photo and note.before_photo.startswith('http') else request.build_absolute_uri('/' + note.before_photo.lstrip('/')) if note.before_photo else None,
-            'after_photo':            note.after_photo if note.after_photo and note.after_photo.startswith('http') else request.build_absolute_uri('/' + note.after_photo.lstrip('/')) if note.after_photo else None,
+            'before_photo':           display_url(note.before_photo, request),
+            'after_photo':            display_url(note.after_photo, request),
         }, status=201)
 
 
@@ -399,14 +390,10 @@ class PatientPhotosView(APIView):
             before_photo='', after_photo=''
         ).select_related('therapist').order_by('-created_at')
 
+        from utils.storage import display_url
+
         def _full_url_photos(url):
-            if not url:
-                return None
-            if url.startswith('http'):
-                return url
-            if not url.startswith('/'):
-                url = '/' + url
-            return request.build_absolute_uri(url)
+            return display_url(url, request)
 
         photos = [
             {
@@ -524,3 +511,58 @@ class PatientConsentDetailView(APIView):
             return Response({'error': 'Consent record not found.'}, status=404)
         record.delete()
         return Response({'message': 'Consent record deleted.'})
+
+class PatientFullView(APIView):
+    """
+    GET /api/patients/<id>/full/            everything the patient detail screen needs in one call
+        ?include=patient,overview,history,notes,photos,consent,documents   (default: all)
+    Each section is exactly what its own endpoint returns:
+      patient   → GET /api/patients/<id>/          overview → /overview/     history → /history/
+      notes     → /notes/   photos → /photos/   consent → /consent/
+      documents → GET /api/documents/?patient_id=<id> (list) + counts
+    Same access rules as those endpoints (therapists: only patients they can open → 404).
+    """
+    permission_classes = [IsAuthenticated]
+    SECTIONS = ('patient', 'overview', 'history', 'notes', 'photos', 'consent', 'documents')
+
+    def get(self, request, pk):
+        from utils.api_errors import error, validation_error
+        patient = _get_patient(pk, request.user)
+        if not patient:
+            return error(404, 'patient_not_found', 'Patient not found.')
+        raw = request.query_params.get('include')
+        wanted = [s.strip() for s in raw.split(',') if s.strip()] if raw else list(self.SECTIONS)
+        unknown = [s for s in wanted if s not in self.SECTIONS]
+        if unknown:
+            return validation_error({'include': f'Unknown section(s): {", ".join(unknown)}. Use: {", ".join(self.SECTIONS)}.'})
+
+        def run(view_cls, **kw):
+            view = view_cls()
+            view.request, view.args, view.kwargs, view.format_kwarg = request, (), kw, None
+            return view.get(request, **kw).data
+
+        out = {'patient_id': patient.patient_id}
+        if 'patient' in wanted:
+            from patients.views import PatientViewSet
+            view = PatientViewSet(action='retrieve', request=request, kwargs={'pk': patient.patient_id},
+                                  format_kwarg=None)
+            out['patient'] = view.get_serializer(patient).data
+        sections = {'overview': PatientOverviewView, 'history': PatientHistoryView, 'notes': PatientNotesView,
+                    'photos': PatientPhotosView, 'consent': PatientConsentView}
+        for name, cls in sections.items():
+            if name in wanted:
+                out[name] = run(cls, pk=patient.patient_id)
+        if 'documents' in wanted:
+            from patients.document_views import _visible, serialize
+            from django.db.models import Case, IntegerField, Value, When
+            docs = list(_visible(request).filter(patient=patient).annotate(
+                _p=Case(When(status='pending', then=Value(0)), default=Value(1), output_field=IntegerField())
+            ).order_by('_p', '-created_at', '-id'))
+            out['documents'] = {
+                'counts': {'total': len(docs),
+                           'pending': sum(d.status == 'pending' for d in docs),
+                           'signed': sum(d.status == 'signed' for d in docs),
+                           'not_required': sum(d.status == 'not_required' for d in docs)},
+                'results': [serialize(d) for d in docs],
+            }
+        return Response(out)

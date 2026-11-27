@@ -138,3 +138,15 @@ def delete(ref):
                 os.remove(path)
     except Exception:
         pass
+
+
+def display_url(url, request=None):
+    """For views that build file links: keep full URLs and stored references as they are (references
+    are signed when the response is sent), turn old relative /media/ paths into absolute URLs."""
+    if not url:
+        return None
+    if url.startswith(('http://', 'https://')) or is_ref(url):
+        return url
+    if request is None:
+        return url
+    return request.build_absolute_uri(url if url.startswith('/') else '/' + url)

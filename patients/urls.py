@@ -4,7 +4,7 @@ from .views import PatientViewSet, MarketingSourceListView, PatientVIPView
 from .patient_detail_views import (
     PatientOverviewView, PatientHistoryView,
     PatientNotesView, PatientNoteDetailView,
-    PatientPhotosView, PatientConsentView, PatientConsentDetailView,
+    PatientPhotosView, PatientConsentView, PatientConsentDetailView, PatientFullView,
 )
 
 router = DefaultRouter()
@@ -13,6 +13,7 @@ router.register(r'', PatientViewSet, basename='patient')
 urlpatterns = [
     path('marketing-sources/',                  MarketingSourceListView.as_view()),
     path('<str:pk>/vip/',                       PatientVIPView.as_view()),
+    path('<str:pk>/full/',                      PatientFullView.as_view()),        # detail screen in one call
     path('<str:pk>/overview/',                  PatientOverviewView.as_view()),
     path('<str:pk>/history/',                   PatientHistoryView.as_view()),
     path('<str:pk>/notes/',                     PatientNotesView.as_view()),

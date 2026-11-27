@@ -193,7 +193,7 @@ CORS_ALLOWED_ORIGINS = [o.strip() for o in os.environ.get('CORS_ALLOWED_ORIGINS'
 CORS_ALLOW_ALL_ORIGINS = not CORS_ALLOWED_ORIGINS
 # Auth uses the Authorization header, not cookies — only allow credentials for a fixed origin list.
 CORS_ALLOW_CREDENTIALS = bool(CORS_ALLOWED_ORIGINS)
-CORS_EXPOSE_HEADERS = ['X-Request-ID']        # lets the web app read the request id
+CORS_EXPOSE_HEADERS = ['X-Request-ID', 'Server-Timing']   # lets the web app read the request id + timing
 CORS_ALLOW_HEADERS = [
     'accept',
     'authorization',
