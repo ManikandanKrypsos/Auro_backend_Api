@@ -156,7 +156,7 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
     ],
-    # Stored file references (r2://...) become short-lived signed links in every response, and signed
+    # Stored file references (cld://...) become short-lived signed links in every response, and signed
     # links sent back by the app are stored as references again (utils/storage.py, utils/file_refs.py).
     'DEFAULT_RENDERER_CLASSES': [
         'utils.file_refs.SignedFileJSONRenderer',
@@ -258,14 +258,11 @@ LOGIN_REDIRECT_URL   = '/api/patients/'
 
 #------for profiles--------------------------------------------
 MEDIA_URL  = '/media/'
-MEDIA_ROOT = os.path.join(BASE_DIR, 'media')     # local development only when R2 is not configured
+MEDIA_ROOT = os.path.join(BASE_DIR, 'media')     # local development only, when CLOUDINARY_URL is not set
 
-# Uploaded files → private Cloudflare R2 bucket (see utils/storage.py). All four must be set.
-R2_ENDPOINT_URL      = os.environ.get('R2_ENDPOINT_URL', '')        # https://<account_id>.eu.r2.cloudflarestorage.com
-R2_ACCESS_KEY_ID     = os.environ.get('R2_ACCESS_KEY_ID', '')
-R2_SECRET_ACCESS_KEY = os.environ.get('R2_SECRET_ACCESS_KEY', '')
-R2_BUCKET            = os.environ.get('R2_BUCKET', '')
-FILE_URL_TTL         = int(os.environ.get('FILE_URL_TTL', '3600'))  # seconds a signed file link stays valid
+# Uploaded files → Cloudinary (see utils/storage.py). Patient files are private with expiring links.
+CLOUDINARY_URL = os.environ.get('CLOUDINARY_URL', '')               # cloudinary://<api_key>:<api_secret>@<cloud_name>
+FILE_URL_TTL   = int(os.environ.get('FILE_URL_TTL', '3600'))         # seconds a signed file link stays valid
 
 # ── Production security headers ────────────────────────────
 if not DEBUG:

@@ -37,8 +37,8 @@ def _safe_image(url):
     """Return None if image file doesn't exist on disk (deleted by Render redeploy)."""
     if not url:
         return None
-    if url.startswith('r2://'):
-        return url                       # private R2 file — signed when the response is sent
+    if url.startswith('cld://'):
+        return url                       # private file — signed when the response is sent
     if not url.startswith('http'):
         return None
     if 'auro-backend-api.onrender.com' in url and '/media/' in url:

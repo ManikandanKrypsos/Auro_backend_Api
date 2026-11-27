@@ -1,5 +1,5 @@
 """
-Stored file references ("r2://...") ⇄ temporary signed links, applied to every API response and
+Stored file references ("cld://...") ⇄ temporary signed links, applied to every API response and
 request body so no view or serializer has to know about it (see utils.storage).
 """
 from django.http import QueryDict
@@ -20,7 +20,7 @@ def _walk(value, fn):
 
 
 def signed(data):
-    """Replace every r2:// reference in a response with a signed link."""
+    """Replace every stored file reference in a response with a signed link."""
     if not storage.enabled():
         return data
     return _walk(data, storage.signed_url)

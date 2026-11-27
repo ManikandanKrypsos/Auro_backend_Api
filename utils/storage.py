@@ -1,86 +1,107 @@
 """
 Where uploaded files live.
 
-With the four R2_* environment variables set, uploads go to a PRIVATE Cloudflare R2 bucket
-(S3-compatible). The database stores a reference like "r2://consent_forms/consent_12_ab12.pdf" — never
-a public URL. Every API response turns those references into short-lived signed links
-(utils.file_refs.SignedFileJSONRenderer), so only logged-in staff who can see the record can open the
-file, and a copied link stops working after FILE_URL_TTL seconds.
+With CLOUDINARY_URL set (cloudinary://<api_key>:<api_secret>@<cloud_name>), uploads go to Cloudinary:
 
-Without R2 (local development) files are written to MEDIA_ROOT as before and the stored value is
-the absolute /media/ URL.
+- Patient data — patient photos, session photos, consent forms, documents (PRIVATE_FOLDERS) — is
+  uploaded as type "authenticated": it can't be opened by a plain URL. The database stores a
+  reference like "cld://raw/documents/doc_12_ab12.pdf" or "cld://image/patients/patient_7_cd34.jpg",
+  and every API response turns it into a signed download link that expires after FILE_URL_TTL
+  seconds (utils.file_refs.SignedFileJSONRenderer).
+- Everything else (treatment pictures, staff photos) is a normal public Cloudinary image URL.
+- PDFs are stored as "raw" files, images as "image".
 
-Env:  R2_ENDPOINT_URL      https://<account_id>.eu.r2.cloudflarestorage.com   (EU jurisdiction bucket)
-      R2_ACCESS_KEY_ID
-      R2_SECRET_ACCESS_KEY
-      R2_BUCKET            e.g. aura-files
-      FILE_URL_TTL         optional, seconds a signed link stays valid (default 3600)
+Without CLOUDINARY_URL (local development) files are written to MEDIA_ROOT as before and the stored
+value is the absolute /media/ URL.
+
+Check a live setup with:  python manage.py check_file_storage
 """
-import mimetypes
 import os
-from functools import lru_cache
-from urllib.parse import unquote, urlsplit
+import time
+from urllib.parse import parse_qs, urlsplit
 
 from django.conf import settings
 
-PREFIX = 'r2://'
+PREFIX = 'cld://'
+PRIVATE_FOLDERS = {'patients', 'session_photos', 'consent_forms', 'documents'}
+IMAGE_EXTS = {'.jpg', '.jpeg', '.png', '.webp', '.gif', '.heic', '.heif'}
 
 
 def enabled():
-    return bool(getattr(settings, 'R2_BUCKET', '') and getattr(settings, 'R2_ENDPOINT_URL', '')
-                and getattr(settings, 'R2_ACCESS_KEY_ID', '') and getattr(settings, 'R2_SECRET_ACCESS_KEY', ''))
+    return bool(os.environ.get('CLOUDINARY_URL') or getattr(settings, 'CLOUDINARY_URL', ''))
 
 
-@lru_cache(maxsize=1)
-def _client():
-    import boto3
-    from botocore.config import Config
-    return boto3.client(
-        's3',
-        endpoint_url=settings.R2_ENDPOINT_URL,
-        aws_access_key_id=settings.R2_ACCESS_KEY_ID,
-        aws_secret_access_key=settings.R2_SECRET_ACCESS_KEY,
-        region_name='auto',
-        config=Config(signature_version='s3v4', s3={'addressing_style': 'path'},
-                      retries={'max_attempts': 3, 'mode': 'standard'}),
-    )
+def _cloudinary():
+    """The SDK reads CLOUDINARY_URL from the environment."""
+    import cloudinary
+    if not cloudinary.config().api_secret:
+        url = getattr(settings, 'CLOUDINARY_URL', '')
+        if url and not os.environ.get('CLOUDINARY_URL'):
+            os.environ['CLOUDINARY_URL'] = url
+        cloudinary.reset_config()
+    cloudinary.config(secure=True)
+    return cloudinary
 
 
 def is_ref(value):
     return isinstance(value, str) and value.startswith(PREFIX)
 
 
+def _split(ref):
+    """'cld://image/patients/p_1.jpg' → ('image', 'patients/p_1', 'jpg'); raw keeps the extension in the id."""
+    resource_type, _, rest = ref[len(PREFIX):].partition('/')
+    if resource_type == 'raw':
+        return resource_type, rest, ''
+    base, ext = os.path.splitext(rest)
+    return resource_type, base, ext.lstrip('.')
+
+
 def store(upload, folder, filename, request=None):
     """
     Save an uploaded file (already validated with utils.upload_security.checked_ext).
-    Returns the value to keep in the database: "r2://<folder>/<filename>" with R2,
-    otherwise the absolute local /media/ URL (development).
+    Returns the value to keep in the database (see module doc).
     """
-    key = f'{folder.strip("/")}/{filename}'
+    folder = folder.strip('/')
     if enabled():
+        cld = _cloudinary()
+        import cloudinary.uploader
+        base, ext = os.path.splitext(filename)
+        is_image = ext.lower() in IMAGE_EXTS
+        private = folder in PRIVATE_FOLDERS
         upload.seek(0)
-        content_type = getattr(upload, 'content_type', None) or mimetypes.guess_type(filename)[0] \
-            or 'application/octet-stream'
-        _client().upload_fileobj(upload, settings.R2_BUCKET, key, ExtraArgs={'ContentType': content_type})
-        return PREFIX + key
-    path = os.path.join(settings.MEDIA_ROOT, folder.strip('/'))
+        result = cloudinary.uploader.upload(
+            upload,
+            public_id=f'{folder}/{base if is_image else filename}',
+            resource_type='image' if is_image else 'raw',
+            type='authenticated' if private else 'upload',
+            overwrite=False,
+        )
+        if not private:
+            return result['secure_url']
+        if is_image:
+            return f"{PREFIX}image/{result['public_id']}.{result.get('format') or ext.lstrip('.')}"
+        return f"{PREFIX}raw/{result['public_id']}"
+    path = os.path.join(settings.MEDIA_ROOT, folder)
     os.makedirs(path, exist_ok=True)
     with open(os.path.join(path, filename), 'wb+') as f:
         for chunk in upload.chunks():
             f.write(chunk)
-    relative = f'{settings.MEDIA_URL}{key}'
+    relative = f'{settings.MEDIA_URL}{folder}/{filename}'
     if request is not None:
         return request.build_absolute_uri(relative)
     return f"{getattr(settings, 'BASE_URL', 'https://auro-backend-api.onrender.com').rstrip('/')}{relative}"
 
 
 def signed_url(ref, ttl=None):
-    """A temporary link for a stored reference (non-references are returned unchanged)."""
+    """A temporary link for a stored reference (anything else is returned unchanged)."""
     if not is_ref(ref) or not enabled():
         return ref
-    return _client().generate_presigned_url(
-        'get_object', Params={'Bucket': settings.R2_BUCKET, 'Key': ref[len(PREFIX):]},
-        ExpiresIn=ttl or int(getattr(settings, 'FILE_URL_TTL', 3600)),
+    _cloudinary()
+    import cloudinary.utils
+    resource_type, public_id, fmt = _split(ref)
+    return cloudinary.utils.private_download_url(
+        public_id, fmt, resource_type=resource_type, type='authenticated',
+        expires_at=int(time.time()) + (ttl or int(getattr(settings, 'FILE_URL_TTL', 3600))),
     )
 
 
@@ -89,22 +110,29 @@ def to_ref(value):
     The reverse of signed_url: a signed link the app sent back (e.g. a form re-submitting the
     image it was shown) becomes the stored reference again, so expiring links are never saved.
     """
-    if not isinstance(value, str) or not enabled() or not value.startswith(('http://', 'https://')):
+    if not isinstance(value, str) or not enabled() or '/download?' not in value:
         return value
-    base = urlsplit(settings.R2_ENDPOINT_URL.rstrip('/'))
     u = urlsplit(value)
-    prefix = f'/{settings.R2_BUCKET}/'
-    if u.netloc == base.netloc and u.path.startswith(prefix):
-        return PREFIX + unquote(u.path[len(prefix):])
-    return value
+    if not u.netloc.endswith('cloudinary.com'):
+        return value
+    parts = u.path.strip('/').split('/')           # v1_1/<cloud>/<resource_type>/download
+    q = parse_qs(u.query)
+    if len(parts) < 4 or parts[-1] != 'download' or 'public_id' not in q:
+        return value
+    resource_type, public_id = parts[-2], q['public_id'][0]
+    fmt = (q.get('format') or [''])[0]
+    return f'{PREFIX}{resource_type}/{public_id}' + (f'.{fmt}' if fmt and resource_type != 'raw' else '')
 
 
 def delete(ref):
-    """Best-effort removal of a stored file (R2 or local)."""
+    """Best-effort removal of a stored private file (Cloudinary or local)."""
     try:
         if is_ref(ref) and enabled():
-            _client().delete_object(Bucket=settings.R2_BUCKET, Key=ref[len(PREFIX):])
-        elif isinstance(ref, str) and settings.MEDIA_URL in ref:
+            _cloudinary()
+            import cloudinary.uploader
+            resource_type, public_id, _ = _split(ref)
+            cloudinary.uploader.destroy(public_id, resource_type=resource_type, type='authenticated', invalidate=True)
+        elif isinstance(ref, str) and settings.MEDIA_URL in ref and not ref.startswith('https://res.cloudinary.com'):
             path = os.path.join(settings.MEDIA_ROOT, ref.split(settings.MEDIA_URL, 1)[1])
             if os.path.isfile(path):
                 os.remove(path)

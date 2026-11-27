@@ -3,7 +3,7 @@ import os
 
 def save_uploaded_image(image_file, folder='uploads', filename_prefix='img', request=None):
     """
-    Save an uploaded image (R2, or MEDIA_ROOT/<folder>/ in development — see utils/storage.py).
+    Save an uploaded image (Cloudinary, or MEDIA_ROOT/<folder>/ in development — see utils/storage.py).
     Returns the value to store in the DB.
     """
     import time

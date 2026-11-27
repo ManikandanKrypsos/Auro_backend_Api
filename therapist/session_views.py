@@ -10,7 +10,7 @@ def _make_full_url(url, request):
     """Convert relative media URL to full URL."""
     if not url:
         return None
-    if url.startswith(('http', 'r2://')):
+    if url.startswith(('http', 'cld://')):
         return url
     if not url.startswith('/'):
         url = '/' + url
