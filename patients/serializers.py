@@ -41,10 +41,14 @@ def with_visit_stats(queryset):
     from django.db.models import Count, Max, Min, OuterRef, Q, Subquery, Sum
     from appointments.models import Appointment
     now = timezone.now()
+    from leads.models import Lead
     last_treatment = (Appointment.objects.model._base_manager
                       .filter(patient=OuterRef('pk'), status='completed')
                       .order_by('-date_time', '-id').values('treatment__name')[:1])
+    origin_lead = (Lead._base_manager.filter(converted_patient=OuterRef('pk'))
+                   .order_by('converted_at', 'id').values('id')[:1])
     return queryset.annotate(
+        _lead_id=Subquery(origin_lead),
         _visits=Count('appointments', filter=Q(appointments__status='completed'), distinct=True),
         _last_visit_at=Max('appointments__date_time', filter=Q(appointments__status='completed')),
         _next_appointment_at=Min('appointments__date_time',
@@ -53,6 +57,23 @@ def with_visit_stats(queryset):
                          filter=Q(appointments__status='completed', appointments__payment_status='paid')),
         _last_visit_treatment=Subquery(last_treatment),
     )
+
+
+def origin_lead(patient):
+    """{'lead_id': …, 'lead': {...}} for the lead converted into this patient, or nulls."""
+    from leads.models import Lead
+    lead = (Lead._base_manager.filter(converted_patient=patient).select_related('converted_by')
+            .order_by('converted_at', 'id').first())
+    if lead is None:
+        return {'lead_id': None, 'lead': None}
+    by = lead.converted_by
+    return {'lead_id': lead.id, 'lead': {
+        'id': lead.id, 'name': lead.name,
+        'source': lead.source, 'source_label': lead.get_source_display(),
+        'created_at': lead.created_at.isoformat() if lead.created_at else None,
+        'converted_at': lead.converted_at.isoformat() if lead.converted_at else None,
+        'converted_by': (by.username or by.email.split('@')[0]) if by else None,
+    }}
 
 
 def visit_stats(instance):
@@ -141,6 +162,12 @@ class PatientSerializer(serializers.ModelSerializer):
 
         # Total money spent (sum of payment_amount for paid completed appointments)
         data['total_spent'] = float(stats['total_spent'] or 0)
+
+        # The lead this patient was converted from (earliest, if several were converted into them)
+        if hasattr(instance, '_lead_id'):                     # list: id only, from the same query
+            data['lead_id'] = instance._lead_id
+        else:                                                 # detail: id + a few details for "Came from Lead #X"
+            data.update(origin_lead(instance))
 
         return data
 
